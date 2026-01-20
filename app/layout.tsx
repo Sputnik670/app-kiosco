@@ -1,0 +1,70 @@
+import type { Metadata, Viewport } from "next"
+import { Inter } from "next/font/google"
+import { Analytics } from "@vercel/analytics/next"
+import "./globals.css"
+import { Toaster } from "@/components/ui/sonner"
+import { PWAProvider } from "@/components/pwa"
+
+const inter = Inter({ subsets: ["latin"] })
+
+/**
+ * Viewport configuration para PWA
+ * Sincronizado con manifest.json (theme_color: #0f172a)
+ */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+  // Sincronizado con manifest.json theme_color
+  themeColor: '#0f172a',
+}
+
+/**
+ * Metadata para PWA
+ * Sincronizado con manifest.json
+ */
+export const metadata: Metadata = {
+  title: "Kiosco App - Gestión Inteligente",
+  description: "Sistema profesional de gestión para kioscos y comercios pequeños. Control de inventario, ventas, caja y empleados en tiempo real.",
+  manifest: '/manifest.json',
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    // Usar SVG para Apple también (funciona en iOS 15+)
+    apple: [
+      { url: "/icon.svg", type: "image/svg+xml" }
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Kiosco App',
+  },
+  // OpenGraph para compartir
+  openGraph: {
+    title: 'Kiosco App',
+    description: 'Sistema de gestión para kioscos',
+    type: 'website',
+  },
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  return (
+    <html lang="es">
+      <body className={inter.className}>
+        <PWAProvider showConnectionStatus={true} connectionStatusPosition="top">
+          {children}
+        </PWAProvider>
+        <Analytics />
+        <Toaster />
+      </body>
+    </html>
+  )
+}

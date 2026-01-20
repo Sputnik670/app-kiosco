@@ -1,0 +1,27 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fondo -->
+  <rect width="512" height="512" fill="#0f172a" rx="64"/>
+
+  <!-- Ícono de Kiosco (Tienda) -->
+  <g transform="translate(256, 256)">
+    <!-- Edificio -->
+    <rect x="-80" y="-60" width="160" height="120" fill="#3b82f6" rx="8"/>
+
+    <!-- Techo -->
+    <path d="M -100,-60 L 0,-100 L 100,-60 Z" fill="#60a5fa"/>
+
+    <!-- Puerta -->
+    <rect x="-20" y="0" width="40" height="60" fill="#1e40af" rx="4"/>
+
+    <!-- Ventanas -->
+    <rect x="-60" y="-40" width="30" height="30" fill="#dbeafe" rx="2"/>
+    <rect x="30" y="-40" width="30" height="30" fill="#dbeafe" rx="2"/>
+
+    <!-- Símbolo de dinero -->
+    <circle cx="0" cy="-20" r="25" fill="#22c55e" opacity="0.9"/>
+    <text x="0" y="-10" font-size="32" font-weight="bold" fill="white" text-anchor="middle">$</text>
+  </g>
+
+  <!-- Texto decorativo (opcional) -->
+  <text x="256" y="440" font-size="48" font-weight="bold" fill="white" text-anchor="middle" opacity="0.8">KIOSCO</text>
+</svg>

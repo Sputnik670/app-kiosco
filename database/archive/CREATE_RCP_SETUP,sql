@@ -1,0 +1,57 @@
+-- ===============================================================================
+-- RPC: SETUP INICIAL ATÓMICO
+-- ===============================================================================
+-- Crea Organización, Perfil y Sucursal en una sola transacción blindada.
+-- Bypass RLS usando SECURITY DEFINER.
+
+CREATE OR REPLACE FUNCTION public.create_initial_setup(
+  p_user_id uuid,       -- ID del usuario autenticado
+  p_org_name text,      -- Nombre de la organización
+  p_profile_name text,  -- Nombre del dueño
+  p_email text          -- Email del dueño
+)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER -- ⚡ EJECUTA COMO ADMIN (Ignora RLS)
+SET search_path = public -- Seguridad extra
+AS $$
+DECLARE
+  v_org_id uuid;
+  v_org_data json;
+  v_profile_data json;
+  v_sucursal_data json;
+BEGIN
+  -- 1. Crear Organización
+  INSERT INTO public.organizations (nombre, plan)
+  VALUES (p_org_name, NULL) -- Plan NULL = Free
+  RETURNING id INTO v_org_id;
+
+  -- Capturar datos de la org para devolverlos
+  SELECT to_json(o.*) INTO v_org_data FROM public.organizations o WHERE id = v_org_id;
+
+  -- 2. Crear Perfil Dueño (Vinculado a la Org)
+  INSERT INTO public.perfiles (id, organization_id, rol, nombre, email, xp, nivel, activo)
+  VALUES (p_user_id, v_org_id, 'dueño', p_profile_name, p_email, 0, 1, true)
+  RETURNING to_json(p.*) INTO v_profile_data;
+
+  -- 3. Crear Sucursal Principal
+  INSERT INTO public.sucursales (organization_id, nombre)
+  VALUES (v_org_id, 'Sucursal Principal')
+  RETURNING to_json(s.*) INTO v_sucursal_data;
+
+  -- 4. Actualizar sucursal_id en el perfil (ahora que existe la sucursal)
+  -- (Opcional, pero recomendado para que el dueño tenga "casa")
+  -- UPDATE public.perfiles SET sucursal_id = (v_sucursal_data->>'id')::uuid WHERE id = p_user_id;
+
+  -- 5. Retornar objeto compuesto
+  RETURN json_build_object(
+    'organization', v_org_data,
+    'perfil', v_profile_data,
+    'sucursal', v_sucursal_data
+  );
+END;
+$$;
+
+-- Permitir que usuarios autenticados ejecuten esto
+GRANT EXECUTE ON FUNCTION public.create_initial_setup TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_initial_setup TO service_role;

@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(node scripts/obtener-esquema-tabla.js:*)",
+      "Bash(node scripts/auditar-rls.js:*)",
+      "Bash(node scripts/verificar-rls-activo.js:*)",
+      "Bash(node scripts/simular-venta.js:*)",
+      "Bash(iconv:*)",
+      "Bash(node scripts/agregar-vista-tipos.js:*)",
+      "Bash(npx tsc:*)",
+      "Bash(convert:*)",
+      "Bash(node:*)",
+      "Bash(npx supabase:*)",
+      "Bash(ls:*)",
+      "Bash(dir:*)",
+      "Bash(find:*)",
+      "Bash(npm run lint)"
+    ]
+  },
+  "enableAllProjectMcpServers": true
+}

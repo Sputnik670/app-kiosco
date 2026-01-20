@@ -1,0 +1,52 @@
+{
+  "name": "Kiosco App - Gestión Inteligente",
+  "short_name": "Kiosco App",
+  "description": "Sistema profesional de gestión para kioscos y comercios pequeños. Control de inventario, ventas, caja y empleados en tiempo real.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait",
+  "scope": "/",
+  "id": "/",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["business", "finance", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Nueva Venta",
+      "short_name": "Vender",
+      "description": "Registrar una nueva venta rápidamente",
+      "url": "/?action=nueva-venta",
+      "icons": [{ "src": "/icon.svg", "sizes": "96x96" }]
+    },
+    {
+      "name": "Ver Inventario",
+      "short_name": "Stock",
+      "description": "Consultar stock disponible",
+      "url": "/?action=inventario",
+      "icons": [{ "src": "/icon.svg", "sizes": "96x96" }]
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Panel",
+      "description": "Ver resumen del negocio",
+      "url": "/?action=dashboard",
+      "icons": [{ "src": "/icon.svg", "sizes": "96x96" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}
