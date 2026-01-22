@@ -276,12 +276,8 @@ BEGIN
   -- 1. Crear Organización con owner_id
   v_org_id := public.create_organization_v2(p_user_id, p_org_name);
 
-  -- 2. Crear Sucursal inicial (Casa Matriz)
-  INSERT INTO public.sucursales (organization_id, nombre, direccion)
-  VALUES (v_org_id, 'Casa Matriz', NULL)
-  RETURNING id INTO v_sucursal_id;
-
-  -- 3. Asignar rol de Owner en user_organization_roles
+  -- 2. Asignar rol de Owner en user_organization_roles (ANTES de crear sucursal)
+  -- Esto permite que las políticas RLS funcionen correctamente
   v_role_id := public.assign_user_role_v2(
     p_user_id,
     v_org_id,
@@ -289,6 +285,12 @@ BEGIN
     NULL,  -- owners tienen acceso a todas las sucursales
     NULL   -- no invitado por nadie
   );
+
+  -- 3. Crear Sucursal inicial (Casa Matriz)
+  -- Ahora el usuario ya tiene rol owner, las políticas RLS permiten la inserción
+  INSERT INTO public.sucursales (organization_id, nombre, direccion)
+  VALUES (v_org_id, 'Casa Matriz', NULL)
+  RETURNING id INTO v_sucursal_id;
 
   -- 4. Crear perfil (COMPATIBILIDAD TEMPORAL - escritura dual)
   INSERT INTO public.perfiles (id, organization_id, sucursal_id, rol, nombre, email)
@@ -332,8 +334,8 @@ $$;
 COMMENT ON FUNCTION public.create_initial_setup_v2(UUID, TEXT, TEXT, TEXT) IS
 'V2: Setup completo para nuevo dueño (Owner-First).
 1. Crea organización con owner_id
-2. Crea sucursal inicial
-3. Asigna rol owner en user_organization_roles
+2. Asigna rol owner en user_organization_roles (antes de sucursal para RLS)
+3. Crea sucursal inicial (ahora RLS permite porque ya es owner)
 4. Crea perfil (compatibilidad temporal)';
 
 GRANT EXECUTE ON FUNCTION public.create_initial_setup_v2(UUID, TEXT, TEXT, TEXT) TO authenticated;
