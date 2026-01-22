@@ -294,11 +294,11 @@ BEGIN
 
   -- 4. Crear perfil (COMPATIBILIDAD TEMPORAL - escritura dual)
   INSERT INTO public.perfiles (id, organization_id, sucursal_id, rol, nombre, email)
-  VALUES (p_user_id, v_org_id, v_sucursal_id, 'dueño', p_profile_name, p_email)
+  VALUES (p_user_id, v_org_id, v_sucursal_id, 'owner', p_profile_name, p_email)
   ON CONFLICT (id) DO UPDATE SET
     organization_id = EXCLUDED.organization_id,
     sucursal_id = EXCLUDED.sucursal_id,
-    rol = 'dueño',
+    rol = 'owner',
     nombre = EXCLUDED.nombre,
     email = EXCLUDED.email,
     updated_at = NOW();
@@ -323,7 +323,7 @@ BEGIN
       'id', p_user_id,
       'nombre', p_profile_name,
       'email', p_email,
-      'rol', 'dueño'
+      'rol', 'owner'
     )
   );
 
@@ -435,11 +435,11 @@ BEGIN
 
   -- Crear perfil (COMPATIBILIDAD TEMPORAL)
   INSERT INTO public.perfiles (id, organization_id, sucursal_id, rol, nombre, email)
-  VALUES (p_user_id, v_invite.organization_id, v_invite.sucursal_id, 'empleado', p_profile_name, p_email)
+  VALUES (p_user_id, v_invite.organization_id, v_invite.sucursal_id, 'employee', p_profile_name, p_email)
   ON CONFLICT (id) DO UPDATE SET
     organization_id = EXCLUDED.organization_id,
     sucursal_id = EXCLUDED.sucursal_id,
-    rol = 'empleado',
+    rol = 'employee',
     nombre = EXCLUDED.nombre,
     email = EXCLUDED.email,
     updated_at = NOW();
@@ -459,7 +459,7 @@ BEGIN
       'id', p_user_id,
       'nombre', p_profile_name,
       'email', p_email,
-      'rol', 'empleado'
+      'rol', 'employee'
     )
   );
 
