@@ -12,6 +12,8 @@ import QRFichajeScanner from "@/components/qr-fichaje-scanner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { toast } from "sonner"
+import { retryWithBackoff } from "@/lib/utils/retry"
+import { useRouter } from "next/navigation"
 
 interface UserProfile {
     id: string
@@ -111,8 +113,9 @@ export default function HomePage() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [hasProfile, setHasProfile] = useState(false)
   const [sucursalId, setSucursalId] = useState<string | null>(null)
+  const router = useRouter()
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string, shouldValidate: boolean = false) => {
     setLoading(true)
     try {
         console.log('[fetchProfile] Iniciando para userId:', userId)
@@ -132,6 +135,9 @@ export default function HomePage() {
                 console.log('[fetchProfile] No tiene perfil, mostrando setup')
                 setHasProfile(false)
                 setUserProfile(null)
+                if (shouldValidate) {
+                    throw new Error('Profile not ready yet')
+                }
                 return
             }
             throw perfilError
@@ -156,6 +162,9 @@ export default function HomePage() {
             console.log('[fetchProfile] No tiene rol asignado, mostrando setup')
             setHasProfile(false)
             setUserProfile(null)
+            if (shouldValidate) {
+                throw new Error('Profile not ready yet')
+            }
             return
         }
 
@@ -174,8 +183,11 @@ export default function HomePage() {
 
     } catch (error: unknown) {
         console.error("[fetchProfile] Error:", error)
-        toast.error('Error cargando perfil')
+        if (!shouldValidate) {
+            toast.error('Error cargando perfil')
+        }
         setHasProfile(false)
+        throw error
     } finally {
         setLoading(false)
     }
@@ -253,9 +265,26 @@ export default function HomePage() {
 
   if (session && !hasProfile) {
     return (
-        <ProfileSetup 
-            user={session.user} 
-            onProfileCreated={() => fetchProfile(session.user.id)}
+        <ProfileSetup
+            user={session.user}
+            onProfileCreated={async () => {
+              try {
+                await retryWithBackoff(
+                  () => fetchProfile(session.user.id, true),
+                  {
+                    maxRetries: 5,
+                    initialDelay: 200,
+                    maxDelay: 1000,
+                  }
+                );
+                router.refresh();
+              } catch (error) {
+                console.error('[ProfileSetup] Retry failed:', error);
+                toast.error("Error al cargar perfil", {
+                  description: "Por favor recarga la página"
+                });
+              }
+            }}
         />
     )
   }

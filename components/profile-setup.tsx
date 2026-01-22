@@ -113,7 +113,7 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
 
       if (result.role) {
         toast.success("¡Cuenta configurada!", { description: result.message || "Ya tienes acceso y contraseña." })
-        setTimeout(() => onProfileCreated(result.role!), 800)
+        onProfileCreated(result.role!)
       }
 
     } catch (error: any) {
