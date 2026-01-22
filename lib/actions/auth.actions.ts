@@ -688,6 +688,7 @@ export async function completeProfileSetupAction(formData: {
   role?: 'dueño' | 'empleado'
   message?: string
   error?: string
+  data?: any
 }> {
   try {
     if (!formData.userId || !formData.email || !formData.name || !formData.role) {
