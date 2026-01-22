@@ -12,7 +12,6 @@ import QRFichajeScanner from "@/components/qr-fichaje-scanner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { toast } from "sonner"
-import { retryWithBackoff } from "@/lib/utils/retry"
 import { useRouter } from "next/navigation"
 
 interface UserProfile {
@@ -267,19 +266,45 @@ export default function HomePage() {
     return (
         <ProfileSetup
             user={session.user}
-            onProfileCreated={async () => {
+            onProfileCreated={async (result) => {
               try {
-                await retryWithBackoff(
-                  () => fetchProfile(session.user.id, true),
-                  {
-                    maxRetries: 5,
-                    initialDelay: 200,
-                    maxDelay: 1000,
+                if (result.data) {
+                  // Use the data returned from the RPC - no need to re-fetch!
+                  const isOwner = result.role === 'dueño';
+                  const rpcData = result.data;
+
+                  // Map RPC data structure to our state
+                  const organizationId = isOwner
+                    ? rpcData.organization?.id
+                    : rpcData.role?.organization_id;
+
+                  const sucursalId = isOwner
+                    ? rpcData.sucursal?.id
+                    : rpcData.role?.sucursal_id;
+
+                  const perfilData = rpcData.perfil;
+
+                  if (perfilData && organizationId) {
+                    setUserProfile({
+                      id: perfilData.id,
+                      rol: result.role, // Use the role from result ('dueño' or 'empleado')
+                      nombre: perfilData.nombre,
+                      organization_id: organizationId,
+                    });
+                    setHasProfile(true);
+                    // State update will trigger re-render and show dashboard
+                  } else {
+                    // Fallback: data structure unexpected, fetch profile
+                    console.warn('[ProfileSetup] Incomplete RPC data, falling back to fetchProfile');
+                    await fetchProfile(session.user.id);
                   }
-                );
-                router.refresh();
+                } else {
+                  // Fallback: no data returned, fetch profile
+                  console.warn('[ProfileSetup] No RPC data returned, falling back to fetchProfile');
+                  await fetchProfile(session.user.id);
+                }
               } catch (error) {
-                console.error('[ProfileSetup] Retry failed:', error);
+                console.error('[ProfileSetup] Error processing profile:', error);
                 toast.error("Error al cargar perfil", {
                   description: "Por favor recarga la página"
                 });

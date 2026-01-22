@@ -14,7 +14,7 @@ import {
 
 interface ProfileSetupProps {
   user: any
-  onProfileCreated: (role: "dueño" | "empleado") => void
+  onProfileCreated: (result: { role: "dueño" | "empleado"; data?: any }) => void
 }
 
 export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupProps) {
@@ -113,7 +113,8 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
 
       if (result.role) {
         toast.success("¡Cuenta configurada!", { description: result.message || "Ya tienes acceso y contraseña." })
-        onProfileCreated(result.role!)
+        // Pass the entire result including data from RPC
+        onProfileCreated({ role: result.role!, data: result.data })
       }
 
     } catch (error: any) {

@@ -720,7 +720,7 @@ export async function completeProfileSetupAction(formData: {
 
     // CASO DUEÑO
     if (role === 'dueño') {
-      const { error: setupError } = await supabase.rpc('create_initial_setup_v2', {
+      const { data: setupData, error: setupError } = await supabase.rpc('create_initial_setup_v2', {
         p_user_id: userId,
         p_org_name: `Kiosco de ${name}`,
         p_profile_name: name,
@@ -739,12 +739,13 @@ export async function completeProfileSetupAction(formData: {
         success: true,
         role: 'dueño',
         message: '¡Cuenta configurada! Ya tienes acceso y contraseña.',
+        data: setupData, // Return RPC data to avoid re-fetching
       }
     }
 
     // CASO EMPLEADO
     if (role === 'empleado') {
-      const { error: employeeError } = await supabase.rpc('complete_employee_setup_v2', {
+      const { data: employeeData, error: employeeError } = await supabase.rpc('complete_employee_setup_v2', {
         p_user_id: userId,
         p_profile_name: name,
         p_email: emailNormalizado,
@@ -762,6 +763,7 @@ export async function completeProfileSetupAction(formData: {
         success: true,
         role: 'empleado',
         message: '¡Cuenta configurada! Ya tienes acceso y contraseña.',
+        data: employeeData, // Return RPC data to avoid re-fetching
       }
     }
 
