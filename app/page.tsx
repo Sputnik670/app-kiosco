@@ -292,6 +292,12 @@ export default function HomePage() {
                       organization_id: organizationId,
                     });
                     setHasProfile(true);
+
+                    // Set sucursalId to skip selection screen and go directly to dashboard
+                    if (sucursalId) {
+                      setSucursalId(sucursalId);
+                    }
+
                     // State update will trigger re-render and show dashboard
                   } else {
                     // Fallback: data structure unexpected, fetch profile
