@@ -265,8 +265,8 @@ export async function getOwnerStatsAction(
       .select('id')
       .eq('branch_id', branchId)
 
-    if (dateFrom) salesQuery = salesQuery.gte('sale_date', dateFrom)
-    if (dateTo) salesQuery = salesQuery.lte('sale_date', dateTo)
+    if (dateFrom) salesQuery = salesQuery.gte('created_at', dateFrom)
+    if (dateTo) salesQuery = salesQuery.lte('created_at', dateTo)
 
     const { data: branchSales } = await salesQuery
     const saleIds = (branchSales || []).map(s => s.id)

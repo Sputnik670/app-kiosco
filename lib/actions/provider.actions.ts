@@ -32,9 +32,8 @@ import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
  */
 export interface ServiceProvider {
   id: string
-  nombre: string
-  rubro: string
-  saldo_actual: number
+  name: string
+  balance: number
 }
 
 /**
@@ -61,14 +60,12 @@ export interface RechargeBalanceResult {
 export interface Provider {
   id: string
   organization_id: string
-  sucursal_id: string | null  // NULL = Global
-  nombre: string
-  rubro: string | null
-  contacto_nombre: string | null
-  telefono: string | null
+  name: string
+  tax_id: string | null
+  phone: string | null
   email: string | null
-  condicion_pago: string | null
-  saldo_actual: number | null
+  balance: number | null
+  is_active: boolean
 }
 
 /**
@@ -107,11 +104,10 @@ export interface CreateProviderResult {
  */
 export interface Purchase {
   id: string
-  monto_total: number
-  estado_pago: string | null
-  medio_pago: string | null
-  fecha_compra: string | null
-  comprobante_nro: string | null
+  total: number
+  payment_method: string | null
+  date: string | null
+  invoice_number: string | null
 }
 
 /**
@@ -150,11 +146,10 @@ export async function getServiceProvidersAction(): Promise<GetServiceProvidersRe
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data, error } = await supabase
-      .from('proveedores')
-      .select('id, nombre, rubro, saldo_actual')
+      .from('suppliers')
+      .select('id, name, balance')
       .eq('organization_id', orgId)
-      .ilike('rubro', '%servicios%')  // Case-insensitive match
-      .order('nombre', { ascending: true })
+      .order('name', { ascending: true })
 
     if (error) {
       return {
@@ -257,10 +252,10 @@ export async function rechargeBalanceAction(
 
     // Obtener saldo actual primero (solo para validar que existe)
     const { data: proveedorActual, error: fetchError } = await supabase
-      .from('proveedores')
-      .select('saldo_actual')
+      .from('suppliers')
+      .select('balance')
       .eq('id', providerId)
-      .single<{ saldo_actual: number | null }>()
+      .single<{ balance: number | null }>()
 
     if (fetchError) {
       return {
@@ -269,13 +264,13 @@ export async function rechargeBalanceAction(
       }
     }
 
-    const saldoActual = proveedorActual?.saldo_actual || 0
+    const saldoActual = proveedorActual?.balance || 0
     const nuevoSaldo = saldoActual + monto
 
     // UPDATE atómico con el nuevo saldo calculado en servidor
     const { error: updateError } = await supabase
-      .from('proveedores')
-      .update({ saldo_actual: nuevoSaldo })
+      .from('suppliers')
+      .update({ balance: nuevoSaldo })
       .eq('id', providerId)
 
     if (updateError) {
@@ -312,7 +307,7 @@ export async function rechargeBalanceAction(
  *
  * QUERY ORIGINAL:
  * ```typescript
- * let query = supabase.from('proveedores').select('*').eq('organization_id', organizationId)
+ * let query = supabase.from('suppliers').select('*').eq('organization_id', organizationId)
  * if (sucursalId) {
  *   query = query.or(`sucursal_id.is.null,sucursal_id.eq.${sucursalId}`)
  * } else {
@@ -338,19 +333,12 @@ export async function getProvidersAction(
     // ───────────────────────────────────────────────────────────────────────────
 
     let query = supabase
-      .from('proveedores')
+      .from('suppliers')
       .select('*')
       .eq('organization_id', organizationId)
 
-    if (sucursalId) {
-      // Caso 1: Mostrar globales + locales de la sucursal seleccionada
-      query = query.or(`sucursal_id.is.null,sucursal_id.eq.${sucursalId}`)
-    } else {
-      // Caso 2: Solo globales (no hay sucursal seleccionada)
-      query = query.is('sucursal_id', null)
-    }
-
-    const { data, error } = await query.order('nombre', { ascending: true })
+    // V2: suppliers no tiene sucursal_id, son siempre globales por organización
+    const { data, error } = await query.order('name', { ascending: true })
 
     if (error) {
       return {
@@ -423,16 +411,12 @@ export async function createProviderAction(
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data, error } = await supabase
-      .from('proveedores')
+      .from('suppliers')
       .insert([{
         organization_id: orgId,
-        sucursal_id: formData.esGlobal ? null : sucursalId,  // ✅ Lógica de Alcance
-        nombre: formData.nombre,
-        rubro: formData.rubro,
-        contacto_nombre: formData.contacto_nombre,
-        telefono: formData.telefono,
+        name: formData.nombre,
+        phone: formData.telefono,
         email: formData.email,
-        condicion_pago: formData.condicion_pago,
       }])
       .select()
       .single()
@@ -498,10 +482,10 @@ export async function getProviderPurchaseHistoryAction(
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data, error } = await supabase
-      .from('compras')
-      .select('id, monto_total, estado_pago, medio_pago, fecha_compra, comprobante_nro')
-      .eq('proveedor_id', providerId)
-      .order('fecha_compra', { ascending: false })
+      .from('purchases')
+      .select('id, total, payment_method, date, invoice_number')
+      .eq('supplier_id', providerId)
+      .order('date', { ascending: false })
 
     if (error) {
       return {

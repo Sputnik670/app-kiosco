@@ -79,8 +79,8 @@ export default function ControlSaldoProveedor() {
                                 : 'bg-white text-gray-600 border-gray-200 hover:bg-indigo-50'
                             }`}
                         >
-                            <div className="font-bold text-sm">{p.nombre}</div>
-                            <div className="text-xs opacity-80">Saldo: ${p.saldo_actual?.toLocaleString() || '0'}</div>
+                            <div className="font-bold text-sm">{p.name}</div>
+                            <div className="text-xs opacity-80">Saldo: ${p.balance?.toLocaleString() || '0'}</div>
                         </button>
                     ))}
                     {proveedores.length === 0 && <p className="text-xs text-muted-foreground">Crea proveedores con rubro &quot;Servicios&quot;.</p>}
@@ -92,7 +92,7 @@ export default function ControlSaldoProveedor() {
                             <div>
                                 <p className="text-sm text-muted-foreground">Saldo Disponible</p>
                                 <h2 className="text-3xl font-black text-indigo-600">
-                                    ${proveedorActivo.saldo_actual?.toLocaleString() || '0'}
+                                    ${proveedorActivo.balance?.toLocaleString() || '0'}
                                 </h2>
                             </div>
                             <Button variant="ghost" size="icon"><History className="h-4 w-4" /></Button>

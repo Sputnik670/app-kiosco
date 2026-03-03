@@ -128,27 +128,27 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
                     {/* Badge de Alcance */}
                     <div className={cn(
                         "absolute top-0 right-0 px-2 py-0.5 text-[8px] font-bold uppercase rounded-bl-lg",
-                        p.sucursal_id ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"
+                        "bg-blue-100 text-blue-700"
                     )}>
-                        {p.sucursal_id ? "Local" : "Global (Cadena)"}
+                        Global (Cadena)
                     </div>
 
                     <div className="flex gap-3">
                         <div className="h-10 w-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold group-hover:bg-primary group-hover:text-white transition-colors">
-                            {p.nombre.charAt(0)}
+                            {p.name.charAt(0)}
                         </div>
                         <div>
-                            <h4 className="font-bold text-sm leading-tight group-hover:text-primary">{p.nombre}</h4>
-                            <p className="text-[10px] text-muted-foreground font-bold uppercase mt-0.5">{p.rubro || 'General'}</p>
+                            <h4 className="font-bold text-sm leading-tight group-hover:text-primary">{p.name}</h4>
+                            <p className="text-[10px] text-muted-foreground font-bold uppercase mt-0.5">{''}</p>
                         </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-dashed">
                         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <Phone className="h-3 w-3" /> {p.telefono || '---'}
+                            <Phone className="h-3 w-3" /> {p.phone || '---'}
                         </div>
                         <div className="flex items-center gap-2 text-[11px] font-bold text-emerald-600">
-                            <DollarSign className="h-3 w-3" /> {p.condicion_pago}
+                            <DollarSign className="h-3 w-3" /> {''}
                         </div>
                     </div>
                 </Card>
@@ -161,14 +161,10 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
         <DialogContent className="max-w-lg">
             <DialogHeader className="border-b pb-4">
                 <DialogTitle className="flex items-center gap-2 text-xl">
-                    {selectedProveedor?.nombre}
+                    {selectedProveedor?.name}
                 </DialogTitle>
                 <div className="flex items-center gap-2 mt-1">
-                    {selectedProveedor?.sucursal_id ? (
-                        <span className="flex items-center gap-1 text-[10px] font-black bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full"><MapPin className="h-3 w-3"/> EXCLUSIVO SUCURSAL</span>
-                    ) : (
-                        <span className="flex items-center gap-1 text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full"><Globe className="h-3 w-3"/> DISPONIBLE EN TODA LA CADENA</span>
-                    )}
+                    <span className="flex items-center gap-1 text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full"><Globe className="h-3 w-3"/> DISPONIBLE EN TODA LA CADENA</span>
                 </div>
             </DialogHeader>
 
@@ -180,7 +176,7 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
                     </div>
                     <div className="p-3 bg-slate-50 rounded-lg border">
                         <p className="text-[10px] uppercase font-bold text-slate-500 mb-1">Condición</p>
-                        <p className="text-sm font-bold uppercase">{selectedProveedor?.condicion_pago}</p>
+                        <p className="text-sm font-bold uppercase">{''}</p>
                     </div>
                 </div>
 
@@ -188,8 +184,8 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
                     <h4 className="text-xs font-bold uppercase text-muted-foreground mb-3">Últimos Pedidos</h4>
                     {loadingHistory ? <Loader2 className="animate-spin h-5 w-5 mx-auto"/> : historialCompras.map(compra => (
                         <div key={compra.id} className="flex justify-between items-center p-2 mb-2 bg-white border rounded shadow-sm text-xs">
-                            <span className="font-medium">{compra.fecha_compra ? format(parseISO(compra.fecha_compra), 'dd/MM/yy') : 'N/A'}</span>
-                            <span className="font-bold">{formatMoney(compra.monto_total)}</span>
+                            <span className="font-medium">{compra.date ? format(parseISO(compra.date), 'dd/MM/yy') : 'N/A'}</span>
+                            <span className="font-bold">{formatMoney(compra.total)}</span>
                         </div>
                     ))}
                 </div>

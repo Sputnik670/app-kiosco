@@ -30,8 +30,8 @@ import { verifyAuth } from '@/lib/actions/auth-helpers'
  */
 export interface ServiceProvider {
   id: string
-  nombre: string
-  saldo_actual: number
+  name: string
+  balance: number
 }
 
 /**
@@ -77,7 +77,7 @@ export interface ProcessServiceRechargeResult {
  * FLUJO:
  * 1. Obtiene organization_id del usuario actual
  * 2. Busca el proveedor según el tipo ('servicios' o 'SUBE')
- * 3. Devuelve id, nombre y saldo_actual
+ * 3. Devuelve id, nombre y balance
  *
  * @param tipo - Tipo de proveedor: 'servicios' o 'SUBE'
  * @returns GetServiceProviderBalanceResult - Datos del proveedor
@@ -94,17 +94,16 @@ export async function getServiceProviderBalanceAction(
     // Buscar proveedor según tipo
     // ───────────────────────────────────────────────────────────────────────────
 
-    const criterio = tipo === 'SUBE' ? '%SUBE%' : '%servicios%'
-    const campo = tipo === 'SUBE' ? 'nombre' : 'rubro'
+    const criterio = tipo === 'SUBE' ? '%SUBE%' : '%servicio%'
 
     const query = supabase
-      .from('proveedores')
-      .select('id, saldo_actual, nombre')
+      .from('suppliers')
+      .select('id, balance, name')
       .eq('organization_id', orgId)
 
     const { data, error } = tipo === 'SUBE'
-      ? await query.ilike('nombre', criterio).single()
-      : await query.ilike('rubro', criterio).limit(1).single()
+      ? await query.ilike('name', criterio).single()
+      : await query.ilike('notes', criterio).limit(1).single()
 
     if (error) {
       return {
@@ -193,10 +192,10 @@ export async function processServiceRechargeAction(
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: proveedor, error: proveedorError } = await supabase
-      .from('proveedores')
-      .select('saldo_actual')
+      .from('suppliers')
+      .select('balance')
       .eq('id', data.proveedorId)
-      .single<{ saldo_actual: number }>()
+      .single<{ balance: number }>()
 
     if (proveedorError || !proveedor) {
       return {
@@ -205,7 +204,7 @@ export async function processServiceRechargeAction(
       }
     }
 
-    if (proveedor.saldo_actual < data.montoCarga) {
+    if (proveedor.balance < data.montoCarga) {
       return {
         success: false,
         error: 'Saldo insuficiente del proveedor',
@@ -216,12 +215,12 @@ export async function processServiceRechargeAction(
     // PASO 3: TRANSACCIÓN ATÓMICA
     // ───────────────────────────────────────────────────────────────────────────
 
-    const nuevoSaldo = proveedor.saldo_actual - data.montoCarga
+    const nuevoSaldo = proveedor.balance - data.montoCarga
 
     // A. Actualizar saldo del proveedor
     const { error: updateError } = await supabase
-      .from('proveedores')
-      .update({ saldo_actual: nuevoSaldo })
+      .from('suppliers')
+      .update({ balance: nuevoSaldo })
       .eq('id', data.proveedorId)
 
     if (updateError) {
@@ -231,26 +230,25 @@ export async function processServiceRechargeAction(
       }
     }
 
-    // B. Registrar venta de servicio
+    // B. Registrar venta de servicio como una sale regular con nota del tipo de servicio
+    // TODO: Migrar a tabla dedicada 'service_sales' en futura versión
     const { error: ventaError } = await supabase
-      .from('ventas_servicios')
+      .from('sales')
       .insert({
         organization_id: turno.organization_id,
-        sucursal_id: data.sucursalId,
-        caja_diaria_id: data.turnoId,
-        proveedor_id: data.proveedorId,
-        tipo_servicio: data.tipoServicio,
-        monto_carga: data.montoCarga,
-        comision: data.comision,
-        total_cobrado: data.totalCobrado,
-        metodo_pago: data.metodoPago,
+        branch_id: data.sucursalId,
+        cash_register_id: data.turnoId,
+        cashier_id: (await supabase.auth.getUser()).data.user?.id,
+        total: data.totalCobrado,
+        payment_method: data.metodoPago === 'efectivo' ? 'cash' : data.metodoPago === 'billetera_virtual' ? 'wallet' : 'cash',
+        notes: `Servicio: ${data.tipoServicio} | Proveedor: ${data.proveedorId} | Carga: ${data.montoCarga} | Comisión: ${data.comision}`,
       })
 
     if (ventaError) {
       // Rollback: restaurar saldo del proveedor
       await supabase
-        .from('proveedores')
-        .update({ saldo_actual: proveedor.saldo_actual })
+        .from('suppliers')
+        .update({ balance: proveedor.balance })
         .eq('id', data.proveedorId)
 
       return {
@@ -274,8 +272,8 @@ export async function processServiceRechargeAction(
     if (cajaError) {
       // Rollback: restaurar saldo del proveedor
       await supabase
-        .from('proveedores')
-        .update({ saldo_actual: proveedor.saldo_actual })
+        .from('suppliers')
+        .update({ balance: proveedor.balance })
         .eq('id', data.proveedorId)
 
       return {

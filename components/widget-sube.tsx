@@ -61,7 +61,7 @@ export default function WidgetSube({ turnoId, sucursalId, onVentaRegistrada }: W
 
             // Actualizar saldo local
             if (result.newBalance !== undefined) {
-                setProveedorSube(prev => prev ? { ...prev, saldo_actual: result.newBalance! } : null)
+                setProveedorSube(prev => prev ? { ...prev, balance: result.newBalance! } : null)
             }
 
             setMonto("")
@@ -85,7 +85,7 @@ export default function WidgetSube({ turnoId, sucursalId, onVentaRegistrada }: W
             {proveedorSube && (
                 <div className="bg-blue-700/50 rounded-lg p-2 text-center">
                     <p className="text-[9px] text-blue-200 font-bold uppercase">Saldo SUBE</p>
-                    <p className="text-xl font-black">${proveedorSube.saldo_actual.toLocaleString()}</p>
+                    <p className="text-xl font-black">${proveedorSube.balance.toLocaleString()}</p>
                 </div>
             )}
 

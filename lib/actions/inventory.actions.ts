@@ -319,7 +319,7 @@ export async function getCapitalSummaryAction(
     // Usar la vista v_products_with_stock del nuevo schema
     const { data: productosData, error: productosError } = await supabase
       .from('v_products_with_stock')
-      .select('cost, stock, is_service')
+      .select('cost, stock_available, is_service')
       .eq('organization_id', organizationId)
 
     if (productosError) {
@@ -331,14 +331,14 @@ export async function getCapitalSummaryAction(
       }
     }
 
-    // Calcular: cost × stock (excluye servicios y sin stock)
+    // Calcular: cost × stock_available (excluye servicios y sin stock)
     const capitalFisico = (productosData || [])
       .filter((p: any) =>
         !p.is_service &&
-        (p.stock || 0) > 0
+        (p.stock_available || 0) > 0
       )
       .reduce((suma: number, p: any) =>
-        suma + ((p.cost || 0) * (p.stock || 0)),
+        suma + ((p.cost || 0) * (p.stock_available || 0)),
         0
       )
 

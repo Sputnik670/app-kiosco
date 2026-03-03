@@ -34,7 +34,7 @@ export function AgregarStock({ producto, onStockAdded, sucursalId }: AgregarStoc
   const [cantidad, setCantidad] = useState(1)
   const [fechaVencimientoProd, setFechaVencimientoProd] = useState<Date | undefined>(undefined)
   
-  const [proveedores, setProveedores] = useState<{id: string, nombre: string}[]>([])
+  const [proveedores, setProveedores] = useState<{id: string, name: string}[]>([])
   const [selectedProveedor, setSelectedProveedor] = useState<string>("")
   const [costoUnitario, setCostoUnitario] = useState<string>("")
   
@@ -45,7 +45,7 @@ export function AgregarStock({ producto, onStockAdded, sucursalId }: AgregarStoc
   useEffect(() => {
     if (open) {
         const fetchProveedores = async () => {
-            const { data } = await supabase.from('proveedores').select('id, nombre').order('nombre')
+            const { data } = await supabase.from('suppliers').select('id, name').order('name')
             setProveedores(data || [])
         }
         fetchProveedores()
@@ -147,7 +147,7 @@ export function AgregarStock({ producto, onStockAdded, sucursalId }: AgregarStoc
                         onChange={(e) => setSelectedProveedor(e.target.value)}
                     >
                         <option value="">-- No registrar compra (Solo stock) --</option>
-                        {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                        {proveedores.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                 </div>
 
