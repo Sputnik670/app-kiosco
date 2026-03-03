@@ -21,6 +21,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -142,33 +143,10 @@ export interface GetPurchaseHistoryResult {
  */
 export async function getServiceProvidersAction(): Promise<GetServiceProvidersResult> {
   try {
-    const supabase = await createClient()
+    const { supabase, orgId } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        providers: [],
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
-
-    if (!orgId) {
-      return {
-        success: false,
-        providers: [],
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Consultar proveedores de servicios
+    // Consultar proveedores de servicios
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data, error } = await supabase
@@ -231,7 +209,7 @@ export async function rechargeBalanceAction(
   monto: number
 ): Promise<RechargeBalanceResult> {
   try {
-    const supabase = await createClient()
+    const { supabase } = await verifyOwner()
 
     // ───────────────────────────────────────────────────────────────────────────
     // VALIDACIONES
@@ -349,23 +327,11 @@ export async function rechargeBalanceAction(
  * ORIGEN: Refactorización de fetchProveedores() del componente
  */
 export async function getProvidersAction(
-  organizationId: string,
+  _organizationId: string,
   sucursalId: string | null
 ): Promise<GetProvidersResult> {
   try {
-    const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
-    if (!organizationId) {
-      return {
-        success: false,
-        providers: [],
-        error: 'Organization ID es requerido',
-      }
-    }
+    const { supabase, orgId: organizationId } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
     // CONSULTA CON FILTRADO INTELIGENTE
@@ -432,8 +398,6 @@ export async function createProviderAction(
   sucursalId: string | null
 ): Promise<CreateProviderResult> {
   try {
-    const supabase = await createClient()
-
     // ───────────────────────────────────────────────────────────────────────────
     // VALIDACIONES
     // ───────────────────────────────────────────────────────────────────────────
@@ -452,26 +416,7 @@ export async function createProviderAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
-
-    if (!orgId) {
-      return {
-        success: false,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
+    const { supabase, orgId } = await verifyOwner()
 
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 2: Insertar proveedor con alcance correcto
@@ -534,7 +479,7 @@ export async function getProviderPurchaseHistoryAction(
   providerId: string
 ): Promise<GetPurchaseHistoryResult> {
   try {
-    const supabase = await createClient()
+    const { supabase } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
     // VALIDACIONES

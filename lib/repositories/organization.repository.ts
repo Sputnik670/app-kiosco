@@ -1,10 +1,15 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * 🏢 ORGANIZATION REPOSITORY
+ * 🏢 ORGANIZATION REPOSITORY (actualizado para nuevo schema)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Repositorio para gestión de organizaciones.
- * V2: Usa RPC create_initial_setup_v2 (Owner-First) que escribe en user_organization_roles.
+ * Usa RPC setup_organization del nuevo schema.
+ *
+ * MAPEO DE TABLAS:
+ * - perfiles → memberships
+ * - sucursales → branches
+ * - user_organization_roles → memberships (consolidado)
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -17,17 +22,16 @@ import { Database } from '@/types/database.types'
 // ───────────────────────────────────────────────────────────────────────────────
 
 type Organization = Database['public']['Tables']['organizations']['Row']
-type OrganizationInsert = Database['public']['Tables']['organizations']['Insert']
-
-type Perfil = Database['public']['Tables']['perfiles']['Row']
-type Sucursal = Database['public']['Tables']['sucursales']['Row']
-type UserOrgRole = Database['public']['Tables']['user_organization_roles']['Row']
+type Branch = Database['public']['Tables']['branches']['Row']
+type Membership = Database['public']['Tables']['memberships']['Row']
 
 export interface InitialSetupData {
   organization: Organization
-  perfil: Perfil
-  sucursal: Sucursal
-  role?: UserOrgRole
+  branch: Branch
+  membership: Membership
+  // Alias para compatibilidad
+  perfil?: Membership
+  sucursal?: Branch
 }
 
 export interface CreateInitialSetupParams {
@@ -42,42 +46,59 @@ export interface CreateInitialSetupParams {
 // ───────────────────────────────────────────────────────────────────────────────
 
 /**
- * Crea el setup inicial usando una transacción atómica V2 (Owner-First).
+ * Crea el setup inicial usando RPC setup_organization.
  * - Crea organización con owner_id
- * - Crea entrada en user_organization_roles
- * - Crea perfil (compatibilidad temporal)
- * - Crea sucursal inicial
- *
- * @param params - Datos del nuevo dueño
- * @returns InitialSetupData con todas las entidades creadas
+ * - Crea membership para el owner
+ * - Crea branch inicial
  */
 export async function createInitialSetup(
   params: CreateInitialSetupParams
 ): Promise<{ data: InitialSetupData | null; error: Error | null }> {
   try {
-    const { userId, profileName, email, orgName = 'Mi Negocio' } = params
+    const { profileName, email, orgName = 'Mi Negocio' } = params
 
-    // V2: Usar create_initial_setup_v2 que escribe en user_organization_roles
-    const { data, error } = await supabase.rpc('create_initial_setup_v2', {
-      p_user_id: userId,
+    // Usar setup_organization del nuevo schema
+    const { data, error } = await supabase.rpc('setup_organization', {
       p_org_name: orgName,
-      p_profile_name: profileName,
-      p_email: email
+      p_display_name: profileName,
+      p_email: email,
+      p_branch_name: 'Sucursal Principal'
     })
 
     if (error) {
-      console.error('Error RPC create_initial_setup_v2:', error)
+      console.error('Error RPC setup_organization:', error)
       return {
         data: null,
         error: new Error(`Error creando organización: ${error.message}`)
       }
     }
 
-    // V2 devuelve estructura JSON con organization, sucursal, role, perfil
-    const result = data as unknown as InitialSetupData
+    // El RPC devuelve { organization_id, branch_id, membership_id }
+    const result = data as { organization_id: string; branch_id: string; membership_id: string }
+
+    // Obtener los datos completos
+    const [orgResult, branchResult, membershipResult] = await Promise.all([
+      supabase.from('organizations').select('*').eq('id', result.organization_id).single(),
+      supabase.from('branches').select('*').eq('id', result.branch_id).single(),
+      supabase.from('memberships').select('*').eq('id', result.membership_id).single(),
+    ])
+
+    if (orgResult.error || branchResult.error || membershipResult.error) {
+      return {
+        data: null,
+        error: new Error('Error obteniendo datos creados')
+      }
+    }
 
     return {
-      data: result,
+      data: {
+        organization: orgResult.data,
+        branch: branchResult.data,
+        membership: membershipResult.data,
+        // Alias para compatibilidad
+        perfil: membershipResult.data,
+        sucursal: branchResult.data,
+      },
       error: null
     }
 
@@ -114,22 +135,12 @@ export async function getOrganizationById(
  */
 export async function updateOrganization(
   organizationId: string,
-  updates: Partial<Omit<OrganizationInsert, 'id' | 'created_at'>>
+  updates: { name?: string; plan?: 'free' | 'basic' | 'premium' | 'enterprise' }
 ): Promise<{ data: Organization | null; error: Error | null }> {
   try {
-    const updateData: Partial<OrganizationInsert> = {
-      nombre: updates.nombre ?? undefined,
-      plan: updates.plan ?? undefined,
-    }
-
-    // Limpiar undefined
-    Object.keys(updateData).forEach(
-      key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]
-    )
-
     const { data, error } = await supabase
       .from('organizations')
-      .update(updateData)
+      .update(updates)
       .eq('id', organizationId)
       .select()
       .single()

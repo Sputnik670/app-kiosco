@@ -11,14 +11,14 @@ import { Loader2, Package, Plus, DollarSign, ScanBarcode, X, AlertCircle } from 
 import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
-// ✅ Usamos el motor robusto para evitar fallos en Vercel
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode"
+// html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
 
 // --- CONFIGURACIÓN DE ESCANER ROBUSTO ---
 function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const scannerRef = useRef<Html5Qrcode | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scannerRef = useRef<any>(null)
   const scannerId = "reader-catalogo-v2"
 
   useEffect(() => {
@@ -27,6 +27,7 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
       try {
         if (!document.getElementById(scannerId)) return
 
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
         const html5QrCode = new Html5Qrcode(scannerId)
         scannerRef.current = html5QrCode
 

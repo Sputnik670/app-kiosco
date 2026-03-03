@@ -4,9 +4,12 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Server Actions para gestión de usuarios, onboarding y contexto operativo.
- * * FUNCIONALIDADES:
+ *
+ * FUNCIONALIDADES:
  * 1. completeProfile: Maneja el registro inicial (Org + Perfil + Sucursal) vía RPC.
  * 2. getEmployeeDashboardContextAction: Proporciona info consolidada para dashboards.
+ *
+ * MIGRADO: 2026-01-27 - Schema V2 (tablas en inglés)
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -14,7 +17,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
-import { supabase as supabaseStatic } from '@/lib/supabase' 
+import { supabase as supabaseStatic } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createInitialSetup } from '@/lib/repositories/organization.repository'
@@ -32,6 +35,10 @@ export type State = {
   message?: string | null
 }
 
+/**
+ * Contexto para el dashboard de empleado (formato legacy para UI)
+ * rol usa valores en español para compatibilidad con componentes
+ */
 export interface EmployeeDashboardContext {
   profile: {
     id: string
@@ -39,6 +46,7 @@ export interface EmployeeDashboardContext {
     rol: 'dueño' | 'empleado'
     xp: number
   } | null
+  organizationId: string
   branchName: string
   isClockedIn: boolean
   activeShift: {
@@ -55,17 +63,27 @@ export interface GetEmployeeDashboardContextResult {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Mapea role de BD (owner/employee) a rol UI (dueño/empleado)
+ */
+function mapRoleToLegacy(role: string): 'dueño' | 'empleado' {
+  return role === 'owner' ? 'dueño' : 'empleado'
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 // SERVER ACTIONS
 // ───────────────────────────────────────────────────────────────────────────────
 
 /**
  * ✅ ACTION: Completar Perfil y Crear Organización (Onboarding)
- * * Usa la transacción atómica (RPC create_initial_setup).
+ * Usa la transacción atómica (RPC create_initial_setup).
  */
 export async function completeProfile(prevState: State, formData: FormData) {
-  // ⚡ AWAIT IMPORTANTE: createClient es async ahora
-  const supabaseClient = await createClient() 
-  
+  const supabaseClient = await createClient()
+
   // 1. Obtener usuario autenticado
   const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
 
@@ -90,7 +108,7 @@ export async function completeProfile(prevState: State, formData: FormData) {
   }
 
   try {
-    console.log('🚀 Iniciando Setup Atómico para:', email)
+    console.log('Iniciando Setup Atómico para:', email)
 
     // 4. EJECUTAR RPC BLINDADO
     const { data, error } = await createInitialSetup({
@@ -101,16 +119,16 @@ export async function completeProfile(prevState: State, formData: FormData) {
     })
 
     if (error) {
-      console.error('❌ Error en createInitialSetup:', error)
+      console.error('Error en createInitialSetup:', error)
       return {
         message: 'Error al crear la organización. Es posible que el nombre ya exista o haya un problema de conexión.'
       }
     }
 
-    console.log('✅ Setup completado exitosamente:', data)
+    console.log('Setup completado exitosamente:', data)
 
   } catch (err) {
-    console.error('❌ Error inesperado:', err)
+    console.error('Error inesperado:', err)
     return {
       message: 'Ocurrió un error inesperado al procesar tu solicitud.'
     }
@@ -123,6 +141,9 @@ export async function completeProfile(prevState: State, formData: FormData) {
 
 /**
  * 🎯 ACTION: Obtiene el contexto operativo completo del empleado
+ *
+ * Schema V2: usa memberships, branches, attendance_logs, cash_registers
+ * Mapea a formato legacy para compatibilidad con componentes
  */
 export async function getEmployeeDashboardContextAction(
   sucursalId: string
@@ -132,8 +153,6 @@ export async function getEmployeeDashboardContextAction(
       return { success: false, error: 'ID de sucursal requerido' }
     }
 
-    // ⚡ AWAIT IMPORTANTE: createClient es async ahora
-    // Usamos el cliente dinámico porque necesitamos ver la sesión del usuario
     const supabase = await createClient()
 
     // PASO 1: Obtener usuario
@@ -142,52 +161,77 @@ export async function getEmployeeDashboardContextAction(
       return { success: false, error: 'No hay sesión activa' }
     }
 
-    // PASO 2: Consultas paralelas
+    // PASO 2: Obtener organization_id del usuario
+    const { data: orgId } = await supabase.rpc('get_my_org_id')
+
+    if (!orgId) {
+      return { success: false, error: 'No se encontró tu organización' }
+    }
+
+    // PASO 3: Consultas paralelas (Schema V2)
     const [
-      perfilResult,
-      sucursalResult,
-      asistenciaResult,
-      cajaResult,
+      membershipResult,
+      branchResult,
+      attendanceResult,
+      cashRegisterResult,
     ] = await Promise.all([
-      // 1. Perfil del usuario
+      // 1. Membership con display_name, role, xp
       supabase
-        .from('perfiles')
-        .select('id, nombre, rol, xp')
-        .eq('id', user.id)
+        .from('memberships')
+        .select('user_id, display_name, role, xp')
+        .eq('user_id', user.id)
+        .eq('organization_id', orgId)
         .single(),
 
-      // 2. Nombre de la sucursal
+      // 2. Nombre de la sucursal (branches)
       supabase
-        .from('sucursales')
-        .select('nombre')
+        .from('branches')
+        .select('name')
         .eq('id', sucursalId)
         .single(),
 
-      // 3. Estado de asistencia
+      // 3. Estado de asistencia (attendance_logs)
       supabase
-        .from('asistencia')
+        .from('attendance_logs')
         .select('id')
-        .eq('empleado_id', user.id)
-        .eq('sucursal_id', sucursalId)
-        .is('salida', null)
+        .eq('user_id', user.id)
+        .eq('branch_id', sucursalId)
+        .is('check_out', null)
         .maybeSingle(),
 
-      // 4. Turno de caja activo
+      // 4. Turno de caja activo (cash_registers)
       supabase
-        .from('caja_diaria')
-        .select('id, monto_inicial, fecha_apertura')
-        .eq('empleado_id', user.id)
-        .eq('sucursal_id', sucursalId)
-        .is('fecha_cierre', null)
+        .from('cash_registers')
+        .select('id, opening_amount, opened_at')
+        .eq('opened_by', user.id)
+        .eq('branch_id', sucursalId)
+        .eq('is_open', true)
         .maybeSingle(),
     ])
 
-    // PASO 3: Construir contexto
+    // PASO 4: Construir contexto (mapeo a formato legacy)
+    const membershipData = membershipResult.data as {
+      user_id: string
+      display_name: string
+      role: string
+      xp: number | null
+    } | null
+
     const context: EmployeeDashboardContext = {
-      profile: perfilResult.data as EmployeeDashboardContext['profile'],
-      branchName: sucursalResult.data?.nombre || 'Sucursal',
-      isClockedIn: !!asistenciaResult.data,
-      activeShift: cajaResult.data as EmployeeDashboardContext['activeShift'],
+      profile: membershipData ? {
+        id: membershipData.user_id,
+        nombre: membershipData.display_name || 'Operador',
+        rol: mapRoleToLegacy(membershipData.role),
+        xp: membershipData.xp || 0,
+      } : null,
+      organizationId: orgId,
+      branchName: branchResult.data?.name || 'Sucursal',
+      isClockedIn: !!attendanceResult.data,
+      activeShift: cashRegisterResult.data ? {
+        id: cashRegisterResult.data.id,
+        monto_inicial: cashRegisterResult.data.opening_amount,
+        fecha_apertura: cashRegisterResult.data.opened_at,
+      } : null,
     }
 
     return { success: true, context }

@@ -1,15 +1,16 @@
 "use client"
 
-import confetti from "canvas-confetti"
+// canvas-confetti is loaded dynamically to avoid adding to the initial bundle
 
-export const triggerConfetti = () => {
+export const triggerConfetti = async () => {
+  const { default: confetti } = await import("canvas-confetti")
   const count = 200
   const defaults = {
     origin: { y: 0.7 },
     zIndex: 9999 // Asegurar que se vea sobre los modales
   }
 
-  function fire(particleRatio: number, opts: any) {
+  function fire(particleRatio: number, opts: Record<string, unknown>) {
     confetti({
       ...defaults,
       ...opts,

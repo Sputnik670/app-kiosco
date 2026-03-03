@@ -8,7 +8,7 @@
  *
  * PATRÓN:
  * - Server Actions (Next.js 14+)
- * - Operación unificada: productos + historial_precios + stock
+ * - Operación unificada: products + price_history + stock_batches
  * - organization_id obtenido/validado en servidor
  * - Sin lógica de negocio en cliente
  *
@@ -20,6 +20,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -110,39 +111,16 @@ export async function checkExistingProductAction(
   barcode: string
 ): Promise<CheckExistingProductResult> {
   try {
-    const supabase = await createClient()
+    const { supabase, orgId } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        exists: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
-
-    if (!orgId) {
-      return {
-        success: false,
-        exists: false,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Buscar producto existente
+    // Buscar producto existente
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: existente, error } = await supabase
-      .from('productos')
-      .select('nombre')
-      .eq('codigo_barras', barcode)
+      .from('products')
+      .select('name')
+      .eq('barcode', barcode)
       .eq('organization_id', orgId)
       .maybeSingle()
 
@@ -158,7 +136,7 @@ export async function checkExistingProductAction(
       return {
         success: true,
         exists: true,
-        productName: existente.nombre,
+        productName: existente.name,
       }
     }
 
@@ -201,8 +179,6 @@ export async function createFullProductAction(
   sucursalId: string
 ): Promise<CreateFullProductResult> {
   try {
-    const supabase = await createClient()
-
     // ───────────────────────────────────────────────────────────────────────────
     // VALIDACIONES
     // ───────────────────────────────────────────────────────────────────────────
@@ -221,42 +197,22 @@ export async function createFullProductAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
-
-    if (!orgId) {
-      return {
-        success: false,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
+    const { supabase, user, orgId } = await verifyOwner()
 
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 2: Crear producto en el catálogo
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: nuevoProducto, error: errorProd } = await supabase
-      .from('productos')
+      .from('products')
       .insert([{
         organization_id: orgId,
-        nombre: formData.nombre,
-        categoria: formData.categoria,
-        precio_venta: formData.precio_venta,
-        costo: formData.costo,
-        vida_util_dias: 0,
+        name: formData.nombre,
+        category: formData.categoria,
+        sale_price: formData.precio_venta,
+        cost: formData.costo,
         emoji: formData.emoji,
-        codigo_barras: formData.codigo_barras || null,
+        barcode: formData.codigo_barras || null,
       }])
       .select()
       .single()
@@ -279,17 +235,16 @@ export async function createFullProductAction(
     // PASO 3: Registrar precio inicial en historial
     // ───────────────────────────────────────────────────────────────────────────
 
-    const { error: errorHistorial } = await (supabase
-      .from('historial_precios') as any)
+    const { error: errorHistorial } = await supabase
+      .from('price_history')
       .insert({
         organization_id: orgId,
-        producto_id: nuevoProducto.id,
-        precio_venta_anterior: null,
-        precio_venta_nuevo: formData.precio_venta,
-        costo_anterior: null,
-        costo_nuevo: formData.costo,
-        empleado_id: user.id,
-        fecha_cambio: new Date().toISOString(),
+        product_id: nuevoProducto.id,
+        old_price: null,
+        new_price: formData.precio_venta,
+        old_cost: null,
+        new_cost: formData.costo,
+        changed_by: user.id,
       })
 
     if (errorHistorial) {
@@ -302,18 +257,16 @@ export async function createFullProductAction(
     // ───────────────────────────────────────────────────────────────────────────
 
     if (formData.cantidad_inicial > 0) {
-      const { error: errorStock } = await (supabase
-        .from('stock') as any)
+      const { error: errorStock } = await supabase
+        .from('stock_batches')
         .insert({
           organization_id: orgId,
-          sucursal_id: sucursalId,
-          producto_id: nuevoProducto.id,
-          cantidad: formData.cantidad_inicial,
-          tipo_movimiento: 'entrada',
-          estado: 'disponible',
-          costo_unitario_historico: formData.costo,
-          fecha_vencimiento: formData.fecha_vencimiento || null,
-          fecha_ingreso: new Date().toISOString(),
+          branch_id: sucursalId,
+          product_id: nuevoProducto.id,
+          quantity: formData.cantidad_inicial,
+          status: 'available',
+          unit_cost: formData.costo,
+          expiration_date: formData.fecha_vencimiento || null,
         })
 
       if (errorStock) {
@@ -377,8 +330,6 @@ export async function applyHappyHourDiscountAction(
   productoId: string
 ): Promise<ApplyHappyHourResult> {
   try {
-    const supabase = await createClient()
-
     // ───────────────────────────────────────────────────────────────────────────
     // VALIDACIONES
     // ───────────────────────────────────────────────────────────────────────────
@@ -390,34 +341,15 @@ export async function applyHappyHourDiscountAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
-
-    if (!orgId) {
-      return {
-        success: false,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
+    const { supabase, user, orgId } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 2: Obtener precio actual del producto
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: producto, error: fetchError } = await supabase
-      .from('productos')
-      .select('precio_venta, nombre, costo')
+      .from('products')
+      .select('sale_price, name, cost')
       .eq('id', productoId)
       .eq('organization_id', orgId)
       .single()
@@ -440,7 +372,7 @@ export async function applyHappyHourDiscountAction(
     // PASO 3: Calcular nuevo precio (30% OFF, redondeo hacia abajo)
     // ───────────────────────────────────────────────────────────────────────────
 
-    const precioAnterior = producto.precio_venta
+    const precioAnterior = producto.sale_price
     const precioNuevo = Math.floor(precioAnterior * 0.70)
 
     // ───────────────────────────────────────────────────────────────────────────
@@ -448,8 +380,8 @@ export async function applyHappyHourDiscountAction(
     // ───────────────────────────────────────────────────────────────────────────
 
     const { error: updateError } = await supabase
-      .from('productos')
-      .update({ precio_venta: precioNuevo })
+      .from('products')
+      .update({ sale_price: precioNuevo })
       .eq('id', productoId)
       .eq('organization_id', orgId)
 
@@ -464,17 +396,16 @@ export async function applyHappyHourDiscountAction(
     // PASO 5: Registrar en historial de precios
     // ───────────────────────────────────────────────────────────────────────────
 
-    const { error: historialError } = await (supabase
-      .from('historial_precios') as any)
+    const { error: historialError } = await supabase
+      .from('price_history')
       .insert({
         organization_id: orgId,
-        producto_id: productoId,
-        precio_venta_anterior: precioAnterior,
-        precio_venta_nuevo: precioNuevo,
-        costo_anterior: producto.costo || 0,
-        costo_nuevo: producto.costo || 0,
-        fecha_cambio: new Date().toISOString(),
-        empleado_id: user.id,
+        product_id: productoId,
+        old_price: precioAnterior,
+        new_price: precioNuevo,
+        old_cost: producto.cost || 0,
+        new_cost: producto.cost || 0,
+        changed_by: user.id,
       })
 
     if (historialError) {
@@ -490,7 +421,7 @@ export async function applyHappyHourDiscountAction(
       success: true,
       precioAnterior,
       precioNuevo,
-      nombreProducto: producto.nombre,
+      nombreProducto: producto.name,
     }
   } catch (error) {
     return {
@@ -526,8 +457,6 @@ export async function updateProductAction(
   data: UpdateProductData
 ): Promise<UpdateProductResult> {
   try {
-    const supabase = await createClient()
-
     // ───────────────────────────────────────────────────────────────────────────
     // VALIDACIONES
     // ───────────────────────────────────────────────────────────────────────────
@@ -546,37 +475,18 @@ export async function updateProductAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
-
-    if (!orgId) {
-      return {
-        success: false,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
+    const { supabase, user, orgId } = await verifyOwner()
 
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 2: Obtener precios anteriores (para historial)
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: oldProduct, error: fetchError } = await supabase
-      .from('productos')
-      .select('precio_venta, costo')
+      .from('products')
+      .select('sale_price, cost')
       .eq('id', productId)
       .eq('organization_id', orgId)
-      .single<{ precio_venta: number; costo: number }>()
+      .single<{ sale_price: number; cost: number }>()
 
     if (fetchError) {
       return {
@@ -590,14 +500,14 @@ export async function updateProductAction(
     // ───────────────────────────────────────────────────────────────────────────
 
     const { error: updateError } = await supabase
-      .from('productos')
+      .from('products')
       .update({
-        nombre: data.nombre,
-        precio_venta: data.precio_venta,
-        costo: data.costo,
-        categoria: data.categoria,
+        name: data.nombre,
+        sale_price: data.precio_venta,
+        cost: data.costo,
+        category: data.categoria,
         emoji: data.emoji ?? undefined,
-        codigo_barras: data.codigo_barras ?? undefined,
+        barcode: data.codigo_barras ?? undefined,
       })
       .eq('id', productId)
       .eq('organization_id', orgId)
@@ -610,24 +520,23 @@ export async function updateProductAction(
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 4: Registrar en historial si cambió precio_venta o costo
+    // PASO 4: Registrar en historial si cambió precio o costo
     // ───────────────────────────────────────────────────────────────────────────
 
-    const precioChanged = oldProduct.precio_venta !== data.precio_venta
-    const costoChanged = oldProduct.costo !== data.costo
+    const precioChanged = oldProduct.sale_price !== data.precio_venta
+    const costoChanged = oldProduct.cost !== data.costo
 
     if (precioChanged || costoChanged) {
       const { error: historialError } = await supabase
-        .from('historial_precios')
+        .from('price_history')
         .insert({
           organization_id: orgId,
-          producto_id: productId,
-          precio_venta_anterior: oldProduct.precio_venta,
-          precio_venta_nuevo: data.precio_venta,
-          costo_anterior: oldProduct.costo,
-          costo_nuevo: data.costo,
-          empleado_id: user.id,
-          fecha_cambio: new Date().toISOString(),
+          product_id: productId,
+          old_price: oldProduct.sale_price,
+          new_price: data.precio_venta,
+          old_cost: oldProduct.cost,
+          new_cost: data.costo,
+          changed_by: user.id,
         })
 
       if (historialError) {
@@ -673,12 +582,6 @@ export async function deleteProductAction(
   productId: string
 ): Promise<DeleteProductResult> {
   try {
-    const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
     if (!productId) {
       return {
         success: false,
@@ -686,33 +589,14 @@ export async function deleteProductAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
-
-    if (!orgId) {
-      return {
-        success: false,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
+    const { supabase, orgId } = await verifyOwner()
 
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 2: Eliminar producto
     // ───────────────────────────────────────────────────────────────────────────
 
     const { error: deleteError } = await supabase
-      .from('productos')
+      .from('products')
       .delete()
       .eq('id', productId)
       .eq('organization_id', orgId)

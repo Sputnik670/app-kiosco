@@ -23,7 +23,7 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
   const [name, setName] = useState(user?.email?.split('@')[0] || "Usuario")
   const [password, setPassword] = useState("")
   const [checkingInvitation, setCheckingInvitation] = useState(true)
-  const [invitacionData, setInvitacionData] = useState<{ organization_id: string; sucursal_id: string | null } | null>(null)
+  const [invitacionData, setInvitacionData] = useState<{ organization_id: string; branch_id: string | null; token: string } | null>(null)
 
   // ──────────────────────────────────────────────────────────────────────────
   // 1. VERIFICACIÓN DE INVITACIÓN (REFACTORIZADO)
@@ -54,7 +54,8 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
           setSelectedRole('empleado')
           setInvitacionData({
             organization_id: result.invitation.organization_id,
-            sucursal_id: result.invitation.sucursal_id
+            branch_id: result.invitation.branch_id,
+            token: result.invitation.token
           })
           toast.info("Invitación detectada", { description: "Tu cuenta será vinculada a la organización." })
         }

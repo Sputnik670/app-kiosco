@@ -1,17 +1,16 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * 🏢 BRANCH (SUCURSALES) SERVER ACTIONS
+ * 🏢 BRANCH SERVER ACTIONS - Schema V2
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Server Actions para gestión de sucursales.
+ * Server Actions para gestión de sucursales (branches).
  * Maneja consultas y actualizaciones de QR de fichaje.
  *
- * PATRÓN:
- * - Server Actions (Next.js 14+)
- * - organization_id obtenido/validado en servidor
- * - Gestión segura de URLs de QR (qr_entrada_url, qr_salida_url)
- *
- * ORIGEN: Refactorización de generar-qr-fichaje.tsx
+ * SCHEMA V2:
+ * - Tabla: branches (no sucursales)
+ * - Columnas: name (no nombre), address (no direccion)
+ * - QRs: qr_entry_url, qr_exit_url (no qr_entrada_url, qr_salida_url)
+ * - RPC: get_my_org_id (no get_my_org_id_v2)
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -19,6 +18,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -29,7 +29,7 @@ import { createClient } from '@/lib/supabase-server'
  */
 export interface Branch {
   id: string
-  nombre: string
+  nombre: string // Mantenemos el nombre en español para el UI
   qr_entrada_url: string | null
   qr_salida_url: string | null
 }
@@ -102,28 +102,10 @@ export interface DeleteBranchResult {
 
 /**
  * 🏢 Obtiene sucursales con sus URLs de QR de fichaje
- *
- * LÓGICA (V2 - Owner-First):
- * - Obtiene organización usando get_my_org_id_v2() (lee de user_organization_roles)
- * - Consulta sucursales con qr_entrada_url y qr_salida_url
- * - Ordena alfabéticamente por nombre
- *
- * USO:
- * - Listar sucursales en selector de QR
- * - Mostrar estado de QRs guardados (indicador verde)
- *
- * @returns GetBranchesResult - Lista de sucursales con QRs
- *
- * ORIGEN: Refactorización de cargarSucursales() líneas 31-81
- * MIGRACIÓN: V2 - Lee de user_organization_roles
  */
 export async function getBranchesWithQRAction(): Promise<GetBranchesResult> {
   try {
     const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización usando V2
-    // ───────────────────────────────────────────────────────────────────────────
 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user?.id) {
@@ -134,10 +116,8 @@ export async function getBranchesWithQRAction(): Promise<GetBranchesResult> {
       }
     }
 
-    // V2: Usar RPC que lee de user_organization_roles
-    const { data: orgIdV2 } = await supabase.rpc('get_my_org_id_v2')
-
-    const orgId: string | null = orgIdV2
+    // Schema V2: Usar RPC get_my_org_id (lee de memberships)
+    const { data: orgId } = await supabase.rpc('get_my_org_id')
 
     if (!orgId) {
       return {
@@ -147,15 +127,13 @@ export async function getBranchesWithQRAction(): Promise<GetBranchesResult> {
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Consultar sucursales con QRs
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: sucursalesData, error } = await supabase
-      .from('sucursales')
-      .select('id, nombre, qr_entrada_url, qr_salida_url')
+    // Schema V2: Usar tabla branches
+    const { data: branchesData, error } = await supabase
+      .from('branches')
+      .select('id, name, qr_entry_url, qr_exit_url')
       .eq('organization_id', orgId)
-      .order('nombre')
+      .eq('is_active', true)
+      .order('name')
 
     if (error) {
       return {
@@ -165,12 +143,12 @@ export async function getBranchesWithQRAction(): Promise<GetBranchesResult> {
       }
     }
 
-    // Mapear a tipo Branch (asegurar nulls explícitos)
-    const branches: Branch[] = (sucursalesData || []).map((s: any) => ({
-      id: s.id,
-      nombre: s.nombre,
-      qr_entrada_url: s.qr_entrada_url || null,
-      qr_salida_url: s.qr_salida_url || null,
+    // Mapear a tipo Branch (nombres en español para UI)
+    const branches: Branch[] = (branchesData || []).map((b) => ({
+      id: b.id,
+      nombre: b.name,
+      qr_entrada_url: b.qr_entry_url || null,
+      qr_salida_url: b.qr_exit_url || null,
     }))
 
     return {
@@ -188,22 +166,6 @@ export async function getBranchesWithQRAction(): Promise<GetBranchesResult> {
 
 /**
  * 💾 Actualiza URL de QR de fichaje para una sucursal
- *
- * LÓGICA (preservada del componente original):
- * - Actualiza qr_entrada_url o qr_salida_url según el tipo
- * - Operación atómica en base de datos
- * - No requiere validación de organización (RLS la maneja)
- *
- * SEGURIDAD:
- * - Row Level Security valida que el usuario tenga acceso a la sucursal
- * - No se pasa organization_id en el WHERE (RLS lo maneja automáticamente)
- *
- * @param sucursalId - ID de la sucursal
- * @param tipo - "entrada" o "salida"
- * @param qrUrl - URL generada para el QR
- * @returns UpdateBranchQRResult - Resultado de la operación
- *
- * ORIGEN: Refactorización de guardarQR() líneas 96-116
  */
 export async function updateBranchQRAction(
   sucursalId: string,
@@ -211,11 +173,7 @@ export async function updateBranchQRAction(
   qrUrl: string
 ): Promise<UpdateBranchQRResult> {
   try {
-    const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
+    const { supabase, orgId } = await verifyOwner()
 
     if (!sucursalId || !tipo || !qrUrl) {
       return {
@@ -231,21 +189,19 @@ export async function updateBranchQRAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // ACTUALIZACIÓN
-    // ───────────────────────────────────────────────────────────────────────────
-
+    // Schema V2: Usar columnas qr_entry_url / qr_exit_url
     const updateData: Record<string, string> = {}
     if (tipo === 'entrada') {
-      updateData.qr_entrada_url = qrUrl
+      updateData.qr_entry_url = qrUrl
     } else {
-      updateData.qr_salida_url = qrUrl
+      updateData.qr_exit_url = qrUrl
     }
 
     const { error } = await supabase
-      .from('sucursales')
+      .from('branches')
       .update(updateData)
       .eq('id', sucursalId)
+      .eq('organization_id', orgId)
 
     if (error) {
       return {
@@ -267,32 +223,10 @@ export async function updateBranchQRAction(
 
 /**
  * 🏢 Obtiene todas las sucursales de la organización del usuario
- *
- * LÓGICA (V2 - Owner-First):
- *
- * FLUJO OPTIMIZADO:
- * 1. Obtener usuario autenticado
- * 2. Obtener organization_id usando get_my_org_id_v2() (lee de user_organization_roles)
- * 3. Consultar sucursales de esa organización
- * 4. Ordenar por fecha de creación (más antiguas primero)
- *
- * IMPORTANTE:
- * - organization_id obtenido del servidor (seguridad multi-tenant)
- * - El componente NO maneja orgId en su estado
- * - Retorna información completa de sucursales (nombre, dirección, etc.)
- *
- * @returns GetBranchesFullResult - Lista de sucursales
- *
- * ORIGEN: Refactorización de loadOrg() + fetchSucursales() del componente
- * MIGRACIÓN: V2 - Lee de user_organization_roles
  */
 export async function getBranchesAction(): Promise<GetBranchesFullResult> {
   try {
     const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización usando V2
-    // ───────────────────────────────────────────────────────────────────────────
 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user?.id) {
@@ -303,10 +237,8 @@ export async function getBranchesAction(): Promise<GetBranchesFullResult> {
       }
     }
 
-    // V2: Usar RPC que lee de user_organization_roles
-    const { data: orgIdV2 } = await supabase.rpc('get_my_org_id_v2')
-
-    const orgId: string | null = orgIdV2
+    // Schema V2: Usar RPC get_my_org_id
+    const { data: orgId } = await supabase.rpc('get_my_org_id')
 
     if (!orgId) {
       return {
@@ -316,14 +248,12 @@ export async function getBranchesAction(): Promise<GetBranchesFullResult> {
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Consultar sucursales
-    // ───────────────────────────────────────────────────────────────────────────
-
+    // Schema V2: Usar tabla branches
     const { data, error } = await supabase
-      .from('sucursales')
-      .select('*')
+      .from('branches')
+      .select('id, name, address, organization_id, created_at')
       .eq('organization_id', orgId)
+      .eq('is_active', true)
       .order('created_at', { ascending: true })
 
     if (error) {
@@ -334,9 +264,18 @@ export async function getBranchesAction(): Promise<GetBranchesFullResult> {
       }
     }
 
+    // Mapear a tipo BranchFull (nombres en español para UI)
+    const branches: BranchFull[] = (data || []).map((b) => ({
+      id: b.id,
+      nombre: b.name,
+      direccion: b.address,
+      organization_id: b.organization_id,
+      created_at: b.created_at,
+    }))
+
     return {
       success: true,
-      branches: (data as BranchFull[]) || [],
+      branches,
     }
   } catch (error) {
     return {
@@ -349,35 +288,11 @@ export async function getBranchesAction(): Promise<GetBranchesFullResult> {
 
 /**
  * ➕ Crea una nueva sucursal
- *
- * LÓGICA (V2 - Owner-First):
- *
- * VALIDACIONES:
- * - nombre es obligatorio (trim para evitar espacios vacíos)
- * - organization_id obtenido usando get_my_org_id_v2()
- *
- * FLUJO:
- * 1. Validar nombre
- * 2. Obtener organización del usuario
- * 3. Insertar sucursal
- * 4. Retornar ID de la nueva sucursal
- *
- * @param data - Datos de la nueva sucursal
- * @returns CreateBranchResult - Resultado de la operación
- *
- * ORIGEN: Refactorización de handleCreate() del componente
- * MIGRACIÓN: V2 - Lee de user_organization_roles
  */
 export async function createBranchAction(
   data: CreateBranchData
 ): Promise<CreateBranchResult> {
   try {
-    const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
     if (!data.nombre.trim()) {
       return {
         success: false,
@@ -385,40 +300,15 @@ export async function createBranchAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización usando V2
-    // ───────────────────────────────────────────────────────────────────────────
+    const { supabase, orgId } = await verifyOwner()
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    // V2: Usar RPC que lee de user_organization_roles
-    const { data: orgIdV2 } = await supabase.rpc('get_my_org_id_v2')
-
-    const orgId: string | null = orgIdV2
-
-    if (!orgId) {
-      return {
-        success: false,
-        error: 'No se encontró la organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Crear sucursal
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: nuevaSucursal, error } = await supabase
-      .from('sucursales')
+    // Schema V2: Usar tabla branches con columnas name, address
+    const { data: nuevaBranch, error } = await supabase
+      .from('branches')
       .insert({
         organization_id: orgId,
-        nombre: data.nombre,
-        direccion: data.direccion,
+        name: data.nombre,
+        address: data.direccion,
       })
       .select()
       .single()
@@ -432,7 +322,7 @@ export async function createBranchAction(
 
     return {
       success: true,
-      branchId: nuevaSucursal?.id,
+      branchId: nuevaBranch?.id,
     }
   } catch (error) {
     return {
@@ -443,35 +333,13 @@ export async function createBranchAction(
 }
 
 /**
- * 🗑️ Elimina una sucursal
- *
- * LÓGICA (preservada del componente original - líneas 101-115):
- *
- * ⚠️ OPERACIÓN PELIGROSA:
- * - Al borrar la sucursal, SE BORRARÁ EN CASCADA:
- *   - Todas las ventas
- *   - Todo el stock
- *   - Todas las cajas diarias
- * - El componente debe mostrar confirmación ANTES de llamar esta acción
- *
- * SEGURIDAD:
- * - RLS valida que el usuario tenga acceso a la sucursal
- * - No se requiere pasar organization_id (RLS lo maneja)
- *
- * @param branchId - ID de la sucursal a eliminar
- * @returns DeleteBranchResult - Resultado de la operación
- *
- * ORIGEN: Refactorización de handleDelete() del componente
+ * 🗑️ Elimina (soft delete) una sucursal
  */
 export async function deleteBranchAction(
   branchId: string
 ): Promise<DeleteBranchResult> {
   try {
-    const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
+    const { supabase, orgId } = await verifyOwner()
 
     if (!branchId) {
       return {
@@ -480,14 +348,12 @@ export async function deleteBranchAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // ELIMINACIÓN (CASCADA EN DB)
-    // ───────────────────────────────────────────────────────────────────────────
-
+    // Schema V2: Soft delete (is_active = false)
     const { error } = await supabase
-      .from('sucursales')
-      .delete()
+      .from('branches')
+      .update({ is_active: false })
       .eq('id', branchId)
+      .eq('organization_id', orgId)
 
     if (error) {
       return {

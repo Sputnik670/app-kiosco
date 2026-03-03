@@ -5,8 +5,7 @@ import { supabase } from "@/lib/supabase"
 import { Card } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Trophy, Medal, TrendingDown, Target, DollarSign, AlertCircle } from "lucide-react"
+import { Trophy, Medal, Target, DollarSign, AlertCircle } from "lucide-react"
 
 interface EmpleadoMetricas {
     id: string
@@ -15,7 +14,7 @@ interface EmpleadoMetricas {
     xp: number
     ventas_total: number
     misiones_completadas: number
-    diferencia_caja_acumulada: number // Cuánto dinero le faltó/sobró en total
+    diferencia_caja_acumulada: number
     turnos_cerrados: number
 }
 
@@ -30,105 +29,101 @@ export default function TeamRanking() {
 
     const calcularRanking = async () => {
         setLoading(true)
-        
-        // 1. Traer empleados
-        const { data: empleados } = await supabase.from('perfiles').select('id, nombre, xp').eq('rol', 'empleado')
-        
+
+        // Schema V2: Obtener organization_id del usuario actual
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return setLoading(false)
+
+        const { data: currentMembership } = await supabase
+            .from('memberships')
+            .select('organization_id')
+            .eq('user_id', user.id)
+            .eq('is_active', true)
+            .single()
+
+        if (!currentMembership) return setLoading(false)
+
+        // Schema V2: Traer empleados de la organización (memberships con role='employee')
+        const { data: empleados } = await supabase
+            .from('memberships')
+            .select('user_id, display_name, xp')
+            .eq('organization_id', currentMembership.organization_id)
+            .eq('role', 'employee')
+            .eq('is_active', true)
+
         if (!empleados) return setLoading(false)
 
         const metricas: EmpleadoMetricas[] = []
 
-        // 2. Calcular métricas para cada uno (Últimos 30 días para que sea relevante)
+        // Calcular métricas para cada uno (Últimos 30 días)
         const fechaInicio = new Date()
         fechaInicio.setDate(fechaInicio.getDate() - 30)
         const fechaStr = fechaInicio.toISOString()
 
         for (const emp of empleados) {
-            // A. Ventas - Calcular monto total vendido por este empleado
-            // Primero obtenemos los turnos del empleado
+            // Schema V2: Ventas desde cash_registers y sales
             const { data: turnosVentas } = await supabase
-                .from('caja_diaria')
+                .from('cash_registers')
                 .select('id')
-                .eq('empleado_id', emp.id)
-                .not('fecha_cierre', 'is', null)
-                .gte('fecha_apertura', fechaStr)
-            
+                .eq('opened_by', emp.user_id)
+                .not('closed_at', 'is', null)
+                .gte('opened_at', fechaStr)
+
             let totalVentas = 0
             if (turnosVentas && turnosVentas.length > 0) {
-                // Obtenemos las ventas de esos turnos
                 const turnosIds = turnosVentas.map(t => t.id)
+                // Schema V2: Sumar ventas de sale_items
                 const { data: ventasData } = await supabase
-                    .from('stock')
-                    .select('precio_venta_historico, cantidad')
-                    .eq('estado', 'vendido')
-                    .in('caja_diaria_id', turnosIds)
-                    .gte('fecha_venta', fechaStr)
-                
-                // Calcular total de ventas
+                    .from('sales')
+                    .select('total')
+                    .in('cash_register_id', turnosIds)
+                    .gte('created_at', fechaStr)
+
                 if (ventasData) {
-                    totalVentas = ventasData.reduce((sum: number, v: any) => {
-                        const precio = Number(v.precio_venta_historico) || 0
-                        const cantidad = Number(v.cantidad) || 1
-                        return sum + (precio * cantidad)
-                    }, 0)
+                    totalVentas = ventasData.reduce((sum, v) => sum + (Number(v.total) || 0), 0)
                 }
             }
-            
-            // B. Misiones
+
+            // Schema V2: Misiones completadas desde employee_missions
             const { count: misiones } = await supabase
-                .from('misiones')
+                .from('employee_missions')
                 .select('*', { count: 'exact', head: true })
-                .eq('empleado_id', emp.id)
-                .eq('es_completada', true)
+                .eq('employee_id', emp.user_id)
+                .eq('status', 'completed')
                 .gte('created_at', fechaStr)
 
-            // C. Diferencia de Caja (CRÍTICO)
+            // Schema V2: Diferencia de caja desde cash_registers
             const { data: turnos } = await supabase
-                .from('caja_diaria')
-                .select('monto_inicial, monto_final, diferencia, movimientos_caja(monto, tipo)')
-                .eq('empleado_id', emp.id)
-                .not('fecha_cierre', 'is', null)
-                .gte('fecha_apertura', fechaStr)
+                .from('cash_registers')
+                .select('opening_amount, closing_amount, variance')
+                .eq('opened_by', emp.user_id)
+                .not('closed_at', 'is', null)
+                .gte('opened_at', fechaStr)
 
             let diffAcumulada = 0
             let countTurnos = 0
 
             if (turnos) {
                 countTurnos = turnos.length
-                turnos.forEach((t: any) => {
-                    // Usar la diferencia calculada si existe, sino calcularla
-                    if (t.diferencia !== null && t.diferencia !== undefined) {
-                        diffAcumulada += Number(t.diferencia) || 0
-                    } else if (t.monto_final !== null && t.monto_inicial !== null) {
-                        // Calcular diferencia manualmente si no está calculada
-                        const gastos = t.movimientos_caja
-                            ?.filter((m: any) => m.tipo === 'egreso')
-                            .reduce((sum: number, m: any) => sum + m.monto, 0) || 0
-                        
-                        const ingresos = t.movimientos_caja
-                            ?.filter((m: any) => m.tipo === 'ingreso')
-                            .reduce((sum: number, m: any) => sum + m.monto, 0) || 0
-                        
-                        // Diferencia = monto_final - (monto_inicial + ingresos - gastos)
-                        const esperado = Number(t.monto_inicial) + ingresos - gastos
-                        const diferencia = Number(t.monto_final) - esperado
-                        diffAcumulada += diferencia
+                turnos.forEach((t) => {
+                    if (t.variance !== null && t.variance !== undefined) {
+                        diffAcumulada += Number(t.variance) || 0
                     }
                 })
             }
 
             metricas.push({
-                id: emp.id,
-                nombre: emp.nombre || 'Sin nombre',
+                id: emp.user_id,
+                nombre: emp.display_name || 'Sin nombre',
                 xp: emp.xp || 0,
-                ventas_total: totalVentas, // ✅ Datos reales
+                ventas_total: totalVentas,
                 misiones_completadas: misiones || 0,
-                diferencia_caja_acumulada: diffAcumulada, // ✅ Datos reales
+                diferencia_caja_acumulada: diffAcumulada,
                 turnos_cerrados: countTurnos
             })
         }
 
-        // Ordenar por XP (o por ventas, según prefieras)
+        // Ordenar por XP
         setRanking(metricas.sort((a, b) => b.xp - a.xp))
         setLoading(false)
     }
@@ -137,7 +132,7 @@ export default function TeamRanking() {
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            {/* EL GANADOR (Centro arriba en móvil, primero en desktop) */}
+            {/* EL GANADOR */}
             {ranking[0] && (
                 <Card className="md:col-span-3 bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 text-white p-6 relative overflow-hidden border-0 shadow-xl">
                     <div className="absolute top-0 right-0 p-4 opacity-20">

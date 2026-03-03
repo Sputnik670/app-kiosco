@@ -2,11 +2,15 @@
 
 ## Índice
 1. [Pre-requisitos](#pre-requisitos)
-2. [Configuración de Supabase](#configuración-de-supabase)
-3. [Despliegue en Vercel](#despliegue-en-vercel)
-4. [Migración de Datos](#migración-de-datos)
-5. [Verificación Post-Deploy](#verificación-post-deploy)
-6. [Troubleshooting](#troubleshooting)
+2. [Variables de Entorno](#variables-de-entorno)
+3. [CI/CD Pipeline](#cicd-pipeline)
+4. [Configuración de Supabase](#configuración-de-supabase)
+5. [Despliegue en Vercel](#despliegue-en-vercel)
+6. [Health Check](#health-check)
+7. [Migración de Datos](#migración-de-datos)
+8. [Verificación Post-Deploy](#verificación-post-deploy)
+9. [Rollback](#rollback-de-emergencia)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -24,6 +28,71 @@ node --version  # >= 18.0.0
 npm --version   # >= 8.0.0
 git --version   # >= 2.0.0
 ```
+
+---
+
+## Variables de Entorno
+
+Todas las variables de entorno necesarias para compilar y ejecutar la app. NO incluir valores reales en el repositorio.
+
+### Variables requeridas (build y runtime)
+
+| Variable | Tipo | Descripcion |
+|----------|------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Public (browser + server) | URL del proyecto Supabase (`https://xxx.supabase.co`) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public (browser + server) | Clave anon/publica de Supabase |
+
+### Variables opcionales
+
+| Variable | Tipo | Descripcion |
+|----------|------|-------------|
+| `NEXT_PUBLIC_APP_URL` | Public | URL de la app desplegada (para redirects de auth) |
+| `NEXT_PUBLIC_PWA_ENABLED` | Public | Activar/desactivar PWA (`true`/`false`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server only | Clave de servicio para migraciones y admin. NUNCA exponer al browser. |
+| `VERCEL_URL` | Auto (Vercel) | Vercel inyecta esta variable automaticamente. |
+
+### Donde configurar
+
+| Entorno | Ubicacion |
+|---------|-----------|
+| Local | `.env.local` (ya en `.gitignore`) |
+| CI/CD (GitHub Actions) | Repository Settings > Secrets and variables > Actions |
+| Produccion / Preview | Vercel Dashboard > Project Settings > Environment Variables |
+
+---
+
+## CI/CD Pipeline
+
+El proyecto usa GitHub Actions para validar cada push y pull request antes del deploy.
+
+### Archivo: `.github/workflows/ci.yml`
+
+**Se ejecuta en:**
+- Push a `main`
+- Pull request a `main`
+
+**Pasos del pipeline:**
+1. Checkout del codigo
+2. Setup Node.js 20 (con cache de npm)
+3. `npm ci` - instalar dependencias
+4. `npx tsc --noEmit` - verificacion de tipos TypeScript
+5. `npx vitest run` - ejecutar 146+ tests unitarios
+6. `npm run build` - compilar Next.js
+
+**Secrets necesarios en GitHub:**
+- `NEXT_PUBLIC_SUPABASE_URL` - requerido para build
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - requerido para build
+
+Para configurarlos:
+1. Ir al repositorio en GitHub
+2. Settings > Secrets and variables > Actions
+3. Click "New repository secret" para cada variable
+
+**Nota:** El pipeline NO hace deploy automatico. El deploy se hace manualmente via Vercel o aprobacion manual.
+
+### Archivo existente: `.github/workflows/keep-alive.yml`
+
+Ping semanal a Supabase (lunes 10:00 UTC) para evitar que el proyecto free-tier se pause por inactividad.
 
 ---
 
@@ -232,6 +301,58 @@ Vercel detecta automáticamente Next.js, así que esto ya está configurado.
 2. Agregar dominio: `app.tu-empresa.com`
 3. Configurar DNS según instrucciones de Vercel
 4. Esperar propagación DNS (~10 minutos)
+
+---
+
+## Health Check
+
+La app expone un endpoint `/api/health` para monitoreo.
+
+### URL
+
+```
+GET https://tu-dominio.vercel.app/api/health
+```
+
+### Respuesta esperada
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-02-26T12:00:00.000Z",
+  "version": "0.1.0",
+  "supabase": "connected",
+  "uptime": 12345.678,
+  "responseTimeMs": 45,
+  "dbLatencyMs": 30
+}
+```
+
+### Campos
+
+| Campo | Descripcion |
+|-------|-------------|
+| `status` | Siempre `"ok"` (retorna 200 incluso si Supabase esta caido) |
+| `timestamp` | Hora UTC del server |
+| `version` | Version del `package.json` |
+| `supabase` | `"connected"` o `"error"` |
+| `uptime` | Segundos desde el inicio del proceso Node.js |
+| `responseTimeMs` | Tiempo total del handler en ms |
+| `dbLatencyMs` | Tiempo de la query a Supabase en ms (null si falla) |
+
+### Verificar el deploy
+
+Despues de cada deploy, verificar:
+
+```bash
+curl -s https://tu-dominio.vercel.app/api/health | jq .
+```
+
+Si `supabase` muestra `"error"`, verificar las variables de entorno en Vercel.
+
+### Uso para monitoreo externo
+
+Se puede conectar a servicios como UptimeRobot, Better Uptime, o cron jobs que hagan ping periodicamente y alerten si el endpoint no responde o si `supabase` esta en `"error"`.
 
 ---
 

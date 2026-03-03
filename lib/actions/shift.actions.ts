@@ -3,7 +3,7 @@
  * ⏰ SHIFT SERVER ACTIONS
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Server Actions para gestión de turnos (caja_diaria).
+ * Server Actions para gestión de turnos (cash_registers).
  * Maneja apertura, cierre y cálculo de arqueo automático.
  *
  * PATRÓN:
@@ -11,7 +11,7 @@
  * - Cálculos financieros en el servidor
  * - Validación de sesión y organización
  *
- * ORIGEN: Refactorización de probar-turnos.tsx
+ * MIGRADO: 2026-01-29 - Schema V2 (cash_registers)
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -19,21 +19,22 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { format } from 'date-fns'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
 // ───────────────────────────────────────────────────────────────────────────────
 
 /**
- * Turno activo
+ * Turno activo (Schema V2: cash_registers)
  */
 export interface ActiveShift {
   id: string
   organization_id: string
-  sucursal_id: string
-  empleado_id: string
-  monto_inicial: number
-  fecha_apertura: string
+  branch_id: string
+  opened_by: string
+  opening_amount: number
+  opened_at: string
 }
 
 /**
@@ -111,7 +112,7 @@ export async function getActiveShiftAction(): Promise<GetActiveShiftResult> {
       }
     }
 
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
+    const { data: orgId } = await supabase.rpc('get_my_org_id')
 
     if (!orgId) {
       return {
@@ -125,14 +126,15 @@ export async function getActiveShiftAction(): Promise<GetActiveShiftResult> {
     // PASO 2: Resolver sucursal automáticamente
     // ───────────────────────────────────────────────────────────────────────────
 
-    const { data: sucursal } = await supabase
-      .from('sucursales')
+    const { data: branch } = await supabase
+      .from('branches')
       .select('id')
       .eq('organization_id', orgId)
+      .eq('is_active', true)
       .limit(1)
       .single<{ id: string }>()
 
-    if (!sucursal?.id) {
+    if (!branch?.id) {
       return {
         success: false,
         shift: null,
@@ -141,15 +143,15 @@ export async function getActiveShiftAction(): Promise<GetActiveShiftResult> {
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 3: Buscar turno activo
+    // PASO 3: Buscar turno activo (Schema V2: cash_registers)
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: shift } = await supabase
-      .from('caja_diaria')
-      .select('*')
-      .eq('empleado_id', user.id)
-      .eq('sucursal_id', sucursal.id)
-      .is('fecha_cierre', null)
+      .from('cash_registers')
+      .select('id, organization_id, branch_id, opened_by, opening_amount, opened_at')
+      .eq('opened_by', user.id)
+      .eq('branch_id', branch.id)
+      .eq('is_open', true)
       .maybeSingle()
 
     return {
@@ -171,7 +173,7 @@ export async function getActiveShiftAction(): Promise<GetActiveShiftResult> {
  * FLUJO:
  * 1. Valida sesión y organización
  * 2. Resuelve sucursal automáticamente
- * 3. Crea nuevo registro en caja_diaria
+ * 3. Crea nuevo registro en cash_registers
  *
  * @param montoInicial - Monto inicial de la caja
  * @returns OpenShiftResult - Turno creado
@@ -205,7 +207,7 @@ export async function openShiftAction(montoInicial: number): Promise<OpenShiftRe
     // PASO 1: Obtener organización y sucursal
     // ───────────────────────────────────────────────────────────────────────────
 
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
+    const { data: orgId } = await supabase.rpc('get_my_org_id')
 
     if (!orgId) {
       return {
@@ -214,14 +216,15 @@ export async function openShiftAction(montoInicial: number): Promise<OpenShiftRe
       }
     }
 
-    const { data: sucursal } = await supabase
-      .from('sucursales')
+    const { data: branch } = await supabase
+      .from('branches')
       .select('id')
       .eq('organization_id', orgId)
+      .eq('is_active', true)
       .limit(1)
       .single<{ id: string }>()
 
-    if (!sucursal?.id) {
+    if (!branch?.id) {
       return {
         success: false,
         error: 'No se encontró sucursal',
@@ -229,19 +232,22 @@ export async function openShiftAction(montoInicial: number): Promise<OpenShiftRe
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Crear turno nuevo
+    // PASO 2: Crear turno nuevo (Schema V2: cash_registers)
     // ───────────────────────────────────────────────────────────────────────────
 
+    const today = new Date()
     const { data, error } = await supabase
-      .from('caja_diaria')
+      .from('cash_registers')
       .insert({
         organization_id: orgId,
-        sucursal_id: sucursal.id,
-        empleado_id: user.id,
-        monto_inicial: montoInicial,
-        fecha_apertura: new Date().toISOString(),
+        branch_id: branch.id,
+        date: format(today, 'yyyy-MM-dd'),
+        opening_amount: montoInicial,
+        is_open: true,
+        opened_by: user.id,
+        opened_at: today.toISOString(),
       })
-      .select()
+      .select('id, organization_id, branch_id, opened_by, opening_amount, opened_at')
       .single()
 
     if (error) {
@@ -270,7 +276,7 @@ export async function openShiftAction(montoInicial: number): Promise<OpenShiftRe
  * FLUJO:
  * 1. Valida parámetros
  * 2. Calcula ventas en efectivo del turno
- * 3. Calcula ingresos y egresos de movimientos_caja
+ * 3. Calcula ingresos y egresos de cash_movements
  * 4. Calcula arqueo: dineroEsperado = inicial + ventas + ingresos - egresos
  * 5. Registra cierre con monto_final, diferencia y fecha_cierre
  *
@@ -314,14 +320,14 @@ export async function closeShiftAction(
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener datos del turno
+    // PASO 1: Obtener datos del turno (Schema V2: cash_registers)
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: turno, error: turnoError } = await supabase
-      .from('caja_diaria')
-      .select('monto_inicial')
+      .from('cash_registers')
+      .select('opening_amount')
       .eq('id', shiftId)
-      .single<{ monto_inicial: number }>()
+      .single<{ opening_amount: number }>()
 
     if (turnoError || !turno) {
       return {
@@ -331,53 +337,56 @@ export async function closeShiftAction(
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Calcular ventas en efectivo
+    // PASO 2: Calcular ventas en efectivo (Schema V2: sales)
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: ventas } = await supabase
-      .from('stock')
-      .select('cantidad, precio_venta_historico')
-      .eq('caja_diaria_id', shiftId)
-      .eq('metodo_pago', 'efectivo')
-      .eq('tipo_movimiento', 'salida')
+      .from('sales')
+      .select('total')
+      .eq('cash_register_id', shiftId)
+      .eq('payment_method', 'cash')
 
     const totalVentasEfectivo = ventas?.reduce(
-      (sum, v) => sum + ((v.precio_venta_historico || 0) * (v.cantidad || 1)),
+      (sum, v) => sum + Number(v.total || 0),
       0
     ) || 0
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 3: Calcular movimientos manuales (ingresos y egresos)
+    // PASO 3: Calcular movimientos manuales (Schema V2: cash_movements)
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: movimientos } = await supabase
-      .from('movimientos_caja')
-      .select('monto, tipo')
-      .eq('caja_diaria_id', shiftId)
+      .from('cash_movements')
+      .select('amount, type')
+      .eq('cash_register_id', shiftId)
+      .neq('category', 'sale')
 
-    const totalIngresos = movimientos?.filter(m => m.tipo === 'ingreso')
-      .reduce((sum, m) => sum + m.monto, 0) || 0
+    const totalIngresos = movimientos?.filter(m => m.type === 'income')
+      .reduce((sum, m) => sum + Number(m.amount), 0) || 0
 
-    const totalEgresos = movimientos?.filter(m => m.tipo === 'egreso')
-      .reduce((sum, m) => sum + m.monto, 0) || 0
+    const totalEgresos = movimientos?.filter(m => m.type === 'expense')
+      .reduce((sum, m) => sum + Number(m.amount), 0) || 0
 
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 4: Calcular arqueo
     // ───────────────────────────────────────────────────────────────────────────
 
-    const dineroEsperado = turno.monto_inicial + totalVentasEfectivo + totalIngresos - totalEgresos
+    const dineroEsperado = Number(turno.opening_amount) + totalVentasEfectivo + totalIngresos - totalEgresos
     const diferencia = montoFinal - dineroEsperado
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 5: Registrar cierre del turno
+    // PASO 5: Registrar cierre del turno (Schema V2: cash_registers)
     // ───────────────────────────────────────────────────────────────────────────
 
     const { error: closeError } = await supabase
-      .from('caja_diaria')
+      .from('cash_registers')
       .update({
-        monto_final: montoFinal,
-        diferencia: diferencia,
-        fecha_cierre: new Date().toISOString(),
+        closing_amount: montoFinal,
+        expected_amount: dineroEsperado,
+        variance: diferencia,
+        is_open: false,
+        closed_by: user.id,
+        closed_at: new Date().toISOString(),
       })
       .eq('id', shiftId)
 
@@ -393,7 +402,7 @@ export async function closeShiftAction(
     // ───────────────────────────────────────────────────────────────────────────
 
     const summary: ShiftCloseSummary = {
-      montoInicial: turno.monto_inicial,
+      montoInicial: Number(turno.opening_amount),
       totalVentasEfectivo,
       totalIngresos,
       totalEgresos,

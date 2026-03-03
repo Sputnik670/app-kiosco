@@ -10,7 +10,7 @@ import { Loader2, Lock, Unlock, Calculator, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
 import { triggerConfetti } from "@/components/confetti-trigger"
-import { abrirCajaAction, cerrarCajaAction } from "@/lib/actions/caja.actions"
+import { abrirCajaAction, cerrarCajaAction } from "@/lib/actions/cash.actions"
 
 export interface CajaDiaria {
     id: string

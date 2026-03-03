@@ -41,7 +41,8 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
     const [activeTab, setActiveTab] = useState<"caja" | "misiones" | "vencimientos">("caja")
     const [turnoActivo, setTurnoActivo] = useState<CajaDiaria | null>(null)
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
-    const [sucursalNombre, setSucursalNombre] = useState("") 
+    const [sucursalNombre, setSucursalNombre] = useState("")
+    const [organizationId, setOrganizationId] = useState("")
     const [isClockedIn, setIsClockedIn] = useState(false) 
     const [refreshKey, setRefreshKey] = useState(0)
     const [showQRScanner, setShowQRScanner] = useState(false) 
@@ -59,6 +60,7 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                 // Mapear datos del contexto al estado local
                 setUserProfile(result.context.profile as UserProfile | null)
                 setSucursalNombre(result.context.branchName)
+                setOrganizationId(result.context.organizationId)
                 setIsClockedIn(result.context.isClockedIn)
                 setTurnoActivo(result.context.activeShift as CajaDiaria | null)
             }
@@ -182,14 +184,14 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                         {turnoActivo && (
                             <>
                                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                    {[
+                                    {([
                                         {id: "caja", label: "Ventas", icon: ShoppingCart},
                                         {id: "misiones", label: "Misiones", icon: Target},
                                         {id: "vencimientos", label: "Alertas", icon: AlertTriangle}
-                                    ].map(tab => (
-                                        <Button 
+                                    ] as const).map(tab => (
+                                        <Button
                                             key={tab.id}
-                                            onClick={() => setActiveTab(tab.id as any)} 
+                                            onClick={() => setActiveTab(tab.id)} 
                                             variant={activeTab === tab.id ? "default" : "outline"}
                                             size="sm"
                                             className={cn(
@@ -205,10 +207,12 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                                 <div className="space-y-6 pb-20">
                                     {activeTab === "caja" && (
                                         <div className="flex flex-col gap-6 animate-in fade-in duration-300">
-                                            <CajaVentas 
-                                                turnoId={turnoActivo.id} 
+                                            <CajaVentas
+                                                turnoId={turnoActivo.id}
                                                 empleadoNombre={userProfile?.nombre || "Operador"}
                                                 sucursalId={sucursalId}
+                                                organizationId={organizationId}
+                                                vendedorId={userProfile?.id}
                                             />
                                             
                                             {/* ═══════════════════════════════════════════════════════════════════ */}

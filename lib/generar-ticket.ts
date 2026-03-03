@@ -1,12 +1,12 @@
-import jsPDF from "jspdf"
-import autoTable from "jspdf-autotable"
+// jsPDF and jspdf-autotable are loaded dynamically inside each function
+// to avoid adding ~300KB to the initial bundle (lazy load on demand)
 
 // Auxiliar para formatear moneda en el PDF
-const formatPDFMoney = (val: number) => 
-  new Intl.NumberFormat('es-AR', { 
-    style: 'currency', 
-    currency: 'ARS', 
-    maximumFractionDigits: 0 
+const formatPDFMoney = (val: number) =>
+  new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0
   }).format(val)
 
 // ==========================================
@@ -25,15 +25,19 @@ interface DatosReporte {
   cajaReal: number | null     // Lo que el empleado contó
   diferencia: number | null   // Sobrante o faltante
   gastos: { descripcion: string; monto: number; tipo?: string; categoria?: string }[]
+  /** Nombre de la sucursal para el encabezado del ticket */
+  sucursalNombre?: string
 }
 
-export const generarTicketPDF = (datos: DatosReporte) => {
+export const generarTicketPDF = async (datos: DatosReporte) => {
+  const { jsPDF } = await import("jspdf")
+  const { default: autoTable } = await import("jspdf-autotable")
   const doc = new jsPDF()
 
   // Encabezado
   doc.setFontSize(22)
   doc.setFont("helvetica", "bold")
-  doc.text("Kiosco 24hs", 105, 20, { align: "center" })
+  doc.text(datos.sucursalNombre || "Mi Kiosco", 105, 20, { align: "center" })
   
   doc.setFontSize(12)
   doc.setFont("helvetica", "normal")
@@ -98,7 +102,7 @@ export const generarTicketPDF = (datos: DatosReporte) => {
   const pageHeight = doc.internal.pageSize.height
   doc.setFontSize(8)
   doc.setFont("helvetica", "italic")
-  doc.text("Documento oficial de auditoría - Kiosco 24hs Cloud System", 105, pageHeight - 10, { align: "center" })
+  doc.text(`Documento oficial de auditoría - ${datos.sucursalNombre || "Mi Kiosco"}`, 105, pageHeight - 10, { align: "center" })
 
   const nombreArchivo = `Cierre_${datos.empleado}_${datos.fechaApertura.replace(/[\/\s:]/g, '-')}.pdf`
   doc.save(nombreArchivo)
@@ -122,12 +126,19 @@ interface DatosVenta {
   total: number
   metodoPago: string
   vendedor?: string
+  /** Indica si la venta está pendiente de sincronización (modo offline) */
+  offlinePending?: boolean
+  /** ID local de la venta offline para seguimiento */
+  localId?: string
 }
 
-export const generarTicketVenta = (datos: DatosVenta) => {
-  const alturaBase = 100 
-  const alturaTicket = alturaBase + (datos.items.length * 7)
-  
+export const generarTicketVenta = async (datos: DatosVenta) => {
+  const { jsPDF } = await import("jspdf")
+  const alturaBase = 100
+  // Agregar espacio extra si hay banner offline
+  const alturaOffline = datos.offlinePending ? 25 : 0
+  const alturaTicket = alturaBase + (datos.items.length * 7) + alturaOffline
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -135,7 +146,22 @@ export const generarTicketVenta = (datos: DatosVenta) => {
   })
 
   doc.setFont("Courier", "normal")
-  let y = 10 
+  let y = 10
+
+  // Banner de modo offline si está pendiente de sincronización
+  if (datos.offlinePending) {
+    doc.setFillColor(255, 237, 213) // Naranja claro
+    doc.rect(0, y - 5, 80, 12, 'F')
+    doc.setFontSize(8)
+    doc.setFont("Courier", "bold")
+    doc.setTextColor(194, 65, 12) // Naranja oscuro
+    doc.text("*** PENDIENTE SYNC ***", 40, y, { align: "center" })
+    y += 4
+    doc.setFontSize(6)
+    doc.text(`ID: ${datos.localId || 'N/A'}`, 40, y, { align: "center" })
+    doc.setTextColor(0, 0, 0) // Reset a negro
+    y += 8
+  }
 
   doc.setFontSize(14)
   doc.setFont("Courier", "bold")
@@ -193,8 +219,19 @@ export const generarTicketVenta = (datos: DatosVenta) => {
   doc.setFontSize(8)
   doc.text("¡GRACIAS POR SU COMPRA!", 40, y, { align: "center" })
   y += 4
-  doc.text("Kiosco 24hs", 40, y, { align: "center" })
+  doc.text(datos.organizacion || "Mi Kiosco", 40, y, { align: "center" })
 
-  const nombreArchivo = `Ticket_${datos.fecha.replace(/[\/\s:]/g, '-')}.pdf`
+  // Nota al pie si está offline
+  if (datos.offlinePending) {
+    y += 6
+    doc.setFontSize(6)
+    doc.setFont("Courier", "italic")
+    doc.text("Venta registrada offline.", 40, y, { align: "center" })
+    y += 3
+    doc.text("Se sincronizará automáticamente.", 40, y, { align: "center" })
+  }
+
+  const prefix = datos.offlinePending ? 'Offline_' : ''
+  const nombreArchivo = `${prefix}Ticket_${datos.fecha.replace(/[\/\s:]/g, '-')}.pdf`
   doc.save(nombreArchivo)
 }

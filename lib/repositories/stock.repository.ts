@@ -1,20 +1,20 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * 📦 STOCK REPOSITORY
+ * 📦 STOCK REPOSITORY (actualizado para nuevo schema)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Repositorio para gestión de inventario (movimientos de stock).
- * Basado en docs/DATABASE_SCHEMA.md (esquema real verificado).
+ * Repositorio para gestión de inventario usando lotes FIFO.
+ * Usa tabla 'stock_batches' del nuevo schema.
  *
- * ESTÁNDAR MAESTRO:
- * - Todas las tablas tienen: id, organization_id, created_at, updated_at
- * - Patrón de respuesta: { data, error }
- * - Sin lógica de negocio (solo traducción DB ↔ código)
- *
- * NOTAS IMPORTANTES:
- * - NO existe tabla stock_items, solo la tabla "stock"
- * - Cada fila en "stock" representa un movimiento (entrada/salida)
- * - Para obtener stock actual: sumar entradas - salidas por producto
+ * MAPEO DE TABLAS:
+ * - stock → stock_batches
+ * - sucursal_id → branch_id
+ * - producto_id → product_id
+ * - cantidad → quantity
+ * - fecha_vencimiento → expiration_date
+ * - costo_unitario_historico → unit_cost
+ * - proveedor_id → supplier_id
+ * - estado → status ('disponible' → 'available', 'vendido' → 'sold', etc.)
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -26,25 +26,29 @@ import { Database } from '@/types/database.types'
 // TIPOS
 // ───────────────────────────────────────────────────────────────────────────────
 
-type Stock = Database['public']['Tables']['stock']['Row']
-type StockInsert = Database['public']['Tables']['stock']['Insert']
+type StockBatch = Database['public']['Tables']['stock_batches']['Row']
+type StockBatchInsert = Database['public']['Tables']['stock_batches']['Insert']
+
+// Alias para compatibilidad
+export type Stock = StockBatch
 
 /**
- * Parámetros para crear un movimiento de stock (entrada)
+ * Parámetros para crear un lote de stock (entrada)
  */
 export interface CreateStockEntradaParams {
   organizationId: string
-  sucursalId: string
-  productoId: string
-  cantidad: number
-  fechaVencimiento: string // Formato: YYYY-MM-DD
-  proveedorId?: string | null
-  compraId?: string | null
-  costoUnitarioHistorico?: number | null
+  sucursalId: string  // branch_id
+  productoId: string  // product_id
+  cantidad: number    // quantity
+  fechaVencimiento: string // expiration_date, Formato: YYYY-MM-DD
+  proveedorId?: string | null // supplier_id
+  compraId?: string | null // No existe en nuevo schema, se ignora
+  costoUnitarioHistorico?: number | null // unit_cost
 }
 
 /**
  * Parámetros para registrar una salida de stock (venta)
+ * En el nuevo schema, las ventas usan el RPC process_sale que maneja FIFO automáticamente
  */
 export interface CreateStockSalidaParams {
   organizationId: string
@@ -66,49 +70,27 @@ export interface StockDisponible {
 // ───────────────────────────────────────────────────────────────────────────────
 
 /**
- * Registra una entrada de stock (compra o carga inicial)
- *
- * @param params - Parámetros de la entrada
- * @returns { data, error } - Movimiento creado o error
- *
- * ESQUEMA (según DATABASE_SCHEMA.md):
- * - id: uuid (auto-generado)
- * - organization_id: uuid (FK → organizations)
- * - sucursal_id: uuid (FK → sucursales)
- * - producto_id: uuid (FK → productos)
- * - cantidad: integer (positivo)
- * - tipo_movimiento: 'entrada'
- * - fecha_vencimiento: date
- * - estado: 'disponible' (al crear)
- * - proveedor_id: uuid (opcional)
- * - compra_id: uuid (opcional)
- * - costo_unitario_historico: numeric (opcional)
- * - fecha_ingreso: timestamptz (now())
- * - created_at, updated_at: automáticos
+ * Registra una entrada de stock (crea un lote)
  */
 export async function createStockEntrada(
   params: CreateStockEntradaParams
-): Promise<{ data: Stock | null; error: Error | null }> {
+): Promise<{ data: StockBatch | null; error: Error | null }> {
   try {
     const supabase = await createClient()
-    const stockData: StockInsert = {
+    const batchData: StockBatchInsert = {
       organization_id: params.organizationId,
-      sucursal_id: params.sucursalId,
-      producto_id: params.productoId,
-      cantidad: params.cantidad,
-      tipo_movimiento: 'entrada',
-      fecha_vencimiento: params.fechaVencimiento,
-      estado: 'disponible',
-      proveedor_id: params.proveedorId ?? undefined,
-      compra_id: params.compraId ?? undefined,
-      costo_unitario_historico: params.costoUnitarioHistorico ?? undefined,
-      fecha_ingreso: new Date().toISOString(),
-      // created_at y updated_at son automáticos
+      branch_id: params.sucursalId,
+      product_id: params.productoId,
+      quantity: params.cantidad,
+      expiration_date: params.fechaVencimiento,
+      status: 'available',
+      supplier_id: params.proveedorId ?? undefined,
+      unit_cost: params.costoUnitarioHistorico ?? undefined,
     }
 
     const { data, error } = await supabase
-      .from('stock')
-      .insert(stockData)
+      .from('stock_batches')
+      .insert(batchData)
       .select()
       .single()
 
@@ -136,34 +118,49 @@ export async function createStockEntrada(
 }
 
 /**
- * Registra una salida de stock (venta)
+ * Registra una salida de stock (DEPRECADO - usar RPC process_sale)
  *
- * @param params - Parámetros de la salida
- * @returns { data, error } - Movimiento creado o error
- *
- * NOTA: Esta función NO valida si hay stock disponible.
- * Debes validar antes de llamarla usando getStockDisponible().
+ * NOTA: En el nuevo schema, las ventas se procesan con el RPC process_sale
+ * que maneja la lógica FIFO automáticamente. Esta función se mantiene
+ * para compatibilidad pero no debería usarse directamente.
  */
 export async function createStockSalida(
   params: CreateStockSalidaParams
-): Promise<{ data: Stock | null; error: Error | null }> {
+): Promise<{ data: StockBatch | null; error: Error | null }> {
   try {
     const supabase = await createClient()
-    const stockData: StockInsert = {
-      organization_id: params.organizationId,
-      sucursal_id: params.sucursalId,
-      producto_id: params.productoId,
-      cantidad: params.cantidad,
-      tipo_movimiento: 'salida',
-      fecha_vencimiento: new Date().toISOString().split('T')[0], // Fecha actual (no aplica en salidas)
-      estado: 'vendido',
-      fecha_ingreso: new Date().toISOString(),
-      // created_at y updated_at son automáticos
+
+    // En el nuevo schema, simplemente actualizamos el lote más antiguo (FIFO)
+    // Pero esto es solo para compatibilidad - usar process_sale RPC en su lugar
+    const { data: batch, error: fetchError } = await supabase
+      .from('stock_batches')
+      .select('*')
+      .eq('organization_id', params.organizationId)
+      .eq('branch_id', params.sucursalId)
+      .eq('product_id', params.productoId)
+      .eq('status', 'available')
+      .gt('quantity', 0)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single()
+
+    if (fetchError || !batch) {
+      return {
+        data: null,
+        error: new Error('No hay stock disponible'),
+      }
     }
 
+    const newQuantity = batch.quantity - params.cantidad
+    const newStatus = newQuantity <= 0 ? 'sold' : 'available'
+
     const { data, error } = await supabase
-      .from('stock')
-      .insert(stockData)
+      .from('stock_batches')
+      .update({
+        quantity: Math.max(0, newQuantity),
+        status: newStatus as 'available' | 'sold' | 'expired' | 'damaged'
+      })
+      .eq('id', batch.id)
       .select()
       .single()
 
@@ -171,13 +168,6 @@ export async function createStockSalida(
       return {
         data: null,
         error: new Error(`Error registrando salida de stock: ${error.message}`),
-      }
-    }
-
-    if (!data) {
-      return {
-        data: null,
-        error: new Error('No se pudo registrar la salida de stock'),
       }
     }
 
@@ -192,13 +182,7 @@ export async function createStockSalida(
 
 /**
  * Obtiene el stock disponible de un producto en una sucursal
- *
- * @param organizationId - ID de la organización
- * @param sucursalId - ID de la sucursal
- * @param productoId - ID del producto
- * @returns { data, error } - Cantidad disponible o error
- *
- * CÁLCULO: SUM(cantidad) WHERE tipo='entrada' - SUM(cantidad) WHERE tipo='salida'
+ * Suma todos los lotes disponibles
  */
 export async function getStockDisponible(
   organizationId: string,
@@ -207,45 +191,25 @@ export async function getStockDisponible(
 ): Promise<{ data: number; error: Error | null }> {
   try {
     const supabase = await createClient()
-    // Obtener todas las entradas
-    const { data: entradas, error: errorEntradas } = await supabase
-      .from('stock')
-      .select('cantidad')
-      .eq('organization_id', organizationId)
-      .eq('sucursal_id', sucursalId)
-      .eq('producto_id', productoId)
-      .eq('tipo_movimiento', 'entrada')
-      .eq('estado', 'disponible')
 
-    if (errorEntradas) {
+    const { data, error } = await supabase
+      .from('stock_batches')
+      .select('quantity')
+      .eq('organization_id', organizationId)
+      .eq('branch_id', sucursalId)
+      .eq('product_id', productoId)
+      .eq('status', 'available')
+
+    if (error) {
       return {
         data: 0,
-        error: new Error(`Error obteniendo entradas: ${errorEntradas.message}`),
+        error: new Error(`Error obteniendo stock: ${error.message}`),
       }
     }
 
-    // Obtener todas las salidas
-    const { data: salidas, error: errorSalidas } = await supabase
-      .from('stock')
-      .select('cantidad')
-      .eq('organization_id', organizationId)
-      .eq('sucursal_id', sucursalId)
-      .eq('producto_id', productoId)
-      .eq('tipo_movimiento', 'salida')
+    const totalStock = (data ?? []).reduce((sum, batch) => sum + (batch.quantity ?? 0), 0)
 
-    if (errorSalidas) {
-      return {
-        data: 0,
-        error: new Error(`Error obteniendo salidas: ${errorSalidas.message}`),
-      }
-    }
-
-    const totalEntradas = (entradas ?? []).reduce((sum, mov) => sum + (mov.cantidad ?? 0), 0)
-    const totalSalidas = (salidas ?? []).reduce((sum, mov) => sum + (mov.cantidad ?? 0), 0)
-
-    const stockDisponible = totalEntradas - totalSalidas
-
-    return { data: stockDisponible, error: null }
+    return { data: totalStock, error: null }
   } catch (error) {
     return {
       data: 0,
@@ -255,29 +219,25 @@ export async function getStockDisponible(
 }
 
 /**
- * Lista todos los movimientos de stock de una sucursal
- *
- * @param organizationId - ID de la organización
- * @param sucursalId - ID de la sucursal
- * @returns { data, error } - Movimientos o error
+ * Lista todos los lotes de stock de una sucursal
  */
 export async function listMovimientosBySucursal(
   organizationId: string,
   sucursalId: string
-): Promise<{ data: Stock[] | null; error: Error | null }> {
+): Promise<{ data: StockBatch[] | null; error: Error | null }> {
   try {
     const supabase = await createClient()
     const { data, error } = await supabase
-      .from('stock')
+      .from('stock_batches')
       .select('*')
       .eq('organization_id', organizationId)
-      .eq('sucursal_id', sucursalId)
+      .eq('branch_id', sucursalId)
       .order('created_at', { ascending: false })
 
     if (error) {
       return {
         data: null,
-        error: new Error(`Error listando movimientos: ${error.message}`),
+        error: new Error(`Error listando lotes: ${error.message}`),
       }
     }
 
@@ -291,29 +251,25 @@ export async function listMovimientosBySucursal(
 }
 
 /**
- * Obtiene movimientos de un producto específico
- *
- * @param organizationId - ID de la organización
- * @param productoId - ID del producto
- * @returns { data, error } - Movimientos o error
+ * Obtiene lotes de un producto específico
  */
 export async function listMovimientosByProducto(
   organizationId: string,
   productoId: string
-): Promise<{ data: Stock[] | null; error: Error | null }> {
+): Promise<{ data: StockBatch[] | null; error: Error | null }> {
   try {
     const supabase = await createClient()
     const { data, error } = await supabase
-      .from('stock')
+      .from('stock_batches')
       .select('*')
       .eq('organization_id', organizationId)
-      .eq('producto_id', productoId)
+      .eq('product_id', productoId)
       .order('created_at', { ascending: false })
 
     if (error) {
       return {
         data: null,
-        error: new Error(`Error listando movimientos del producto: ${error.message}`),
+        error: new Error(`Error listando lotes del producto: ${error.message}`),
       }
     }
 
@@ -327,18 +283,13 @@ export async function listMovimientosByProducto(
 }
 
 /**
- * Obtiene productos próximos a vencer en una sucursal
- *
- * @param organizationId - ID de la organización
- * @param sucursalId - ID de la sucursal
- * @param diasAnticipacion - Días de anticipación para alertar (default: 30)
- * @returns { data, error } - Productos próximos a vencer o error
+ * Obtiene lotes próximos a vencer en una sucursal
  */
 export async function getProductosProximosAVencer(
   organizationId: string,
   sucursalId: string,
   diasAnticipacion: number = 30
-): Promise<{ data: Stock[] | null; error: Error | null }> {
+): Promise<{ data: StockBatch[] | null; error: Error | null }> {
   try {
     const supabase = await createClient()
     const fechaLimite = new Date()
@@ -346,14 +297,14 @@ export async function getProductosProximosAVencer(
     const fechaLimiteStr = fechaLimite.toISOString().split('T')[0]
 
     const { data, error } = await supabase
-      .from('stock')
+      .from('stock_batches')
       .select('*')
       .eq('organization_id', organizationId)
-      .eq('sucursal_id', sucursalId)
-      .eq('tipo_movimiento', 'entrada')
-      .eq('estado', 'disponible')
-      .lte('fecha_vencimiento', fechaLimiteStr)
-      .order('fecha_vencimiento', { ascending: true })
+      .eq('branch_id', sucursalId)
+      .eq('status', 'available')
+      .not('expiration_date', 'is', null)
+      .lte('expiration_date', fechaLimiteStr)
+      .order('expiration_date', { ascending: true })
 
     if (error) {
       return {
@@ -373,11 +324,6 @@ export async function getProductosProximosAVencer(
 
 /**
  * Actualiza el estado de productos vencidos
- *
- * @param organizationId - ID de la organización
- * @returns { data, error } - Cantidad de productos actualizados o error
- *
- * NOTA: Esta función debe ejecutarse periódicamente (ej. diariamente)
  */
 export async function marcarProductosVencidos(
   organizationId: string
@@ -387,12 +333,11 @@ export async function marcarProductosVencidos(
     const fechaHoy = new Date().toISOString().split('T')[0]
 
     const { data, error } = await supabase
-      .from('stock')
-      .update({ estado: 'vencido' })
+      .from('stock_batches')
+      .update({ status: 'expired' })
       .eq('organization_id', organizationId)
-      .eq('tipo_movimiento', 'entrada')
-      .eq('estado', 'disponible')
-      .lt('fecha_vencimiento', fechaHoy)
+      .eq('status', 'available')
+      .lt('expiration_date', fechaHoy)
       .select()
 
     if (error) {

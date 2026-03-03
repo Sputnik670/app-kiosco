@@ -1,16 +1,16 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * 📦 INVENTORY SERVER ACTIONS
+ * 📦 INVENTORY SERVER ACTIONS (actualizado para nuevo schema)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Server Actions para gestión de inventario y escaneo de productos.
- * Conecta los repositorios con la lógica de negocio.
  *
- * PATRÓN:
- * - Server Actions (Next.js 14+)
- * - Validación de parámetros
- * - Uso de repositorios para acceso a datos
- * - Retorno tipado con estados claros
+ * MAPEO DE TABLAS:
+ * - productos → products
+ * - stock → stock_batches
+ * - caja_diaria → cash_registers
+ * - perfiles → memberships
+ * - proveedores → suppliers
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -20,20 +20,22 @@
 import { searchProductos, updateProducto, getProductoById } from '@/lib/repositories/producto.repository'
 import { getStockDisponible, createStockEntrada } from '@/lib/repositories/stock.repository'
 import { createClient } from '@/lib/supabase-server'
+import { verifyAuth } from '@/lib/actions/auth-helpers'
 import { Database } from '@/types/database.types'
+import { resolveJoin } from '@/types/supabase-joins'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
 // ───────────────────────────────────────────────────────────────────────────────
 
-type Producto = Database['public']['Tables']['productos']['Row']
+type Product = Database['public']['Tables']['products']['Row']
 
 /**
  * Resultado cuando el producto SÍ existe en el catálogo
  */
 export interface ProductFoundResult {
   status: 'FOUND'
-  producto: Producto
+  producto: Product
   stockDisponible: number
   sucursalId: string
 }
@@ -67,44 +69,12 @@ export type ProductScanResult = ProductFoundResult | ProductNotFoundResult | Pro
 
 /**
  * 🔍 Escanea un código de barras y retorna el producto + stock disponible
- *
- * FLUJO:
- * 1. Busca el producto por código de barras en la organización
- * 2. Si existe, consulta el stock disponible en la sucursal
- * 3. Retorna el producto con su stock o un estado NOT_FOUND
- *
- * @param barcode - Código de barras escaneado
- * @param organizationId - ID de la organización
- * @param sucursalId - ID de la sucursal actual
- * @returns ProductScanResult - Producto encontrado, no encontrado o error
- *
- * CASOS DE USO:
- * - Escaneo con cámara del teléfono
- * - Escaneo con lector de mano USB/Bluetooth
- * - Búsqueda manual por código de barras
- *
- * EJEMPLO:
- * ```typescript
- * const result = await handleProductScan('7790123456789', orgId, sucursalId)
- *
- * if (result.status === 'FOUND') {
- *   console.log(`Producto: ${result.producto.nombre}`)
- *   console.log(`Stock: ${result.stockDisponible}`)
- * } else if (result.status === 'NOT_FOUND') {
- *   // Invitar al usuario a crear el producto
- *   console.log('Producto no encontrado. ¿Desea crearlo?')
- * }
- * ```
  */
 export async function handleProductScan(
   barcode: string,
   organizationId: string,
   sucursalId: string
 ): Promise<ProductScanResult> {
-  // ─────────────────────────────────────────────────────────────────────────────
-  // VALIDACIONES
-  // ─────────────────────────────────────────────────────────────────────────────
-
   if (!barcode || barcode.trim() === '') {
     return {
       status: 'ERROR',
@@ -127,12 +97,6 @@ export async function handleProductScan(
   }
 
   try {
-    const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Buscar producto por código de barras
-    // ───────────────────────────────────────────────────────────────────────────
-
     const { data: productos, error: searchError } = await searchProductos(
       organizationId,
       barcode
@@ -146,14 +110,10 @@ export async function handleProductScan(
       }
     }
 
-    // Filtrar exactamente por código de barras (searchProductos busca también en nombre)
+    // Filtrar exactamente por código de barras
     const producto = productos?.find(
-      (p) => p.codigo_barras?.toLowerCase() === barcode.toLowerCase()
+      (p) => p.barcode?.toLowerCase() === barcode.toLowerCase()
     )
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // CASO: Producto NO encontrado
-    // ───────────────────────────────────────────────────────────────────────────
 
     if (!producto) {
       return {
@@ -162,10 +122,6 @@ export async function handleProductScan(
         message: `No se encontró ningún producto con el código de barras: ${barcode}`,
       }
     }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Obtener stock disponible en la sucursal
-    // ───────────────────────────────────────────────────────────────────────────
 
     const { data: stockDisponible, error: stockError } = await getStockDisponible(
       organizationId,
@@ -181,10 +137,6 @@ export async function handleProductScan(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // CASO: Producto ENCONTRADO
-    // ───────────────────────────────────────────────────────────────────────────
-
     return {
       status: 'FOUND',
       producto: producto,
@@ -192,10 +144,6 @@ export async function handleProductScan(
       sucursalId: sucursalId,
     }
   } catch (error) {
-    // ───────────────────────────────────────────────────────────────────────────
-    // MANEJO DE ERRORES INESPERADOS
-    // ───────────────────────────────────────────────────────────────────────────
-
     return {
       status: 'ERROR',
       error: 'Error inesperado al escanear el producto',
@@ -205,188 +153,87 @@ export async function handleProductScan(
 }
 
 /**
- * 📊 Obtiene un resumen rápido de stock para múltiples productos
+ * Obtiene un resumen rápido de stock para múltiples productos
  *
- * Útil para dashboards o listados de productos con stock.
- *
- * @param productoIds - Array de IDs de productos
- * @param organizationId - ID de la organización
- * @param sucursalId - ID de la sucursal
- * @returns Array de { productoId, stock }
+ * OPTIMIZADO: 2026-02-25 — 1 query batch con .in() en vez de N queries individuales
  */
 export async function getStockSummary(
   productoIds: string[],
   organizationId: string,
   sucursalId: string
 ): Promise<{ productoId: string; stock: number }[]> {
-  const summary = await Promise.all(
-    productoIds.map(async (productoId) => {
-      const { data: stock } = await getStockDisponible(
-        organizationId,
-        sucursalId,
-        productoId
-      )
-      return {
-        productoId,
-        stock: stock ?? 0,
-      }
-    })
-  )
+  if (!productoIds || productoIds.length === 0) {
+    return []
+  }
 
-  return summary
+  try {
+    const supabase = await createClient()
+
+    const { data, error } = await supabase
+      .from('stock_batches')
+      .select('product_id, quantity')
+      .eq('organization_id', organizationId)
+      .eq('branch_id', sucursalId)
+      .eq('status', 'available')
+      .in('product_id', productoIds)
+
+    if (error) {
+      return productoIds.map(id => ({ productoId: id, stock: 0 }))
+    }
+
+    // Agrupar cantidades por product_id
+    const stockMap = new Map<string, number>()
+    for (const batch of data || []) {
+      const pid = batch.product_id
+      stockMap.set(pid, (stockMap.get(pid) || 0) + (batch.quantity ?? 0))
+    }
+
+    return productoIds.map(id => ({
+      productoId: id,
+      stock: stockMap.get(id) || 0,
+    }))
+  } catch {
+    return productoIds.map(id => ({ productoId: id, stock: 0 }))
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS PARA ENTRADA COMPLEJA DE STOCK
 // ───────────────────────────────────────────────────────────────────────────────
 
-/**
- * Parámetros para el ingreso complejo de stock
- * (compra + stock + historial de precios + movimiento de caja)
- */
 export interface ComplexStockEntryParams {
-  // Datos básicos
   productoId: string
   sucursalId: string
   cantidad: number
-  fechaVencimiento: string // Formato: YYYY-MM-DD
-
-  // Datos de costos
+  fechaVencimiento: string
   costoUnitario?: number
-
-  // Datos del proveedor (opcional)
   proveedorId?: string
   estadoPago?: 'pendiente' | 'pagado'
   medioPago?: 'efectivo' | 'transferencia' | 'debito'
-  fechaVencimientoPago?: string // ISO string
+  fechaVencimientoPago?: string
 }
 
-/**
- * Resultado del ingreso complejo de stock
- */
 export interface ComplexStockEntryResult {
   success: boolean
   error?: string
   details?: {
-    compraId?: string
     stockId?: string
     precioActualizado?: boolean
-    movimientoCajaRegistrado?: boolean
   }
 }
 
 /**
- * 📦 Procesa una entrada compleja de stock (REFACTORIZADO de agregar-stock.tsx)
- *
- * FLUJO COMPLETO:
- * 1. Obtiene organización del usuario actual
- * 2. Si hay proveedor + costo: registra la compra
- * 3. Si el pago es en efectivo: registra egreso en movimientos_caja
- * 4. Registra la entrada de stock usando el repositorio
- * 5. Si cambió el costo: actualiza historial_precios y costo del producto
- *
- * @param params - Parámetros del ingreso
- * @returns ComplexStockEntryResult - Resultado de la operación
- *
- * ORIGEN: Refactorización del método handleGuardar() del componente agregar-stock.tsx
+ * 📦 Procesa una entrada compleja de stock
  */
 export async function processComplexStockEntry(
   params: ComplexStockEntryParams
 ): Promise<ComplexStockEntryResult> {
   try {
-    const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: organizationId } = await supabase.rpc('get_my_org_id_v2')
-
-    if (!organizationId) {
-      return {
-        success: false,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
-
-    let compraId: string | null = null
-    let movimientoCajaRegistrado = false
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Registrar compra (si hay proveedor y costo)
-    // ───────────────────────────────────────────────────────────────────────────
+    const { supabase, user, orgId: organizationId } = await verifyAuth()
 
     const costoNum = params.costoUnitario ?? 0
-    const montoTotal = costoNum * params.cantidad
 
-    if (params.proveedorId && costoNum > 0) {
-      const { data: compraData, error: compraError } = await (supabase
-        .from('compras') as any)
-        .insert([{
-          organization_id: organizationId,
-          proveedor_id: params.proveedorId,
-          monto_total: montoTotal,
-          estado_pago: params.estadoPago ?? 'pendiente',
-          medio_pago: params.estadoPago === 'pagado' ? params.medioPago : null,
-          fecha_compra: new Date().toISOString(),
-          vencimiento_pago: params.estadoPago === 'pendiente' ? params.fechaVencimientoPago : null,
-        }])
-        .select()
-        .single()
-
-      if (compraError) {
-        return {
-          success: false,
-          error: 'Error al registrar la compra',
-          details: { compraId: undefined },
-        }
-      }
-
-      compraId = compraData.id
-
-      // ─────────────────────────────────────────────────────────────────────────
-      // PASO 3: Registrar egreso en caja (si pago en efectivo)
-      // ─────────────────────────────────────────────────────────────────────────
-
-      if (params.estadoPago === 'pagado' && params.medioPago === 'efectivo') {
-        const { data: cajaActiva } = await supabase
-          .from('caja_diaria')
-          .select('id')
-          .eq('sucursal_id', params.sucursalId)
-          .is('fecha_cierre', null)
-          .single<{ id: string }>()
-
-        if (cajaActiva?.id) {
-          const { error: movimientoError } = await (supabase
-            .from('movimientos_caja') as any)
-            .insert({
-              caja_diaria_id: cajaActiva.id,
-              organization_id: organizationId,
-              monto: montoTotal,
-              tipo: 'egreso',
-              descripcion: `Pago Proveedor: Ingreso de mercadería (Lote)`,
-              categoria: 'proveedores',
-            })
-
-          if (!movimientoError) {
-            movimientoCajaRegistrado = true
-          }
-        }
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 4: Registrar entrada de stock usando el repositorio
-    // ───────────────────────────────────────────────────────────────────────────
-
+    // Registrar entrada de stock usando el repositorio actualizado
     const { data: stockData, error: stockError } = await createStockEntrada({
       organizationId: organizationId,
       sucursalId: params.sucursalId,
@@ -394,7 +241,6 @@ export async function processComplexStockEntry(
       cantidad: params.cantidad,
       fechaVencimiento: params.fechaVencimiento,
       proveedorId: params.proveedorId ?? undefined,
-      compraId: compraId,
       costoUnitarioHistorico: costoNum > 0 ? costoNum : undefined,
     })
 
@@ -402,39 +248,33 @@ export async function processComplexStockEntry(
       return {
         success: false,
         error: 'Error al registrar el stock',
-        details: { compraId: compraId ?? undefined },
       }
     }
 
     let precioActualizado = false
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 5: Actualizar historial de precios y costo del producto (si cambió)
-    // ───────────────────────────────────────────────────────────────────────────
-
+    // Actualizar costo del producto si cambió
     if (costoNum > 0) {
       const { data: productoActual, error: productoError } = await getProductoById(
         params.productoId
       )
 
       if (!productoError && productoActual) {
-        const costoAnterior = productoActual.costo ?? 0
+        const costoAnterior = productoActual.cost ?? 0
 
-        // Solo actualizar si el costo cambió
         if (costoAnterior !== costoNum) {
           // Registrar en historial de precios
-          await (supabase.from('historial_precios') as any).insert({
+          await supabase.from('price_history').insert({
             organization_id: organizationId,
-            producto_id: params.productoId,
-            costo_anterior: costoAnterior,
-            costo_nuevo: costoNum,
-            precio_venta_anterior: productoActual.precio_venta,
-            precio_venta_nuevo: productoActual.precio_venta,
-            empleado_id: user.id,
-            fecha_cambio: new Date().toISOString(),
+            product_id: params.productoId,
+            old_cost: costoAnterior,
+            new_cost: costoNum,
+            old_price: productoActual.sale_price,
+            new_price: productoActual.sale_price,
+            changed_by: user.id,
           })
 
-          // Actualizar costo del producto usando el repositorio
+          // Actualizar costo del producto
           const { error: updateError } = await updateProducto(params.productoId, {
             costo: costoNum,
           })
@@ -446,35 +286,25 @@ export async function processComplexStockEntry(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // RETORNO EXITOSO
-    // ───────────────────────────────────────────────────────────────────────────
-
     return {
       success: true,
       details: {
-        compraId: compraId ?? undefined,
         stockId: stockData?.id,
         precioActualizado,
-        movimientoCajaRegistrado,
       },
     }
   } catch (error) {
     return {
       success: false,
       error: 'Error inesperado al procesar la entrada de stock',
-      details: undefined,
     }
   }
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// RESUMEN DE CAPITAL (Capital Físico + Saldo Virtual)
+// RESUMEN DE CAPITAL
 // ───────────────────────────────────────────────────────────────────────────────
 
-/**
- * Resultado del resumen de capital
- */
 export interface CapitalSummaryResult {
   success: boolean
   capitalFisico: number
@@ -484,47 +314,17 @@ export interface CapitalSummaryResult {
 
 /**
  * 💰 Obtiene el resumen de capital de la organización
- *
- * LÓGICA (preservada del componente original):
- *
- * CAPITAL FÍSICO:
- * - Suma del valor del inventario: costo × stock_disponible
- * - Solo productos físicos (excluye categoría "Servicios")
- * - Solo productos con stock > 0
- * - Usa view_productos_con_stock para datos en tiempo real
- *
- * SALDO VIRTUAL:
- * - Suma de saldo_actual de proveedores del rubro "Servicios"
- * - Representa crédito prepago (ej: SUBE, recarga de celular)
- *
- * @param organizationId - ID de la organización
- * @returns CapitalSummaryResult - Resumen de capital
- *
- * ORIGEN: Refactorización de capital-badges.tsx
  */
 export async function getCapitalSummaryAction(
-  organizationId: string
+  _organizationId?: string
 ): Promise<CapitalSummaryResult> {
   try {
-    const supabase = await createClient()
+    const { supabase, orgId: organizationId } = await verifyAuth()
 
-    // Validación
-    if (!organizationId) {
-      return {
-        success: false,
-        capitalFisico: 0,
-        saldoVirtual: 0,
-        error: 'Organization ID es requerido',
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Calcular Capital Físico (inventario valorizado)
-    // ───────────────────────────────────────────────────────────────────────────
-
+    // Usar la vista v_products_with_stock del nuevo schema
     const { data: productosData, error: productosError } = await supabase
-      .from('view_productos_con_stock')
-      .select('costo, stock_disponible, categoria')
+      .from('v_products_with_stock')
+      .select('cost, stock, is_service')
       .eq('organization_id', organizationId)
 
     if (productosError) {
@@ -536,46 +336,38 @@ export async function getCapitalSummaryAction(
       }
     }
 
-    // Filtrar y calcular: costo × stock (excluye servicios y sin stock)
+    // Calcular: cost × stock (excluye servicios y sin stock)
     const capitalFisico = (productosData || [])
       .filter((p: any) =>
-        p.categoria !== 'Servicios' &&
-        (p.stock_disponible || 0) > 0
+        !p.is_service &&
+        (p.stock || 0) > 0
       )
       .reduce((suma: number, p: any) =>
-        suma + ((p.costo || 0) * (p.stock_disponible || 0)),
+        suma + ((p.cost || 0) * (p.stock || 0)),
         0
       )
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Calcular Saldo Virtual (proveedores de servicios)
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: proveedoresData, error: proveedoresError } = await supabase
-      .from('proveedores')
-      .select('saldo_actual')
+    // Saldo virtual desde suppliers
+    const { data: suppliersData, error: suppliersError } = await supabase
+      .from('suppliers')
+      .select('balance')
       .eq('organization_id', organizationId)
-      .eq('rubro', 'Servicios')
+      .eq('is_active', true)
 
-    if (proveedoresError) {
+    if (suppliersError) {
       return {
         success: false,
         capitalFisico: 0,
         saldoVirtual: 0,
-        error: `Error al obtener proveedores: ${proveedoresError.message}`,
+        error: `Error al obtener proveedores: ${suppliersError.message}`,
       }
     }
 
-    // Sumar saldos de todos los proveedores de servicios
-    const saldoVirtual = (proveedoresData || [])
+    const saldoVirtual = (suppliersData || [])
       .reduce((suma: number, p: any) =>
-        suma + (p.saldo_actual || 0),
+        suma + (p.balance || 0),
         0
       )
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // RETORNO EXITOSO
-    // ───────────────────────────────────────────────────────────────────────────
 
     return {
       success: true,
@@ -598,35 +390,26 @@ export async function getCapitalSummaryAction(
 
 /**
  * 📅 Obtiene stock próximo a vencer (menos de 10 días)
- *
- * @param sucursalId - ID de la sucursal
- * @returns Array de stock con productos próximos a vencer
  */
-export async function getExpiringStockAction(sucursalId: string) {
+export async function getExpiringStockAction(branchId: string) {
   try {
-    const supabase = await createClient()
+    const { supabase } = await verifyAuth()
 
-    if (!sucursalId) {
-      throw new Error('sucursalId es requerido')
-    }
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      throw new Error('No hay sesión activa')
+    if (!branchId) {
+      throw new Error('branchId es requerido')
     }
 
     const fechaLimite = new Date()
     fechaLimite.setDate(fechaLimite.getDate() + 10)
 
     const { data, error } = await supabase
-      .from('stock')
-      .select('id, cantidad, fecha_vencimiento, producto_id, productos(nombre, unidad_medida, emoji, categoria)')
-      .eq('sucursal_id', sucursalId)
-      .eq('tipo_movimiento', 'entrada')
-      .eq('estado', 'pendiente')
-      .not('fecha_vencimiento', 'is', null)
-      .lte('fecha_vencimiento', fechaLimite.toISOString())
-      .order('fecha_vencimiento', { ascending: true })
+      .from('stock_batches')
+      .select('id, quantity, expiration_date, product_id, products(name, emoji, category)')
+      .eq('branch_id', branchId)
+      .eq('status', 'available')
+      .not('expiration_date', 'is', null)
+      .lte('expiration_date', fechaLimite.toISOString().split('T')[0])
+      .order('expiration_date', { ascending: true })
 
     if (error) throw error
 
@@ -642,105 +425,32 @@ export async function getExpiringStockAction(sucursalId: string) {
 
 /**
  * 🗑️ Procesa la merma de un producto vencido
- *
- * FLUJO:
- * 1. Marca el stock como 'mermado'
- * 2. Busca misión activa de tipo 'vencimiento' en el turno
- * 3. Actualiza progreso de la misión
- * 4. Si se completa la misión, otorga XP al empleado
- *
- * @param stockId - ID del registro de stock a mermar
- * @param turnoId - ID del turno actual (caja_diaria_id)
- * @param empleadoId - ID del empleado que realiza la acción
- * @returns Resultado de la operación
  */
 export async function processStockLossAction(
   stockId: string,
-  turnoId: string,
-  empleadoId: string
+  _turnoId: string,
+  _empleadoId: string
 ) {
   try {
-    const supabase = await createClient()
+    const { supabase } = await verifyAuth()
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
-    if (!stockId || !turnoId || !empleadoId) {
-      throw new Error('Faltan parámetros requeridos')
+    if (!stockId) {
+      throw new Error('stockId es requerido')
     }
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      throw new Error('No hay sesión activa')
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Marcar stock como mermado
-    // ───────────────────────────────────────────────────────────────────────────
-
+    // Marcar lote como damaged (merma)
     const { error: updateError } = await supabase
-      .from('stock')
-      .update({
-        estado: 'mermado',
-        fecha_mermado: new Date().toISOString(),
-      })
+      .from('stock_batches')
+      .update({ status: 'damaged' })
       .eq('id', stockId)
 
     if (updateError) throw updateError
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Buscar misión activa de vencimiento
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: misiones } = await supabase
-      .from('misiones')
-      .select('id, objetivo_unidades, unidades_completadas, puntos')
-      .eq('caja_diaria_id', turnoId)
-      .eq('tipo', 'vencimiento')
-      .eq('es_completada', false)
-      .maybeSingle()
-
-    if (misiones) {
-      const nuevasUnidades = (misiones.unidades_completadas || 0) + 1
-      const completada = misiones.objetivo_unidades !== null &&
-        nuevasUnidades >= misiones.objetivo_unidades
-
-      // ─────────────────────────────────────────────────────────────────────────
-      // PASO 3: Actualizar progreso de misión
-      // ─────────────────────────────────────────────────────────────────────────
-
-      await supabase
-        .from('misiones')
-        .update({
-          unidades_completadas: nuevasUnidades,
-          es_completada: completada,
-        })
-        .eq('id', misiones.id)
-
-      // ─────────────────────────────────────────────────────────────────────────
-      // PASO 4: Otorgar XP si la misión se completó
-      // ─────────────────────────────────────────────────────────────────────────
-
-      if (completada && misiones.puntos !== null) {
-        const { data: perfil } = await supabase
-          .from('perfiles')
-          .select('xp')
-          .eq('id', empleadoId)
-          .single<{ xp: number | null }>()
-
-        if (perfil && perfil.xp !== null) {
-          await supabase
-            .from('perfiles')
-            .update({ xp: perfil.xp + misiones.puntos })
-            .eq('id', empleadoId)
-        }
-      }
-    }
+    // TODO: Implementar sistema de misiones en nuevo schema si es necesario
 
     return {
       success: true,
-      misionCompletada: misiones ? (misiones.unidades_completadas || 0) + 1 >= (misiones.objetivo_unidades || 0) : false,
+      misionCompletada: false,
     }
   } catch (error) {
     return {
@@ -751,12 +461,9 @@ export async function processStockLossAction(
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// STOCK CRÍTICO (PARA MISIONES)
+// STOCK CRÍTICO
 // ───────────────────────────────────────────────────────────────────────────────
 
-/**
- * Stock crítico para misiones
- */
 export interface CriticalStock {
   id: string
   producto_id: string
@@ -766,9 +473,6 @@ export interface CriticalStock {
   precio_venta: number
 }
 
-/**
- * Resultado de consulta de stock crítico
- */
 export interface GetCriticalStockResult {
   success: boolean
   stock: CriticalStock[]
@@ -777,62 +481,31 @@ export interface GetCriticalStockResult {
 
 /**
  * 📦 Obtiene stock disponible que vence en menos de 7 días
- *
- * FLUJO:
- * 1. Calcula fecha límite (hoy + 7 días)
- * 2. Consulta stock disponible que venza antes de esa fecha
- * 3. Filtra por sucursal específica
- *
- * @param sucursalId - ID de la sucursal
- * @returns GetCriticalStockResult - Stock crítico
- *
- * ORIGEN: Refactorización de handleOpenMermarModal() líneas 90-123
  */
 export async function getCriticalStockAction(
-  sucursalId: string
+  branchId: string
 ): Promise<GetCriticalStockResult> {
   try {
-    const supabase = await createClient()
+    const { supabase } = await verifyAuth()
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
-    if (!sucursalId) {
+    if (!branchId) {
       return {
         success: false,
         stock: [],
-        error: 'sucursalId es requerido',
+        error: 'branchId es requerido',
       }
     }
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        stock: [],
-        error: 'No hay sesión activa',
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Calcular fecha límite (7 días)
-    // ───────────────────────────────────────────────────────────────────────────
 
     const fechaLimite = new Date()
     fechaLimite.setDate(fechaLimite.getDate() + 7)
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Consultar stock crítico
-    // ───────────────────────────────────────────────────────────────────────────
-
     const { data, error } = await supabase
-      .from('stock')
-      .select(`id, producto_id, fecha_vencimiento, productos(nombre, emoji, precio_venta)`)
-      .eq('sucursal_id', sucursalId)
-      .eq('estado', 'disponible')
-      .lt('fecha_vencimiento', fechaLimite.toISOString().split('T')[0])
-      .order('fecha_vencimiento', { ascending: true })
+      .from('stock_batches')
+      .select('id, product_id, expiration_date, products(name, emoji, sale_price)')
+      .eq('branch_id', branchId)
+      .eq('status', 'available')
+      .lt('expiration_date', fechaLimite.toISOString().split('T')[0])
+      .order('expiration_date', { ascending: true })
 
     if (error) {
       return {
@@ -842,18 +515,17 @@ export async function getCriticalStockAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 3: Formatear resultado
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const stockCritico: CriticalStock[] = (data || []).map((item: any) => ({
-      id: item.id,
-      producto_id: item.producto_id,
-      nombre_producto: item.productos?.nombre || 'Producto',
-      emoji_producto: item.productos?.emoji || '📦',
-      fecha_vencimiento: item.fecha_vencimiento,
-      precio_venta: item.productos?.precio_venta || 0,
-    }))
+    const stockCritico: CriticalStock[] = (data || []).map((item: any) => {
+      const product = resolveJoin<{ name: string; emoji?: string; sale_price?: number }>(item.products)
+      return {
+        id: item.id,
+        producto_id: item.product_id,
+        nombre_producto: product?.name || 'Producto',
+        emoji_producto: product?.emoji || '📦',
+        fecha_vencimiento: item.expiration_date,
+        precio_venta: product?.sale_price || 0,
+      }
+    })
 
     return {
       success: true,

@@ -15,8 +15,8 @@ import {
   getEmployeeMissionsAction,
   completeManualMissionAction,
   processMermasMissionAction,
-  type Mission
-} from "@/lib/actions/mission.actions"
+  type MissionData as Mission
+} from "@/lib/actions/missions.actions"
 import { getCriticalStockAction, type CriticalStock } from "@/lib/actions/inventory.actions"
 
 interface MisionesEmpleadoProps {

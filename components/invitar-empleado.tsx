@@ -20,25 +20,25 @@ interface Invite {
   id: string
   email: string
   created_at: string
-  sucursales: { nombre: string } | null
+  branch: { name: string } | null
 }
 
-interface Empleado {
+interface Employee {
   id: string
-  nombre: string
+  display_name: string
   email: string | null
-  rol: string
-  sucursal_id: string
-  sucursales: { nombre: string } | null
+  role: string
+  branch_id: string | null
+  branch: { name: string } | null
 }
 
 export function InvitarEmpleado() {
   const [email, setEmail] = useState("")
-  const [selectedSucursal, setSelectedSucursal] = useState<string>("")
-  const [sucursales, setSucursales] = useState<{id: string, nombre: string}[]>([])
+  const [selectedBranch, setSelectedBranch] = useState<string>("")
+  const [branches, setBranches] = useState<{id: string, name: string}[]>([])
   const [loading, setLoading] = useState(false)
   const [invites, setInvites] = useState<Invite[]>([])
-  const [empleados, setEmpleados] = useState<Empleado[]>([])
+  const [employees, setEmployees] = useState<Employee[]>([])
 
   const cargarDatos = useCallback(async () => {
     const result = await getStaffManagementDataAction()
@@ -48,9 +48,9 @@ export function InvitarEmpleado() {
       return
     }
 
-    setSucursales(result.sucursales)
+    setBranches(result.branches)
     setInvites(result.invites)
-    setEmpleados(result.empleados)
+    setEmployees(result.employees)
   }, [])
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
@@ -60,7 +60,7 @@ export function InvitarEmpleado() {
 
     setLoading(true)
     try {
-      const result = await inviteEmployeeAction(email, selectedSucursal)
+      const result = await inviteEmployeeAction(email, selectedBranch)
 
       if (!result.success) {
         toast.error("Error", { description: result.error })
@@ -130,13 +130,13 @@ export function InvitarEmpleado() {
 
                 <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase text-slate-500 ml-1">Sucursal de Trabajo (Base)</Label>
-                    <Select value={selectedSucursal} onValueChange={setSelectedSucursal}>
+                    <Select value={selectedBranch} onValueChange={setSelectedBranch}>
                         <SelectTrigger className="h-14 rounded-2xl border-2 font-bold">
                             <SelectValue placeholder="-- SELECCIONAR KIOSCO --" />
                         </SelectTrigger>
                         <SelectContent className="rounded-2xl font-bold">
-                            {sucursales.map(s => (
-                                <SelectItem key={s.id} value={s.id}>{s.nombre.toUpperCase()}</SelectItem>
+                            {branches.map(s => (
+                                <SelectItem key={s.id} value={s.id}>{s.name.toUpperCase()}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
@@ -155,7 +155,7 @@ export function InvitarEmpleado() {
                             <div>
                                 <span className="text-xs font-black text-slate-700 block">{inv.email}</span>
                                 <span className="text-[9px] font-bold text-blue-500 uppercase flex items-center gap-1">
-                                    <MapPin className="h-2 w-2"/> {inv.sucursales?.nombre || 'General'}
+                                    <MapPin className="h-2 w-2"/> {inv.branch?.name || 'General'}
                                 </span>
                             </div>
                             <Button size="icon" variant="ghost" className="h-10 w-10 text-red-400 hover:bg-red-50 rounded-full" onClick={() => borrarInvite(inv.id)}>
@@ -180,20 +180,20 @@ export function InvitarEmpleado() {
             </div>
 
             <div className="space-y-4">
-                {empleados.length === 0 ? (
+                {employees.length === 0 ? (
                     <div className="text-center py-16 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
                         <p className="text-xs font-black text-slate-400 uppercase tracking-tighter">No hay empleados registrados</p>
                     </div>
-                ) : empleados.map((emp) => (
+                ) : employees.map((emp) => (
                     <div key={emp.id} className="group flex items-center justify-between p-5 bg-white border-2 hover:border-emerald-500 transition-all rounded-[1.5rem] shadow-sm">
                         <div className="flex items-center gap-4">
                             <div className="h-10 w-10 bg-slate-900 rounded-xl flex items-center justify-center text-white font-black text-sm uppercase">
-                                {emp.nombre?.charAt(0) || 'E'}
+                                {emp.display_name?.charAt(0) || 'E'}
                             </div>
                             <div>
-                                <p className="font-black text-sm uppercase text-slate-800 leading-tight">{emp.nombre || 'Sin nombre'}</p>
+                                <p className="font-black text-sm uppercase text-slate-800 leading-tight">{emp.display_name || 'Sin nombre'}</p>
                                 <div className="flex items-center gap-2 mt-1">
-                                    <Badge variant="secondary" className="text-[9px] font-black bg-blue-50 text-blue-600 border-0">{emp.sucursales?.nombre?.toUpperCase()}</Badge>
+                                    <Badge variant="secondary" className="text-[9px] font-black bg-blue-50 text-blue-600 border-0">{emp.branch?.name?.toUpperCase()}</Badge>
                                     <span className="text-[10px] font-bold text-slate-300">{emp.email}</span>
                                 </div>
                             </div>
@@ -202,7 +202,7 @@ export function InvitarEmpleado() {
                             variant="ghost"
                             size="sm"
                             className="opacity-0 group-hover:opacity-100 text-red-500 font-black text-[10px] uppercase hover:bg-red-50 rounded-xl transition-all"
-                            onClick={() => desvincularEmpleado(emp.id, emp.nombre)}
+                            onClick={() => desvincularEmpleado(emp.id, emp.display_name)}
                         >
                             Dar de Baja
                         </Button>

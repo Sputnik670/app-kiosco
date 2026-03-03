@@ -135,7 +135,7 @@ export default function RelojControl({ sucursalId, sucursalNombre, onActionCompl
                 Ingreso realizado a las:
             </span>
             <span className="text-xs font-mono font-black text-emerald-800 bg-white px-3 py-1 rounded-lg border-2 border-emerald-100">
-                {format(parseISO(fichajeActivo.entrada), 'HH:mm:ss')} HS
+                {format(parseISO(fichajeActivo.check_in), 'HH:mm:ss')} HS
             </span>
         </div>
       )}

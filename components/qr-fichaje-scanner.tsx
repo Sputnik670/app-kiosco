@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode"
+// html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Loader2, X, AlertCircle } from "lucide-react"
@@ -18,7 +18,8 @@ export default function QRFichajeScanner({ onClose, isOpen, onQRScanned }: QRFic
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const scannerRef = useRef<Html5Qrcode | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scannerRef = useRef<any>(null)
   const isProcessingRef = useRef(false)
 
   // ID único para el contenedor del video
@@ -42,11 +43,12 @@ export default function QRFichajeScanner({ onClose, isOpen, onQRScanned }: QRFic
           throw new Error("El contenedor de video no está listo.")
         }
 
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
         const html5QrCode = new Html5Qrcode(scannerId)
         scannerRef.current = html5QrCode
 
         const config = {
-          fps: 20, 
+          fps: 20,
           qrbox: { width: 250, height: 250 },
           aspectRatio: 1.0,
           formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]

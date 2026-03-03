@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { supabase } from "@/lib/supabase"
-import { Loader2, QrCode } from "lucide-react"
+import { Loader2, QrCode, DollarSign, AlertTriangle, ShoppingCart } from "lucide-react"
 import DashboardDueno from "@/components/dashboard-dueno"
 import VistaEmpleado from "@/components/vista-empleado"
 import AuthForm from "@/components/auth-form"
@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
+import { getQuickSnapshotAction } from "@/lib/actions/dashboard.actions"
+import type { QuickSnapshot } from "@/types/dashboard.types"
 
 interface UserProfile {
     id: string
@@ -89,6 +91,42 @@ function EscanearQRFichaje({ onQRScanned }: { onQRScanned: (data: { sucursal_id:
   )
 }
 
+function QuickKPISnapshot({ organizationId }: { organizationId: string }) {
+  const [snapshot, setSnapshot] = useState<QuickSnapshot | null>(null)
+
+  useEffect(() => {
+    getQuickSnapshotAction(organizationId).then(setSnapshot)
+  }, [organizationId])
+
+  if (!snapshot?.success) return null
+
+  const formatMoney = (n: number) =>
+    new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n)
+
+  return (
+    <div className="grid grid-cols-3 gap-3 mb-6">
+      <Card className="p-3 text-center border-green-200 bg-green-50">
+        <DollarSign className="h-5 w-5 mx-auto text-green-600 mb-1" />
+        <p className="text-xs font-bold text-green-800 uppercase">Ventas hoy</p>
+        <p className="text-lg font-black text-green-700">{formatMoney(snapshot.ventasHoy)}</p>
+        <p className="text-[10px] text-green-600">{snapshot.cantVentas} ventas</p>
+      </Card>
+      <Card className="p-3 text-center border-blue-200 bg-blue-50">
+        <ShoppingCart className="h-5 w-5 mx-auto text-blue-600 mb-1" />
+        <p className="text-xs font-bold text-blue-800 uppercase">Operaciones</p>
+        <p className="text-lg font-black text-blue-700">{snapshot.cantVentas}</p>
+        <p className="text-[10px] text-blue-600">transacciones</p>
+      </Card>
+      <Card className={`p-3 text-center ${snapshot.productosStockBajo > 0 ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"}`}>
+        <AlertTriangle className={`h-5 w-5 mx-auto mb-1 ${snapshot.productosStockBajo > 0 ? "text-red-600" : "text-slate-400"}`} />
+        <p className={`text-xs font-bold uppercase ${snapshot.productosStockBajo > 0 ? "text-red-800" : "text-slate-600"}`}>Stock bajo</p>
+        <p className={`text-lg font-black ${snapshot.productosStockBajo > 0 ? "text-red-700" : "text-slate-500"}`}>{snapshot.productosStockBajo}</p>
+        <p className={`text-[10px] ${snapshot.productosStockBajo > 0 ? "text-red-600" : "text-slate-400"}`}>productos</p>
+      </Card>
+    </div>
+  )
+}
+
 function AppRouter({ userProfile, onLogout, sucursalId }: { userProfile: UserProfile, onLogout: () => void, sucursalId: string }) {
     if (userProfile.rol === "dueño") {
         return <DashboardDueno onBack={onLogout} sucursalId={sucursalId} />
@@ -119,46 +157,24 @@ export default function HomePage() {
     try {
         console.log('[fetchProfile] Iniciando para userId:', userId)
 
-        // 1. Obtener perfil básico
-        const { data: perfil, error: perfilError } = await supabase
-            .from('perfiles')
-            .select('id, nombre, email, sucursal_id')
-            .eq('id', userId)
-            .single()
-
-        console.log('[fetchProfile] Perfil:', perfil, 'Error:', perfilError)
-
-        if (perfilError) {
-            if (perfilError.code === 'PGRST116') {
-                // No tiene perfil, mostrar setup
-                console.log('[fetchProfile] No tiene perfil, mostrando setup')
-                setHasProfile(false)
-                setUserProfile(null)
-                if (shouldValidate) {
-                    throw new Error('Profile not ready yet')
-                }
-                return
-            }
-            throw perfilError
-        }
-
-        // 2. Obtener rol y organization_id desde user_organization_roles
-        // Nota: Usamos array y tomamos el primero porque puede haber múltiples orgs
-        const { data: rolesArray, error: roleError } = await supabase
-            .from('user_organization_roles')
-            .select('role, organization_id')
+        // Schema V2: Obtener datos desde memberships (única fuente de verdad)
+        const { data: membership, error: membershipError } = await supabase
+            .from('memberships')
+            .select('user_id, organization_id, branch_id, role, display_name, email')
             .eq('user_id', userId)
             .eq('is_active', true)
-            .order('created_at', { ascending: true })
-            .limit(1)
+            .maybeSingle()
 
-        console.log('[fetchProfile] RolesArray:', rolesArray, 'Error:', roleError)
+        console.log('[fetchProfile] Membership:', membership, 'Error:', membershipError)
 
-        const roleData = rolesArray?.[0]
+        if (membershipError) {
+            console.error('[fetchProfile] Error de BD:', membershipError)
+            throw membershipError
+        }
 
-        // Si no hay rol asignado, el usuario necesita completar setup
-        if (roleError || !roleData) {
-            console.log('[fetchProfile] No tiene rol asignado, mostrando setup')
+        // Si no hay membership, el usuario necesita completar setup
+        if (!membership) {
+            console.log('[fetchProfile] No tiene membership, mostrando setup')
             setHasProfile(false)
             setUserProfile(null)
             if (shouldValidate) {
@@ -167,15 +183,15 @@ export default function HomePage() {
             return
         }
 
-        // Mapear role de BD a rol de UI
-        const rolUI = roleData.role === 'owner' ? 'dueño' : 'empleado'
+        // Mapear role de BD a rol de UI (owner → dueño, employee → empleado)
+        const rolUI = membership.role === 'owner' ? 'dueño' : 'empleado'
         console.log('[fetchProfile] Rol mapeado:', rolUI)
 
         setUserProfile({
-            id: perfil.id,
-            nombre: perfil.nombre,
+            id: membership.user_id,
+            nombre: membership.display_name,
             rol: rolUI as 'dueño' | 'empleado',
-            organization_id: roleData.organization_id || ''
+            organization_id: membership.organization_id
         })
         setHasProfile(true)
         console.log('[fetchProfile] Perfil cargado exitosamente')
@@ -268,41 +284,11 @@ export default function HomePage() {
             user={session.user}
             onProfileCreated={async (result) => {
               try {
-                if (result.data) {
-                  // Use the data returned from the RPC - no need to re-fetch!
-                  const isOwner = result.role === 'dueño';
-                  const rpcData = result.data;
-
-                  // Map RPC data structure to our state
-                  const organizationId = isOwner
-                    ? rpcData.organization?.id
-                    : rpcData.role?.organization_id;
-
-                  const sucursalId = isOwner
-                    ? rpcData.sucursal?.id
-                    : rpcData.role?.sucursal_id;
-
-                  const perfilData = rpcData.perfil;
-
-                  if (perfilData && organizationId) {
-                    setUserProfile({
-                      id: perfilData.id,
-                      rol: result.role, // Use the role from result ('dueño' or 'empleado')
-                      nombre: perfilData.nombre,
-                      organization_id: organizationId,
-                    });
-                    setHasProfile(true);
-                    // State update will trigger re-render and show dashboard
-                  } else {
-                    // Fallback: data structure unexpected, fetch profile
-                    console.warn('[ProfileSetup] Incomplete RPC data, falling back to fetchProfile');
-                    await fetchProfile(session.user.id);
-                  }
-                } else {
-                  // Fallback: no data returned, fetch profile
-                  console.warn('[ProfileSetup] No RPC data returned, falling back to fetchProfile');
-                  await fetchProfile(session.user.id);
-                }
+                // Schema V2: RPC retorna { organization_id, branch_id, role, success }
+                // Siempre hacemos fetchProfile para obtener el membership completo
+                // Esto es más confiable que intentar reconstruir el estado desde el RPC
+                console.log('[ProfileSetup] Perfil creado, cargando membership...');
+                await fetchProfile(session.user.id);
               } catch (error) {
                 console.error('[ProfileSetup] Error processing profile:', error);
                 toast.error("Error al cargar perfil", {
@@ -320,12 +306,17 @@ export default function HomePage() {
             return <EscanearQRFichaje onQRScanned={(data) => setSucursalId(data.sucursal_id)} />
         }
         return (
-            <SeleccionarSucursal 
-                organizationId={userProfile.organization_id} 
-                userId={userProfile.id}
-                userRol={userProfile.rol}
-                onSelect={(id) => setSucursalId(id)}
-            />
+            <div className="min-h-screen bg-slate-50">
+              <div className="max-w-md mx-auto pt-6 px-4">
+                <QuickKPISnapshot organizationId={userProfile.organization_id} />
+              </div>
+              <SeleccionarSucursal
+                  organizationId={userProfile.organization_id}
+                  userId={userProfile.id}
+                  userRol={userProfile.rol}
+                  onSelect={(id) => setSucursalId(id)}
+              />
+            </div>
         )
     }
 

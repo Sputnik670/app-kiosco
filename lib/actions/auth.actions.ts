@@ -12,7 +12,10 @@
  * - Manejo seguro de redirects
  * - Mensajes de error claros
  *
- * ORIGEN: Refactorización de auth-form.tsx
+ * RPCs UTILIZADAS:
+ * - setup_organization: Onboarding para owners (crea org + membership + branch)
+ * - accept_invite: Onboarding para empleados (usa token de invitación)
+ * - get_my_org_id: Obtener organization_id del usuario actual
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -20,10 +23,15 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
+import type { Database } from '@/types/database.types'
+import { resolveJoin } from '@/types/supabase-joins'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
 // ───────────────────────────────────────────────────────────────────────────────
+
+type UserRole = 'owner' | 'admin' | 'employee'
 
 /**
  * Resultado de operaciones de autenticación
@@ -221,20 +229,20 @@ export async function signInWithMagicLinkAction(
  */
 export interface StaffManagementData {
   success: boolean
-  sucursales: Array<{ id: string; nombre: string }>
+  branches: Array<{ id: string; name: string }>
   invites: Array<{
     id: string
     email: string
     created_at: string
-    sucursales: { nombre: string } | null
+    branch: { name: string } | null
   }>
-  empleados: Array<{
+  employees: Array<{
     id: string
-    nombre: string
+    display_name: string
     email: string | null
-    rol: string
-    sucursal_id: string
-    sucursales: { nombre: string } | null
+    role: UserRole
+    branch_id: string | null
+    branch: { name: string } | null
   }>
   organizationId?: string
   error?: string
@@ -244,10 +252,10 @@ export interface StaffManagementData {
  * 👥 Obtiene todos los datos necesarios para gestión de personal
  *
  * FLUJO:
- * 1. Obtiene organization_id usando get_my_org_id_v2() (lee de user_organization_roles)
- * 2. Consulta sucursales de la organización
+ * 1. Obtiene organization_id usando get_my_org_id() (lee de memberships)
+ * 2. Consulta branches de la organización
  * 3. Consulta invitaciones pendientes
- * 4. Consulta empleados desde user_organization_roles + perfiles
+ * 4. Consulta empleados desde memberships
  *
  * @returns StaffManagementData - Datos de gestión de personal
  */
@@ -258,100 +266,85 @@ export async function getStaffManagementDataAction(): Promise<StaffManagementDat
     if (!user?.id) {
       return {
         success: false,
-        sucursales: [],
+        branches: [],
         invites: [],
-        empleados: [],
+        employees: [],
         error: 'No hay sesión activa',
       }
     }
 
-    // Obtener organization_id desde user_organization_roles
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
+    // Obtener organization_id desde memberships via RPC
+    const { data: orgId } = await supabase.rpc('get_my_org_id')
 
     if (!orgId) {
       return {
         success: false,
-        sucursales: [],
+        branches: [],
         invites: [],
-        empleados: [],
+        employees: [],
         error: 'No se encontró la organización',
       }
     }
 
-    // Cargar sucursales
-    const { data: sucursales } = await supabase
-      .from('sucursales')
-      .select('id, nombre')
+    // Cargar branches
+    const { data: branches } = await supabase
+      .from('branches')
+      .select('id, name')
       .eq('organization_id', orgId)
-
-    // Cargar invitaciones pendientes
-    const { data: invites } = await supabase
-      .from('pending_invites')
-      .select('*, sucursales(nombre)')
-      .eq('organization_id', orgId)
-
-    // Cargar empleados desde user_organization_roles
-    const { data: rolesEmpleados } = await supabase
-      .from('user_organization_roles')
-      .select(`
-        user_id,
-        role,
-        sucursal_id,
-        sucursales(nombre),
-        is_active
-      `)
-      .eq('organization_id', orgId)
-      .eq('role', 'employee')
       .eq('is_active', true)
 
-    // Obtener nombres desde perfiles para los empleados
-    const empleadoIds = rolesEmpleados?.map(r => r.user_id) || []
-    let empleadosConNombre: Array<{
-      id: string
-      nombre: string
-      email: string | null
-      rol: string
-      sucursal_id: string
-      sucursales: { nombre: string } | null
-    }> = []
+    // Cargar invitaciones pendientes con branch info
+    const { data: invitesRaw } = await supabase
+      .from('pending_invites')
+      .select('id, email, created_at, branch_id, branches(name)')
+      .eq('organization_id', orgId)
+      .gt('expires_at', new Date().toISOString())
 
-    if (empleadoIds.length > 0) {
-      const { data: perfilesEmpleados } = await supabase
-        .from('perfiles')
-        .select('id, nombre, email')
-        .in('id', empleadoIds)
+    // Mapear invites al formato esperado
+    const invites = (invitesRaw || []).map(inv => {
+      const branch = resolveJoin<{ name: string }>(inv.branches)
+      return {
+        id: inv.id,
+        email: inv.email,
+        created_at: inv.created_at,
+        branch: branch ? { name: branch.name } : null,
+      }
+    })
 
-      // Mapear con la info de roles
-      empleadosConNombre = (rolesEmpleados || []).map(role => {
-        const perfil = perfilesEmpleados?.find(p => p.id === role.user_id)
-        // Supabase puede devolver array o objeto para relaciones
-        const sucursalData = Array.isArray(role.sucursales)
-          ? role.sucursales[0]
-          : role.sucursales
-        return {
-          id: role.user_id,
-          nombre: perfil?.nombre || 'Sin nombre',
-          email: perfil?.email || null,
-          rol: 'empleado', // Mapear 'employee' -> 'empleado' para compatibilidad
-          sucursal_id: role.sucursal_id || '',
-          sucursales: sucursalData as { nombre: string } | null,
-        }
-      })
-    }
+    // Cargar empleados desde memberships (excepto el owner actual)
+    const { data: membersRaw } = await supabase
+      .from('memberships')
+      .select('id, user_id, display_name, email, role, branch_id, branches(name)')
+      .eq('organization_id', orgId)
+      .eq('is_active', true)
+      .neq('user_id', user.id) // Excluir al usuario actual (owner)
+
+    // Mapear employees al formato esperado
+    const employees = (membersRaw || []).map(m => {
+      const branch = resolveJoin<{ name: string }>(m.branches)
+      return {
+        id: m.user_id,
+        display_name: m.display_name,
+        email: m.email,
+        role: m.role as UserRole,
+        branch_id: m.branch_id,
+        branch: branch ? { name: branch.name } : null,
+      }
+    })
 
     return {
       success: true,
-      sucursales: sucursales || [],
-      invites: (invites || []) as StaffManagementData['invites'],
-      empleados: empleadosConNombre,
+      branches: (branches || []).map(b => ({ id: b.id, name: b.name })),
+      invites,
+      employees,
       organizationId: orgId,
     }
   } catch (error) {
     return {
       success: false,
-      sucursales: [],
+      branches: [],
       invites: [],
-      empleados: [],
+      employees: [],
       error: error instanceof Error ? error.message : 'Error desconocido al cargar datos',
     }
   }
@@ -370,12 +363,12 @@ export interface InviteEmployeeResult {
  * 📧 Invita a un empleado y envía Magic Link
  *
  * @param email - Email del empleado a invitar
- * @param sucursalId - ID de la sucursal asignada
+ * @param branchId - ID del branch asignado
  * @returns InviteEmployeeResult - Resultado de la operación
  */
 export async function inviteEmployeeAction(
   email: string,
-  sucursalId: string
+  branchId: string
 ): Promise<InviteEmployeeResult> {
   try {
     if (!email || !email.includes('@')) {
@@ -385,31 +378,14 @@ export async function inviteEmployeeAction(
       }
     }
 
-    if (!sucursalId) {
+    if (!branchId) {
       return {
         success: false,
         error: 'Debes asignar una sucursal de trabajo',
       }
     }
 
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    // Obtener organization_id desde user_organization_roles
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
-
-    if (!orgId) {
-      return {
-        success: false,
-        error: 'Error de sesión',
-      }
-    }
+    const { supabase, user, orgId } = await verifyOwner()
     const normalizedEmail = email.trim().toLowerCase()
 
     // Insertar invitación en base de datos
@@ -418,7 +394,8 @@ export async function inviteEmployeeAction(
       .insert([{
         email: normalizedEmail,
         organization_id: orgId,
-        sucursal_id: sucursalId,
+        branch_id: branchId,
+        invited_by: user.id,
       }])
       .select('token')
       .single<{ token: string }>()
@@ -488,7 +465,7 @@ export async function inviteEmployeeAction(
  */
 export async function cancelInviteAction(inviteId: string): Promise<AuthResult> {
   try {
-    const supabase = await createClient()
+    const { supabase, orgId } = await verifyOwner()
     if (!inviteId) {
       return {
         success: false,
@@ -500,6 +477,7 @@ export async function cancelInviteAction(inviteId: string): Promise<AuthResult> 
       .from('pending_invites')
       .delete()
       .eq('id', inviteId)
+      .eq('organization_id', orgId)
 
     if (error) {
       return {
@@ -521,27 +499,28 @@ export async function cancelInviteAction(inviteId: string): Promise<AuthResult> 
 }
 
 /**
- * 🗑️ Elimina un empleado (desvincula del sistema)
+ * 🗑️ Desactiva un empleado (soft delete)
  *
- * @param perfilId - ID del perfil a eliminar
+ * @param userId - ID del usuario a desactivar
  * @returns AuthResult - Resultado de la operación
- *
- * ORIGEN: Refactorización de desvincularEmpleado() líneas 125-133
  */
-export async function removeEmployeeAction(perfilId: string): Promise<AuthResult> {
+export async function removeEmployeeAction(userId: string): Promise<AuthResult> {
   try {
-    const supabase = await createClient()
-    if (!perfilId) {
+    if (!userId) {
       return {
         success: false,
-        error: 'ID de perfil requerido',
+        error: 'ID de usuario requerido',
       }
     }
 
+    const { supabase, orgId } = await verifyOwner()
+
+    // Soft delete: marcar is_active = false en memberships
     const { error } = await supabase
-      .from('perfiles')
-      .delete()
-      .eq('id', perfilId)
+      .from('memberships')
+      .update({ is_active: false })
+      .eq('user_id', userId)
+      .eq('organization_id', orgId)
 
     if (error) {
       return {
@@ -568,18 +547,15 @@ export async function removeEmployeeAction(perfilId: string): Promise<AuthResult
  * FLUJO:
  * 1. Busca en pending_invites por email y token
  * 2. Valida que no esté expirada (expires_at > now)
- * 3. Si es válida, devuelve los datos de organización y sucursal
+ * 3. Si es válida, devuelve los datos de organización y branch
  *
  * SEGURIDAD:
  * - Doble validación: email + token
  * - Verificación de expiración
- * - RLS filtra por organization_id automáticamente
  *
  * @param email - Email del usuario a verificar
  * @param token - Token único de la invitación (opcional para compatibilidad)
  * @returns CheckInvitationResult - Datos de la invitación o null
- *
- * ORIGEN: Refactorización de profile-setup.tsx líneas 31-80
  */
 export async function checkInvitationAction(
   email: string,
@@ -588,15 +564,12 @@ export async function checkInvitationAction(
   success: boolean
   invitation?: {
     organization_id: string
-    sucursal_id: string | null
+    branch_id: string | null
+    token: string
   } | null
   error?: string
 }> {
   try {
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
     if (!email) {
       return {
         success: false,
@@ -607,13 +580,10 @@ export async function checkInvitationAction(
     const emailNormalizado = email.toLowerCase().trim()
     const supabase = await createClient()
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Buscar invitación pendiente válida (no expirada)
-    // ───────────────────────────────────────────────────────────────────────────
-
+    // Buscar invitación pendiente válida (no expirada)
     let query = supabase
       .from('pending_invites')
-      .select('organization_id, sucursal_id, expires_at')
+      .select('organization_id, branch_id, token, expires_at')
       .eq('email', emailNormalizado)
       .gt('expires_at', new Date().toISOString())
 
@@ -624,7 +594,8 @@ export async function checkInvitationAction(
 
     const { data: invitacion, error } = await query.maybeSingle<{
       organization_id: string
-      sucursal_id: string | null
+      branch_id: string | null
+      token: string
       expires_at: string
     }>()
 
@@ -656,7 +627,8 @@ export async function checkInvitationAction(
       success: true,
       invitation: {
         organization_id: invitacion.organization_id,
-        sucursal_id: invitacion.sucursal_id,
+        branch_id: invitacion.branch_id,
+        token: invitacion.token,
       },
     }
   } catch (error) {
@@ -668,12 +640,30 @@ export async function checkInvitationAction(
 }
 
 /**
+ * Resultado de setup_organization RPC
+ */
+interface SetupOrganizationResult {
+  organization_id: string
+  branch_id: string
+  role: 'owner'
+}
+
+/**
+ * Resultado de accept_invite RPC
+ */
+interface AcceptInviteResult {
+  organization_id: string
+  branch_id: string | null
+  role: 'employee'
+}
+
+/**
  * 👤 Completa el proceso de configuración de perfil (registro)
  *
  * FLUJO:
  * 1. Valida si el rol ya existe (idempotencia)
- * 2. Caso Dueño: Usa create_initial_setup_v2()
- * 3. Caso Empleado: Usa complete_employee_setup_v2()
+ * 2. Caso Dueño: Usa setup_organization() - crea org + membership + branch
+ * 3. Caso Empleado: Usa accept_invite() - usa token de invitación
  *
  * @param formData - Datos del formulario de registro
  * @returns CompleteProfileSetupResult - Resultado de la operación
@@ -683,12 +673,13 @@ export async function completeProfileSetupAction(formData: {
   email: string
   name: string
   role: 'dueño' | 'empleado'
+  inviteToken?: string
 }): Promise<{
   success: boolean
   role?: 'dueño' | 'empleado'
   message?: string
   error?: string
-  data?: any
+  data?: SetupOrganizationResult | AcceptInviteResult
 }> {
   try {
     if (!formData.userId || !formData.email || !formData.name || !formData.role) {
@@ -698,20 +689,24 @@ export async function completeProfileSetupAction(formData: {
       }
     }
 
-    const { userId, email, name, role } = formData
+    const { email, name, role, inviteToken } = formData
+    // H3 FIX: Derive userId from server session, not from client
+    const supabaseAuth = await createClient()
+    const { data: { user: authUser } } = await supabaseAuth.auth.getUser()
+    const userId = authUser?.id || formData.userId
     const emailNormalizado = email.toLowerCase().trim()
     const supabase = await createClient()
 
-    // Verificación de idempotencia
-    const { data: existingRole } = await supabase
-      .from('user_organization_roles')
+    // Verificación de idempotencia: verificar si ya existe membership
+    const { data: existingMembership } = await supabase
+      .from('memberships')
       .select('id, role')
       .eq('user_id', userId)
       .eq('is_active', true)
       .maybeSingle()
 
-    if (existingRole) {
-      const mappedRole = existingRole.role === 'owner' ? 'dueño' : 'empleado'
+    if (existingMembership) {
+      const mappedRole = existingMembership.role === 'owner' ? 'dueño' : 'empleado'
       return {
         success: true,
         role: mappedRole as 'dueño' | 'empleado',
@@ -719,17 +714,16 @@ export async function completeProfileSetupAction(formData: {
       }
     }
 
-    // CASO DUEÑO
+    // CASO DUEÑO - Usar setup_organization RPC
     if (role === 'dueño') {
-      const { data: setupData, error: setupError } = await supabase.rpc('create_initial_setup_v2', {
-        p_user_id: userId,
+      const { data: setupData, error: setupError } = await supabase.rpc('setup_organization', {
         p_org_name: `Kiosco de ${name}`,
-        p_profile_name: name,
+        p_user_name: name,
         p_email: emailNormalizado,
       })
 
       if (setupError) {
-        console.error('Error en create_initial_setup_v2:', setupError)
+        console.error('Error en setup_organization:', setupError)
         return {
           success: false,
           error: `Error al crear organización: ${setupError.message}`,
@@ -740,20 +734,41 @@ export async function completeProfileSetupAction(formData: {
         success: true,
         role: 'dueño',
         message: '¡Cuenta configurada! Ya tienes acceso y contraseña.',
-        data: setupData, // Return RPC data to avoid re-fetching
+        data: setupData as SetupOrganizationResult,
       }
     }
 
-    // CASO EMPLEADO
+    // CASO EMPLEADO - Usar accept_invite RPC
     if (role === 'empleado') {
-      const { data: employeeData, error: employeeError } = await supabase.rpc('complete_employee_setup_v2', {
-        p_user_id: userId,
-        p_profile_name: name,
+      // Necesitamos el token de invitación
+      let token = inviteToken
+
+      // Si no viene el token, buscarlo por email
+      if (!token) {
+        const { data: invite } = await supabase
+          .from('pending_invites')
+          .select('token')
+          .eq('email', emailNormalizado)
+          .gt('expires_at', new Date().toISOString())
+          .maybeSingle()
+
+        if (!invite?.token) {
+          return {
+            success: false,
+            error: `No se encontró invitación válida para ${email}. La invitación puede haber expirado o no existe. Pide al dueño que te invite de nuevo.`,
+          }
+        }
+        token = invite.token
+      }
+
+      const { data: employeeData, error: employeeError } = await supabase.rpc('accept_invite', {
+        p_token: token,
+        p_user_name: name,
         p_email: emailNormalizado,
       })
 
       if (employeeError) {
-        console.error('Error en complete_employee_setup_v2:', employeeError)
+        console.error('Error en accept_invite:', employeeError)
         return {
           success: false,
           error: `No se encontró invitación válida para ${email}. La invitación puede haber expirado o no existe. Pide al dueño que te invite de nuevo.`,
@@ -764,7 +779,7 @@ export async function completeProfileSetupAction(formData: {
         success: true,
         role: 'empleado',
         message: '¡Cuenta configurada! Ya tienes acceso y contraseña.',
-        data: employeeData, // Return RPC data to avoid re-fetching
+        data: employeeData as AcceptInviteResult,
       }
     }
 
@@ -778,4 +793,92 @@ export async function completeProfileSetupAction(formData: {
       error: error instanceof Error ? error.message : 'Error desconocido al completar registro',
     }
   }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// FUNCIONES AUXILIARES
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Datos del usuario actual
+ */
+export interface CurrentUserData {
+  success: boolean
+  user?: {
+    id: string
+    email: string
+    display_name: string
+    role: UserRole
+    organization_id: string
+    branch_id: string | null
+  }
+  error?: string
+}
+
+/**
+ * 👤 Obtiene los datos del usuario actual desde memberships
+ *
+ * @returns CurrentUserData - Datos del usuario o error
+ */
+export async function getCurrentUserAction(): Promise<CurrentUserData> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user?.id) {
+      return {
+        success: false,
+        error: 'No hay sesión activa',
+      }
+    }
+
+    // Obtener membership activa
+    const { data: membership, error } = await supabase
+      .from('memberships')
+      .select('organization_id, branch_id, role, display_name, email')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (error) {
+      return {
+        success: false,
+        error: `Error al obtener datos: ${error.message}`,
+      }
+    }
+
+    if (!membership) {
+      return {
+        success: false,
+        error: 'Usuario no tiene perfil configurado',
+      }
+    }
+
+    return {
+      success: true,
+      user: {
+        id: user.id,
+        email: membership.email || user.email || '',
+        display_name: membership.display_name,
+        role: membership.role as UserRole,
+        organization_id: membership.organization_id,
+        branch_id: membership.branch_id,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
+ * 🔑 Verifica si el usuario actual es owner
+ *
+ * @returns boolean - true si es owner
+ */
+export async function isCurrentUserOwnerAction(): Promise<boolean> {
+  const result = await getCurrentUserAction()
+  return result.success && result.user?.role === 'owner'
 }

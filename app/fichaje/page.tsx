@@ -51,36 +51,38 @@ function FichajeContent() {
         throw new Error("No hay sesión activa. Por favor, inicia sesión en la app.")
       }
 
-      // Verificar que la sucursal existe y obtener su nombre
+      // Schema V2: Verificar que la sucursal existe y obtener su nombre
       const { data: sucursal, error: sucursalError } = await supabase
-        .from('sucursales')
-        .select('id, nombre, organization_id')
+        .from('branches')
+        .select('id, name, organization_id')
         .eq('id', sucursalId)
+        .eq('is_active', true)
         .single()
 
       if (sucursalError || !sucursal) {
         throw new Error("Sucursal no encontrada. El QR puede estar desactualizado.")
       }
 
-      setSucursalNombre(sucursal.nombre)
+      setSucursalNombre(sucursal.name)
       setSucursalId(sucursalId)
 
-      // Verificar que el empleado pertenece a la misma organización
-      const { data: perfil } = await supabase
-        .from('perfiles')
-        .select('organization_id, rol')
-        .eq('id', user.id)
+      // Schema V2: Verificar membership del empleado
+      const { data: membership } = await supabase
+        .from('memberships')
+        .select('organization_id, role')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
         .single()
 
-      if (!perfil) {
+      if (!membership) {
         throw new Error("Perfil de usuario no encontrado")
       }
 
-      if (perfil.rol !== "empleado") {
+      if (membership.role !== "employee") {
         throw new Error("Solo los empleados pueden fichar")
       }
 
-      if (perfil.organization_id !== sucursal.organization_id) {
+      if (membership.organization_id !== sucursal.organization_id) {
         throw new Error("No tienes acceso a esta sucursal")
       }
 
@@ -105,7 +107,7 @@ function FichajeContent() {
 
         // Registrar entrada
         const { error: insertError } = await supabase.from('asistencia').insert({
-          organization_id: perfil.organization_id,
+          organization_id: membership.organization_id,
           sucursal_id: sucursalId,
           empleado_id: user.id,
           entrada: new Date().toISOString()
@@ -114,8 +116,8 @@ function FichajeContent() {
         if (insertError) throw insertError
 
         setResultado("success")
-        setMensaje(`Entrada registrada en ${sucursal.nombre}`)
-        toast.success("Entrada registrada", { description: `Local: ${sucursal.nombre}` })
+        setMensaje(`Entrada registrada en ${sucursal.name}`)
+        toast.success("Entrada registrada", { description: `Local: ${sucursal.name}` })
 
         // Vibración si está disponible
         if (navigator.vibrate) {
@@ -140,8 +142,8 @@ function FichajeContent() {
         if (updateError) throw updateError
 
         setResultado("success")
-        setMensaje(`Salida registrada en ${sucursal.nombre}`)
-        toast.info("Salida registrada", { description: `Jornada finalizada en ${sucursal.nombre}` })
+        setMensaje(`Salida registrada en ${sucursal.name}`)
+        toast.info("Salida registrada", { description: `Jornada finalizada en ${sucursal.name}` })
 
         // Vibración si está disponible
         if (navigator.vibrate) {

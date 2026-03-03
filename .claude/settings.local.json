@@ -17,7 +17,19 @@
       "Bash(ls:*)",
       "Bash(dir:*)",
       "Bash(find:*)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Bash(while read file)",
+      "Bash(for f in migrations/20260*.sql)",
+      "Bash(do mv \"$f\" migrations_backup/)",
+      "Bash(done)",
+      "Bash(npm run build:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npm test)",
+      "Bash(npm run test)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(where npm)"
     ]
   },
   "enableAllProjectMcpServers": true

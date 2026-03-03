@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * 🕐 ATTENDANCE SERVER ACTIONS
+ * ATTENDANCE SERVER ACTIONS
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Server Actions para gestión de asistencia/fichaje de empleados.
@@ -11,7 +11,7 @@
  * - Validación de sesión y organización
  * - Operaciones atómicas de fichaje
  *
- * ORIGEN: Refactorización de reloj-control.tsx
+ * MIGRADO: 2026-02-25 - Schema V2 (tabla 'attendance', columnas en inglés)
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -25,15 +25,15 @@ import { createClient } from '@/lib/supabase-server'
 // ───────────────────────────────────────────────────────────────────────────────
 
 /**
- * Registro de asistencia
+ * Registro de asistencia (Schema V2: tabla 'attendance')
  */
 export interface AttendanceRecord {
   id: string
   organization_id: string
-  sucursal_id: string
-  empleado_id: string
-  entrada: string
-  salida: string | null
+  branch_id: string
+  user_id: string
+  check_in: string
+  check_out: string | null
   created_at: string
 }
 
@@ -81,27 +81,21 @@ export interface ProcessQRScanResult {
 // ───────────────────────────────────────────────────────────────────────────────
 
 /**
- * 🔍 Obtiene el estado de asistencia actual del empleado en una sucursal
+ * Obtiene el estado de asistencia actual del empleado en una sucursal
  *
  * FLUJO:
  * 1. Valida sesión del usuario
- * 2. Busca registro de asistencia abierto (salida = null)
+ * 2. Busca registro de asistencia abierto (check_out = null)
  * 3. Devuelve el fichaje activo si existe
  *
- * @param sucursalId - ID de la sucursal
+ * @param sucursalId - ID de la sucursal (branch_id)
  * @returns GetAttendanceStatusResult - Estado de asistencia
- *
- * ORIGEN: Refactorización de checkFichaje() líneas 26-41
  */
 export async function getAttendanceStatusAction(
   sucursalId: string
 ): Promise<GetAttendanceStatusResult> {
   try {
     const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
 
     if (!sucursalId) {
       return {
@@ -110,10 +104,6 @@ export async function getAttendanceStatusAction(
         error: 'ID de sucursal requerido',
       }
     }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario
-    // ───────────────────────────────────────────────────────────────────────────
 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user?.id) {
@@ -124,16 +114,12 @@ export async function getAttendanceStatusAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Buscar fichaje activo
-    // ───────────────────────────────────────────────────────────────────────────
-
     const { data, error } = await supabase
-      .from('asistencia')
-      .select('*')
-      .eq('empleado_id', user.id)
-      .eq('sucursal_id', sucursalId)
-      .is('salida', null)
+      .from('attendance')
+      .select('id, organization_id, branch_id, user_id, check_in, check_out, created_at')
+      .eq('user_id', user.id)
+      .eq('branch_id', sucursalId)
+      .is('check_out', null)
       .maybeSingle()
 
     if (error) {
@@ -158,29 +144,22 @@ export async function getAttendanceStatusAction(
 }
 
 /**
- * ⏰ Registra entrada o salida de empleado (toggle)
+ * Registra entrada o salida de empleado (toggle)
  *
  * FLUJO:
  * 1. Valida sesión y obtiene organization_id
  * 2. Busca fichaje activo
  * 3. ENTRADA: Si no hay fichaje activo, inserta nuevo registro
- * 4. SALIDA: Si hay fichaje activo, actualiza campo salida
- * 5. Operación atómica que retorna el nuevo estado
+ * 4. SALIDA: Si hay fichaje activo, actualiza campo check_out
  *
- * @param sucursalId - ID de la sucursal
+ * @param sucursalId - ID de la sucursal (branch_id)
  * @returns ToggleAttendanceResult - Resultado de la operación
- *
- * ORIGEN: Refactorización de handleFichaje() líneas 43-92
  */
 export async function toggleAttendanceAction(
   sucursalId: string
 ): Promise<ToggleAttendanceResult> {
   try {
     const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
 
     if (!sucursalId) {
       return {
@@ -189,10 +168,6 @@ export async function toggleAttendanceAction(
         error: 'ID de sucursal requerido',
       }
     }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user?.id) {
@@ -203,7 +178,7 @@ export async function toggleAttendanceAction(
       }
     }
 
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
+    const { data: orgId } = await supabase.rpc('get_my_org_id')
 
     if (!orgId) {
       return {
@@ -213,32 +188,26 @@ export async function toggleAttendanceAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Verificar fichaje activo
-    // ───────────────────────────────────────────────────────────────────────────
-
+    // Verificar fichaje activo
     const { data: fichajeActivo } = await supabase
-      .from('asistencia')
-      .select('*')
-      .eq('empleado_id', user.id)
-      .eq('sucursal_id', sucursalId)
-      .is('salida', null)
+      .from('attendance')
+      .select('id, organization_id, branch_id, user_id, check_in, check_out, created_at')
+      .eq('user_id', user.id)
+      .eq('branch_id', sucursalId)
+      .is('check_out', null)
       .maybeSingle()
 
-    // ───────────────────────────────────────────────────────────────────────────
     // CASO 1: REGISTRAR ENTRADA
-    // ───────────────────────────────────────────────────────────────────────────
-
     if (!fichajeActivo) {
       const { data, error } = await supabase
-        .from('asistencia')
+        .from('attendance')
         .insert({
           organization_id: orgId,
-          sucursal_id: sucursalId,
-          empleado_id: user.id,
-          entrada: new Date().toISOString(),
+          branch_id: sucursalId,
+          user_id: user.id,
+          check_in: new Date().toISOString(),
         })
-        .select()
+        .select('id, organization_id, branch_id, user_id, check_in, check_out, created_at')
         .single()
 
       if (error) {
@@ -257,13 +226,10 @@ export async function toggleAttendanceAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
     // CASO 2: REGISTRAR SALIDA
-    // ───────────────────────────────────────────────────────────────────────────
-
     const { error: updateError } = await supabase
-      .from('asistencia')
-      .update({ salida: new Date().toISOString() })
+      .from('attendance')
+      .update({ check_out: new Date().toISOString() })
       .eq('id', fichajeActivo.id)
 
     if (updateError) {
@@ -289,7 +255,7 @@ export async function toggleAttendanceAction(
 }
 
 /**
- * 📱 Procesa el escaneo de QR para fichaje de entrada/salida
+ * Procesa el escaneo de QR para fichaje de entrada/salida
  *
  * FLUJO:
  * 1. Valida sesión y obtiene organization_id
@@ -297,16 +263,9 @@ export async function toggleAttendanceAction(
  * 3. ENTRADA: Registra nueva entrada si no existe fichaje activo
  * 4. SALIDA: Actualiza salida si existe fichaje activo
  *
- * SEGURIDAD:
- * - Valida que la sucursal del QR coincida con los parámetros
- * - Previene fichajes duplicados
- * - Verifica que exista entrada antes de permitir salida
- *
  * @param qrData - Datos parseados del QR escaneado
  * @param sucursalId - ID de la sucursal (validación adicional)
  * @returns ProcessQRScanResult - Resultado de la operación
- *
- * ORIGEN: Refactorización de onQRScanned() líneas 166-221
  */
 export async function processQRScanAction(
   qrData: QRFichajeData,
@@ -314,10 +273,6 @@ export async function processQRScanAction(
 ): Promise<ProcessQRScanResult> {
   try {
     const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
 
     if (!qrData.sucursal_id || !sucursalId) {
       return {
@@ -336,10 +291,6 @@ export async function processQRScanAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
     const { data: { user } } = await supabase.auth.getUser()
     if (!user?.id) {
       return {
@@ -349,7 +300,7 @@ export async function processQRScanAction(
       }
     }
 
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
+    const { data: orgId } = await supabase.rpc('get_my_org_id')
 
     if (!orgId) {
       return {
@@ -359,18 +310,15 @@ export async function processQRScanAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
     // CASO 1: REGISTRAR ENTRADA
-    // ───────────────────────────────────────────────────────────────────────────
-
     if (qrData.tipo === 'entrada') {
       // Verificar que no exista un fichaje activo
       const { data: fichajeActivo } = await supabase
-        .from('asistencia')
+        .from('attendance')
         .select('id')
-        .eq('empleado_id', user.id)
-        .eq('sucursal_id', qrData.sucursal_id)
-        .is('salida', null)
+        .eq('user_id', user.id)
+        .eq('branch_id', qrData.sucursal_id)
+        .is('check_out', null)
         .maybeSingle()
 
       if (fichajeActivo) {
@@ -382,12 +330,12 @@ export async function processQRScanAction(
       }
 
       const { error } = await supabase
-        .from('asistencia')
+        .from('attendance')
         .insert({
           organization_id: orgId,
-          sucursal_id: qrData.sucursal_id,
-          empleado_id: user.id,
-          entrada: new Date().toISOString(),
+          branch_id: qrData.sucursal_id,
+          user_id: user.id,
+          check_in: new Date().toISOString(),
         })
 
       if (error) {
@@ -405,17 +353,14 @@ export async function processQRScanAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
     // CASO 2: REGISTRAR SALIDA
-    // ───────────────────────────────────────────────────────────────────────────
-
     if (qrData.tipo === 'salida') {
       const { data: asistenciaActual } = await supabase
-        .from('asistencia')
+        .from('attendance')
         .select('id')
-        .eq('empleado_id', user.id)
-        .eq('sucursal_id', qrData.sucursal_id)
-        .is('salida', null)
+        .eq('user_id', user.id)
+        .eq('branch_id', qrData.sucursal_id)
+        .is('check_out', null)
         .maybeSingle()
 
       if (!asistenciaActual) {
@@ -427,8 +372,8 @@ export async function processQRScanAction(
       }
 
       const { error } = await supabase
-        .from('asistencia')
-        .update({ salida: new Date().toISOString() })
+        .from('attendance')
+        .update({ check_out: new Date().toISOString() })
         .eq('id', asistenciaActual.id)
 
       if (error) {

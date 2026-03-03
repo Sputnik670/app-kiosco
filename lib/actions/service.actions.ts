@@ -11,7 +11,7 @@
  * - Transacciones atómicas para recargas
  * - Validación de saldo y organización
  *
- * ORIGEN: Refactorización de widget-servicios.tsx
+ * MIGRADO: 2026-01-29 - Schema V2 (cash_registers, cash_movements)
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -19,6 +19,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { verifyAuth } from '@/lib/actions/auth-helpers'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -87,31 +88,10 @@ export async function getServiceProviderBalanceAction(
   tipo: 'servicios' | 'SUBE' = 'servicios'
 ): Promise<GetServiceProviderBalanceResult> {
   try {
-    const supabase = await createClient()
+    const { supabase, orgId } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id_v2')
-
-    if (!orgId) {
-      return {
-        success: false,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Buscar proveedor según tipo
+    // Buscar proveedor según tipo
     // ───────────────────────────────────────────────────────────────────────────
 
     const criterio = tipo === 'SUBE' ? '%SUBE%' : '%servicios%'
@@ -161,7 +141,7 @@ export async function getServiceProviderBalanceAction(
  * 3. TRANSACCIÓN ATÓMICA:
  *    a. Resta saldo al proveedor
  *    b. Registra venta en ventas_servicios
- *    c. Registra ingreso en movimientos_caja
+ *    c. Registra ingreso en cash_movements
  * 4. Devuelve nuevo saldo
  *
  * SEGURIDAD:
@@ -178,7 +158,7 @@ export async function processServiceRechargeAction(
   data: ServiceRechargeData
 ): Promise<ProcessServiceRechargeResult> {
   try {
-    const supabase = await createClient()
+    const { supabase } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
     // VALIDACIONES
@@ -192,11 +172,11 @@ export async function processServiceRechargeAction(
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener organization_id del turno
+    // PASO 1: Obtener organization_id del turno (Schema V2: cash_registers)
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: turno, error: turnoError } = await supabase
-      .from('caja_diaria')
+      .from('cash_registers')
       .select('organization_id')
       .eq('id', data.turnoId)
       .single()
@@ -279,17 +259,16 @@ export async function processServiceRechargeAction(
       }
     }
 
-    // C. Registrar ingreso en caja
+    // C. Registrar ingreso en caja (Schema V2: cash_movements)
     const { error: cajaError } = await supabase
-      .from('movimientos_caja')
+      .from('cash_movements')
       .insert({
         organization_id: turno.organization_id,
-        caja_diaria_id: data.turnoId,
-        monto: data.totalCobrado,
-        tipo: 'ingreso',
-        categoria: 'servicios_virtuales',
-        descripcion: `Carga ${data.tipoServicio}`,
-        created_at: new Date().toISOString(),
+        cash_register_id: data.turnoId,
+        amount: data.totalCobrado,
+        type: 'income',
+        category: 'servicios_virtuales',
+        description: `Carga ${data.tipoServicio}`,
       })
 
     if (cajaError) {

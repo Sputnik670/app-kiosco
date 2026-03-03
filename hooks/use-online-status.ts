@@ -118,23 +118,27 @@ export function useOnlineStatus(options: UseOnlineStatusOptions = {}): OnlineSta
   }, [getConnectionInfo, onStatusChange])
 
   // Ping al servidor para verificar conectividad real
+  // NOTA: navigator.onLine es unreliable (solo detecta cable desconectado).
+  // El ping al servidor es la fuente de verdad cuando está habilitado.
   const pingServerCheck = useCallback(async () => {
     if (!pingServer) return
 
     try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
       const response = await fetch(pingUrl, {
         method: 'HEAD',
         cache: 'no-store',
         mode: 'no-cors',
+        signal: controller.signal,
       })
-      // Si llegamos aquí, hay conexión
+      clearTimeout(timeoutId)
+      // Si llegamos aquí, hay conexión real al servidor
       updateStatus(true)
     } catch {
-      // Si falla el fetch, posiblemente estemos offline
-      // Pero solo marcamos offline si navigator.onLine también dice que no hay conexión
-      if (!navigator.onLine) {
-        updateStatus(false)
-      }
+      // Fetch falló → el servidor no es alcanzable → estamos offline
+      // No depender de navigator.onLine ya que es unreliable
+      updateStatus(false)
     }
   }, [pingServer, pingUrl, updateStatus])
 
@@ -148,11 +152,11 @@ export function useOnlineStatus(options: UseOnlineStatusOptions = {}): OnlineSta
     window.addEventListener('offline', handleOffline)
 
     // Listener para cambios en la conexión (Network Information API)
+    let connectionHandler: (() => void) | null = null
     if ('connection' in navigator) {
       const connection = (navigator as any).connection
-      connection?.addEventListener('change', () => {
-        updateStatus(navigator.onLine)
-      })
+      connectionHandler = () => updateStatus(navigator.onLine)
+      connection?.addEventListener('change', connectionHandler)
     }
 
     // Estado inicial
@@ -165,10 +169,14 @@ export function useOnlineStatus(options: UseOnlineStatusOptions = {}): OnlineSta
       pingIntervalId = setInterval(pingServerCheck, pingInterval)
     }
 
-    // Cleanup
+    // Cleanup — remove ALL listeners to prevent memory leaks
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      if ('connection' in navigator && connectionHandler) {
+        const connection = (navigator as any).connection
+        connection?.removeEventListener('change', connectionHandler)
+      }
       if (pingIntervalId) {
         clearInterval(pingIntervalId)
       }

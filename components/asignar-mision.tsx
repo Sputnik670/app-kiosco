@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, PlusCircle, Gamepad2, Target, Repeat } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { createMisionAction, getEmpleadosAction } from "@/lib/actions/misiones.actions"
+import { createMisionAction, getEmpleadosAction } from "@/lib/actions/missions.actions"
 
 interface AsignarMisionProps {
   turnoId?: string          

@@ -126,10 +126,10 @@ export default function RegistrarMovimiento({ cajaId, onMovimientoRegistrado }: 
             {historial.map((m) => (
               <div key={m.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
                 <div>
-                  <p className="text-[11px] font-black text-slate-800 uppercase leading-none mb-1">{m.descripcion}</p>
-                  <p className="text-[9px] text-slate-400 font-bold uppercase">{m.categoria} • {format(new Date(m.created_at), 'HH:mm')} HS</p>
+                  <p className="text-[11px] font-black text-slate-800 uppercase leading-none mb-1">{m.description}</p>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase">{m.category} • {format(new Date(m.created_at), 'HH:mm')} HS</p>
                 </div>
-                <span className="text-red-600 font-black text-sm">-{formatMoney(m.monto)}</span>
+                <span className="text-red-600 font-black text-sm">-{formatMoney(m.amount)}</span>
               </div>
             ))}
           </div>
