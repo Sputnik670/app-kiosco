@@ -108,7 +108,7 @@ export default function CajaVentas({
         else if (resultados.length === 1) agregarAlCarrito(resultados[0])
       }
     } catch (error) {
-      console.error("Error buscando:", error)
+      // Error logged by offline hook
       toast.error("Error en búsqueda", {
         description: error instanceof Error ? error.message : 'Error desconocido'
       })
@@ -245,7 +245,8 @@ export default function CajaVentas({
         <div className="relative">
           <Input
             ref={inputRef}
-            placeholder="BUSCAR O ESCANEAR..."
+            placeholder="Nombre, código o marca del producto..."
+            aria-label="Buscar producto por nombre, código de barras o marca"
             className="pl-4 pr-32 bg-white font-black h-16 rounded-2xl border-2 border-slate-100"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
@@ -352,20 +353,23 @@ export default function CajaVentas({
         </div>
 
         <div className="grid grid-cols-3 gap-2">
-          {(['cash', 'wallet', 'card'] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMetodoPago(m)}
-              className={cn(
-                "flex flex-col items-center gap-1 py-3 rounded-xl border-2 font-bold text-[9px] uppercase transition-all",
-                metodoPago === m ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-100 text-slate-400"
-              )}
-            >
-              {m === 'cash' && 'Efectivo'}
-              {m === 'wallet' && 'Virtual'}
-              {m === 'card' && 'Tarjeta'}
-            </button>
-          ))}
+          {(['cash', 'wallet', 'card'] as const).map((m) => {
+            const labels = { cash: 'Efectivo', wallet: 'Virtual', card: 'Tarjeta' } as const
+            return (
+              <button
+                key={m}
+                onClick={() => setMetodoPago(m)}
+                aria-label={`Pagar con ${labels[m]}`}
+                aria-pressed={metodoPago === m}
+                className={cn(
+                  "flex flex-col items-center gap-1 py-3 rounded-xl border-2 font-bold text-[9px] uppercase transition-all",
+                  metodoPago === m ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-100 text-slate-400"
+                )}
+              >
+                {labels[m]}
+              </button>
+            )
+          })}
         </div>
 
         <Button

@@ -23,6 +23,7 @@ import { createClient } from '@/lib/supabase-server'
 import { verifyAuth } from '@/lib/actions/auth-helpers'
 import { Database } from '@/types/database.types'
 import { resolveJoin } from '@/types/supabase-joins'
+import { handleProductScanSchema, complexStockEntrySchema, getZodError } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -75,24 +76,12 @@ export async function handleProductScan(
   organizationId: string,
   sucursalId: string
 ): Promise<ProductScanResult> {
-  if (!barcode || barcode.trim() === '') {
+  // Validación Zod
+  const parsed = handleProductScanSchema.safeParse({ barcode, organizationId, sucursalId })
+  if (!parsed.success) {
     return {
       status: 'ERROR',
-      error: 'El código de barras no puede estar vacío',
-    }
-  }
-
-  if (!organizationId || organizationId.trim() === '') {
-    return {
-      status: 'ERROR',
-      error: 'El ID de organización es requerido',
-    }
-  }
-
-  if (!sucursalId || sucursalId.trim() === '') {
-    return {
-      status: 'ERROR',
-      error: 'El ID de sucursal es requerido',
+      error: getZodError(parsed),
     }
   }
 
@@ -229,6 +218,12 @@ export async function processComplexStockEntry(
   params: ComplexStockEntryParams
 ): Promise<ComplexStockEntryResult> {
   try {
+    // Validación Zod
+    const parsed = complexStockEntrySchema.safeParse(params)
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
     const { supabase, user, orgId: organizationId } = await verifyAuth()
 
     const costoNum = params.costoUnitario ?? 0

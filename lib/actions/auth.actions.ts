@@ -26,6 +26,7 @@ import { createClient } from '@/lib/supabase-server'
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 import type { Database } from '@/types/database.types'
 import { resolveJoin } from '@/types/supabase-joins'
+import { completeProfileSchema, getZodError } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -216,6 +217,58 @@ export async function signInWithMagicLinkAction(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido al enviar magic link',
+    }
+  }
+}
+
+/**
+ * 🔑 Envía un email de recuperación de contraseña
+ *
+ * MÉTODO: resetPasswordForEmail
+ * USO: Para usuarios que olvidaron su contraseña
+ *
+ * @param email - Email del usuario
+ * @param redirectTo - URL base para redirección (opcional)
+ * @returns AuthResult - Resultado de la operación
+ */
+export async function resetPasswordAction(
+  email: string,
+  redirectTo?: string
+): Promise<AuthResult> {
+  try {
+    if (!email) {
+      return {
+        success: false,
+        error: 'Email es requerido',
+      }
+    }
+
+    const emailRedirectTo =
+      redirectTo ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.VERCEL_URL ||
+      'http://localhost:3000'
+
+    const supabaseServer = await createClient()
+    const { error } = await supabaseServer.auth.resetPasswordForEmail(email, {
+      redirectTo: emailRedirectTo,
+    })
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Error al enviar el email de recuperación',
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Se envió un enlace de recuperación a tu correo. Revisá tu bandeja de entrada.',
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido al recuperar contraseña',
     }
   }
 }
@@ -682,10 +735,12 @@ export async function completeProfileSetupAction(formData: {
   data?: SetupOrganizationResult | AcceptInviteResult
 }> {
   try {
-    if (!formData.userId || !formData.email || !formData.name || !formData.role) {
+    // Validación Zod
+    const parsed = completeProfileSchema.safeParse(formData)
+    if (!parsed.success) {
       return {
         success: false,
-        error: 'Faltan datos requeridos',
+        error: getZodError(parsed),
       }
     }
 

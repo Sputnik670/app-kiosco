@@ -39,7 +39,7 @@ export default function SeleccionarSucursal({ organizationId, onSelect, userRol 
         setSucursales(result.branches)
       }
     } catch (error) {
-      console.error(error)
+      // Error handled by toast notification
       toast.error("Error al cargar sucursales")
     } finally {
       setLoading(false)
@@ -67,7 +67,7 @@ export default function SeleccionarSucursal({ organizationId, onSelect, userRol 
       )}>
         {/* HEADER PREMIUM */}
         <div className="bg-slate-900 p-8 text-white text-center relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
+          <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[repeating-linear-gradient(45deg,transparent,transparent_5px,rgba(255,255,255,0.03)_5px,rgba(255,255,255,0.03)_10px)]"></div>
           <div className="relative z-10 flex flex-col items-center gap-3">
             <div className="bg-blue-500 p-3 rounded-2xl shadow-lg shadow-blue-500/20">
               <Store className="h-8 w-8 text-white" />

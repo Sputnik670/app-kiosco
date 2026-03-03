@@ -8,13 +8,17 @@ import VistaEmpleado from "@/components/vista-empleado"
 import AuthForm from "@/components/auth-form"
 import ProfileSetup from "@/components/profile-setup"
 import SeleccionarSucursal from "@/components/seleccionar-sucursal"
+import OnboardingWizard from "@/components/onboarding-wizard"
 import QRFichajeScanner from "@/components/qr-fichaje-scanner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 import { getQuickSnapshotAction } from "@/lib/actions/dashboard.actions"
+import { getBranchesAction } from "@/lib/actions/branch.actions"
+import { logger } from "@/lib/logging"
 import type { QuickSnapshot } from "@/types/dashboard.types"
+import type { Session } from "@supabase/supabase-js"
 
 interface UserProfile {
     id: string
@@ -145,17 +149,18 @@ function AppRouter({ userProfile, onLogout, sucursalId }: { userProfile: UserPro
 }
 
 export default function HomePage() {
-  const [session, setSession] = useState<any>(null)
+  const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [hasProfile, setHasProfile] = useState(false)
   const [sucursalId, setSucursalId] = useState<string | null>(null)
+  const [hasBranches, setHasBranches] = useState<boolean | null>(null)
   const router = useRouter()
 
   const fetchProfile = async (userId: string, shouldValidate: boolean = false) => {
     setLoading(true)
     try {
-        console.log('[fetchProfile] Iniciando para userId:', userId)
+        logger.debug('page', 'fetchProfile iniciando', { userId })
 
         // Schema V2: Obtener datos desde memberships (única fuente de verdad)
         const { data: membership, error: membershipError } = await supabase
@@ -165,16 +170,14 @@ export default function HomePage() {
             .eq('is_active', true)
             .maybeSingle()
 
-        console.log('[fetchProfile] Membership:', membership, 'Error:', membershipError)
-
         if (membershipError) {
-            console.error('[fetchProfile] Error de BD:', membershipError)
+            logger.error('page', 'Error de BD al obtener membership', membershipError as unknown as Error, { userId })
             throw membershipError
         }
 
         // Si no hay membership, el usuario necesita completar setup
         if (!membership) {
-            console.log('[fetchProfile] No tiene membership, mostrando setup')
+            logger.debug('page', 'No tiene membership, mostrando setup', { userId })
             setHasProfile(false)
             setUserProfile(null)
             if (shouldValidate) {
@@ -185,7 +188,6 @@ export default function HomePage() {
 
         // Mapear role de BD a rol de UI (owner → dueño, employee → empleado)
         const rolUI = membership.role === 'owner' ? 'dueño' : 'empleado'
-        console.log('[fetchProfile] Rol mapeado:', rolUI)
 
         setUserProfile({
             id: membership.user_id,
@@ -194,10 +196,17 @@ export default function HomePage() {
             organization_id: membership.organization_id
         })
         setHasProfile(true)
-        console.log('[fetchProfile] Perfil cargado exitosamente')
+
+        // Para dueños, verificar si ya tienen sucursales
+        if (membership.role === 'owner') {
+            const branchResult = await getBranchesAction()
+            setHasBranches(branchResult.success && (branchResult.branches?.length ?? 0) > 0)
+        }
+
+        logger.info('page', 'Perfil cargado', { userId, rol: rolUI })
 
     } catch (error: unknown) {
-        console.error("[fetchProfile] Error:", error)
+        logger.error('page', 'Error en fetchProfile', error instanceof Error ? error : undefined, { userId })
         if (!shouldValidate) {
             toast.error('Error cargando perfil')
         }
@@ -224,6 +233,7 @@ export default function HomePage() {
         setUserProfile(null)
         setHasProfile(false)
         setSucursalId(null)
+        setHasBranches(null)
       }
     })
 
@@ -238,7 +248,7 @@ export default function HomePage() {
       // Prioridad 1: URL (viene de redirección de fichaje)
       const urlParams = new URLSearchParams(window.location.search)
       const idFromUrl = urlParams.get('sucursal_id')
-      
+
       if (idFromUrl) {
         setSucursalId(idFromUrl)
         window.history.replaceState({}, '', '/') // Limpiar URL limpia
@@ -284,13 +294,10 @@ export default function HomePage() {
             user={session.user}
             onProfileCreated={async (result) => {
               try {
-                // Schema V2: RPC retorna { organization_id, branch_id, role, success }
-                // Siempre hacemos fetchProfile para obtener el membership completo
-                // Esto es más confiable que intentar reconstruir el estado desde el RPC
-                console.log('[ProfileSetup] Perfil creado, cargando membership...');
+                logger.info('page', 'Perfil creado, cargando membership...')
                 await fetchProfile(session.user.id);
               } catch (error) {
-                console.error('[ProfileSetup] Error processing profile:', error);
+                logger.error('page', 'Error al cargar perfil post-setup', error instanceof Error ? error : undefined)
                 toast.error("Error al cargar perfil", {
                   description: "Por favor recarga la página"
                 });
@@ -305,18 +312,29 @@ export default function HomePage() {
         if (userProfile.rol === "empleado") {
             return <EscanearQRFichaje onQRScanned={(data) => setSucursalId(data.sucursal_id)} />
         }
-        return (
-            <div className="min-h-screen bg-slate-50">
-              <div className="max-w-md mx-auto pt-6 px-4">
-                <QuickKPISnapshot organizationId={userProfile.organization_id} />
-              </div>
-              <SeleccionarSucursal
-                  organizationId={userProfile.organization_id}
-                  userId={userProfile.id}
-                  userRol={userProfile.rol}
-                  onSelect={(id) => setSucursalId(id)}
+
+        // Dueño sin sucursales → Onboarding Wizard
+        if (hasBranches === false) {
+            return (
+              <OnboardingWizard
+                organizationId={userProfile.organization_id}
+                userId={userProfile.id}
+                onComplete={() => {
+                  // Recargar perfil para detectar nuevas sucursales
+                  fetchProfile(userProfile.id)
+                }}
               />
-            </div>
+            )
+        }
+
+        // Dueño con sucursales → Selector de sucursal (KPIs se ven DENTRO del dashboard, no antes)
+        return (
+            <SeleccionarSucursal
+                organizationId={userProfile.organization_id}
+                userId={userProfile.id}
+                userRol={userProfile.rol}
+                onSelect={(id) => setSucursalId(id)}
+            />
         )
     }
 

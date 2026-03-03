@@ -20,6 +20,7 @@ import { createClient } from '@/lib/supabase-server'
 import { verifyAuth } from '@/lib/actions/auth-helpers'
 import { format, addDays } from 'date-fns'
 import { logger } from '@/lib/logging'
+import { abrirCajaSchema, cerrarCajaSchema, cashMovementSchema, getZodError } from '@/lib/validations'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIPOS EXPORTADOS
@@ -231,6 +232,12 @@ export async function abrirCajaAction(
   sucursalId: string
 ): Promise<AbrirCajaResult> {
   try {
+    // Validación Zod
+    const parsed = abrirCajaSchema.safeParse({ montoInicial, sucursalId })
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
     const { supabase, user, orgId } = await verifyAuth()
 
     // PASO 2: Crear registro de cash_register
@@ -287,6 +294,19 @@ export async function cerrarCajaAction(
   montoDeclarado: number
 ): Promise<CerrarCajaResult> {
   try {
+    // Validación Zod
+    const parsed = cerrarCajaSchema.safeParse({ cajaId, montoDeclarado })
+    if (!parsed.success) {
+      return {
+        success: false,
+        exitoArqueo: false,
+        dineroEsperado: 0,
+        montoDeclarado: 0,
+        desvio: 0,
+        error: getZodError(parsed),
+      }
+    }
+
     const { supabase, user } = await verifyAuth()
 
     // PASO 1: Obtener datos de la caja
@@ -494,22 +514,13 @@ export async function createCashMovementAction(params: {
   categoria?: string
 }): Promise<CreateCashMovementResult> {
   try {
-    // VALIDACIONES
+    // Validación Zod
+    const parsed = cashMovementSchema.safeParse(params)
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
     const { monto, descripcion, tipo, turnoId, categoria } = params
-
-    if (!monto || monto <= 0) {
-      return {
-        success: false,
-        error: 'El monto debe ser mayor a 0',
-      }
-    }
-
-    if (!descripcion || descripcion.trim().length === 0) {
-      return {
-        success: false,
-        error: 'La descripción es requerida',
-      }
-    }
 
     if (!tipo || (tipo !== 'ingreso' && tipo !== 'egreso')) {
       return {

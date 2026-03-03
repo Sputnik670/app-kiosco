@@ -29,7 +29,9 @@
       "Bash(npm test)",
       "Bash(npm run test)",
       "mcp__Claude_Preview__preview_start",
-      "Bash(where npm)"
+      "Bash(where npm)",
+      "Bash(xargs -I {} sh -c 'echo \"\"=== {} ===\"\" && head -50 \"\"{}\"\"')",
+      "Bash(npm test -- --run)"
     ]
   },
   "enableAllProjectMcpServers": true

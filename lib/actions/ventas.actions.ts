@@ -28,6 +28,7 @@ import { verifyAuth } from '@/lib/actions/auth-helpers'
 import type { Database } from '@/types/database.types'
 import { resolveJoin } from '@/types/supabase-joins'
 import { logger } from '@/lib/logging'
+import { searchProductsSchema, confirmSaleSchema, getZodError } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -123,23 +124,22 @@ export async function searchProductsAction(
   branchId: string
 ): Promise<SearchProductsResult> {
   try {
-    const { supabase } = await verifyAuth()
-
-    // Validación básica
-    if (!query || query.trim().length === 0) {
-      return {
-        success: true,
-        products: [],
-      }
-    }
-
-    if (!branchId) {
+    // Validación Zod
+    const parsed = searchProductsSchema.safeParse({ query, branchId })
+    if (!parsed.success) {
       return {
         success: false,
         products: [],
-        error: 'Branch no especificado',
+        error: getZodError(parsed),
       }
     }
+
+    // Query vacío retorna lista vacía (por debounce del UI)
+    if (!query || query.trim().length === 0) {
+      return { success: true, products: [] }
+    }
+
+    const { supabase } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
     // BÚSQUEDA EN VISTA DE PRODUCTOS CON STOCK
@@ -211,18 +211,20 @@ export async function confirmSaleAction(
   params: ConfirmSaleParams
 ): Promise<ConfirmSaleResult> {
   try {
+    // Validación Zod
+    const parsed = confirmSaleSchema.safeParse(params)
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: getZodError(parsed),
+      }
+    }
+
     const { supabase } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
+    // VALIDACIONES ADICIONALES DE NEGOCIO
     // ───────────────────────────────────────────────────────────────────────────
-
-    if (!params.items || params.items.length === 0) {
-      return {
-        success: false,
-        error: 'No hay items en la venta',
-      }
-    }
 
     if (!params.branchId || !params.cashRegisterId) {
       return {

@@ -65,7 +65,7 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                 setTurnoActivo(result.context.activeShift as CajaDiaria | null)
             }
         } catch (error) {
-            console.error("Error de contexto operativo:", error)
+            // Error handled by toast notification
             toast.error("Error de conexión con la sucursal")
         } finally {
             setLoading(false)
@@ -195,11 +195,11 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                                             variant={activeTab === tab.id ? "default" : "outline"}
                                             size="sm"
                                             className={cn(
-                                                "whitespace-nowrap rounded-full font-black text-[10px] uppercase tracking-widest h-10 px-5 border-2 transition-all",
+                                                "whitespace-nowrap rounded-full font-black text-xs uppercase tracking-widest h-10 px-5 border-2 transition-all",
                                                 activeTab === tab.id ? "bg-slate-900 border-slate-900 shadow-lg" : "bg-white border-slate-100 text-slate-400"
                                             )}
                                         >
-                                            <tab.icon className="mr-2 h-3.5 w-3.5" /> {tab.label}
+                                            <tab.icon className="mr-2 h-4 w-4" /> {tab.label}
                                         </Button>
                                     ))}
                                 </div>

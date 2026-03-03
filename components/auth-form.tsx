@@ -13,13 +13,15 @@ import {
   signInWithPasswordAction,
   signUpAction,
   signInWithMagicLinkAction,
+  resetPasswordAction,
 } from '@/lib/actions/auth.actions'
 
 export default function AuthForm() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
-  const [useMagicLink, setUseMagicLink] = useState(false) // Nuevo estado para alternar modo
+  const [useMagicLink, setUseMagicLink] = useState(false)
+  const [usePasswordReset, setUsePasswordReset] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
@@ -30,8 +32,12 @@ export default function AuthForm() {
     try {
       let result
 
-      if (useMagicLink) {
-        // Opción 1: Iniciar con Magic Link (Para empleados invitados o si olvidaron contraseña)
+      if (usePasswordReset) {
+        // Opción 0: Recuperar contraseña
+        const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined
+        result = await resetPasswordAction(email, redirectTo)
+      } else if (useMagicLink) {
+        // Opción 1: Iniciar con Magic Link (Para empleados invitados)
         const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined
         result = await signInWithMagicLinkAction(email, redirectTo)
       } else if (isLogin) {
@@ -49,24 +55,31 @@ export default function AuthForm() {
 
       // Manejar resultado de la acción
       if (result.success) {
-        toast.success(useMagicLink ? 'Enlace enviado' : (isLogin ? '¡Bienvenido!' : 'Registro exitoso'), {
-          description: result.message
-        })
+        const successMessage = usePasswordReset
+          ? 'Enlace de recuperación enviado'
+          : useMagicLink
+            ? 'Enlace enviado'
+            : isLogin
+              ? '¡Bienvenido!'
+              : 'Registro exitoso'
+
+        toast.success(successMessage, { description: result.message })
 
         // Redirigir después del login exitoso con contraseña
-        // Magic Link no redirige (el usuario recibe un email)
-        // Registro no redirige (el usuario debe confirmar email o iniciar sesión)
-        if (isLogin && !useMagicLink) {
+        if (isLogin && !useMagicLink && !usePasswordReset) {
           window.location.href = '/'
+        }
+
+        // Después de enviar reset, volver al login
+        if (usePasswordReset) {
+          setUsePasswordReset(false)
         }
       } else {
         throw new Error(result.error || 'Error de autenticación')
       }
-    } catch (error: any) {
-      console.error(error)
-      toast.error('Error de autenticación', {
-        description: error.message || 'Credenciales inválidas.'
-      })
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Credenciales inválidas.'
+      toast.error('Error de autenticación', { description: message })
     } finally {
       setLoading(false)
     }
@@ -78,7 +91,7 @@ export default function AuthForm() {
         <div className="text-center">
           <h1 className="text-3xl font-bold text-primary">Kiosco App</h1>
           <p className="text-muted-foreground mt-1">
-            {useMagicLink ? 'Acceso sin contraseña' : (isLogin ? 'Iniciar Sesión' : 'Registrarse')}
+            {usePasswordReset ? 'Recuperar contraseña' : useMagicLink ? 'Acceso sin contraseña' : (isLogin ? 'Iniciar Sesión' : 'Registrarse')}
           </p>
         </div>
 
@@ -97,8 +110,8 @@ export default function AuthForm() {
             />
           </div>
 
-          {/* Ocultamos el campo de contraseña si se usa Magic Link */}
-          {!useMagicLink && (
+          {/* Ocultamos el campo de contraseña si se usa Magic Link o Password Reset */}
+          {!useMagicLink && !usePasswordReset && (
             <div className="space-y-2">
               <label className="text-sm font-medium flex items-center gap-2">
                   <Lock className="h-4 w-4" /> Contraseña
@@ -117,6 +130,8 @@ export default function AuthForm() {
           <Button type="submit" className="w-full h-10" disabled={loading}>
             {loading ? (
               <Loader2 className="animate-spin h-5 w-5" />
+            ) : usePasswordReset ? (
+              <><Mail className="mr-2 h-5 w-5" /> Enviar enlace de recuperación</>
             ) : useMagicLink ? (
                <><Wand2 className="mr-2 h-5 w-5" /> Enviar Enlace Mágico</>
             ) : isLogin ? (
@@ -128,34 +143,61 @@ export default function AuthForm() {
         </form>
 
         <div className="flex flex-col gap-2 text-center text-sm text-muted-foreground">
-          {/* Botón para alternar entre Contraseña y Magic Link */}
-          <Button 
-            variant="link" 
-            type="button"
-            onClick={() => setUseMagicLink(!useMagicLink)} 
-            className="h-auto p-0 text-xs"
-            disabled={loading}
-          >
-            {useMagicLink 
-              ? "Volver a usar contraseña" 
-              : "Ingresar sin contraseña / Olvidé mi clave"
-            }
-          </Button>
-
-          {/* Botón para alternar entre Login y Registro (Solo visible si no es Magic Link) */}
-          {!useMagicLink && (
-            <Button 
-              variant="link" 
+          {usePasswordReset ? (
+            <Button
+              variant="link"
               type="button"
-              onClick={() => setIsLogin(!isLogin)} 
-              className="text-primary hover:text-primary/80 h-auto p-0 mt-2"
+              onClick={() => setUsePasswordReset(false)}
+              className="h-auto p-0 text-xs"
               disabled={loading}
             >
-              {isLogin 
-                ? "¿Necesitas una cuenta? Regístrate aquí." 
-                : "¿Ya tienes cuenta? Inicia sesión."
-              }
+              Volver a iniciar sesión
             </Button>
+          ) : (
+            <>
+              {/* Botón para alternar entre Contraseña y Magic Link */}
+              <Button
+                variant="link"
+                type="button"
+                onClick={() => setUseMagicLink(!useMagicLink)}
+                className="h-auto p-0 text-xs"
+                disabled={loading}
+              >
+                {useMagicLink
+                  ? "Volver a usar contraseña"
+                  : "Ingresar sin contraseña (Magic Link)"
+                }
+              </Button>
+
+              {/* Botón Olvidé mi contraseña (solo en modo login con contraseña) */}
+              {isLogin && !useMagicLink && (
+                <Button
+                  variant="link"
+                  type="button"
+                  onClick={() => setUsePasswordReset(true)}
+                  className="h-auto p-0 text-xs text-muted-foreground hover:text-primary"
+                  disabled={loading}
+                >
+                  ¿Olvidaste tu contraseña?
+                </Button>
+              )}
+
+              {/* Botón para alternar entre Login y Registro */}
+              {!useMagicLink && (
+                <Button
+                  variant="link"
+                  type="button"
+                  onClick={() => setIsLogin(!isLogin)}
+                  className="text-primary hover:text-primary/80 h-auto p-0 mt-2"
+                  disabled={loading}
+                >
+                  {isLogin
+                    ? "¿Necesitas una cuenta? Regístrate aquí."
+                    : "¿Ya tienes cuenta? Inicia sesión."
+                  }
+                </Button>
+              )}
+            </>
           )}
         </div>
       </Card>

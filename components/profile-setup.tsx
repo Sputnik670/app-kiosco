@@ -4,17 +4,18 @@ import { useState, useEffect } from "react"
 import { supabase } from "@/lib/supabase"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Loader2, User, Store, Check, Lock } from "lucide-react"
+import { Loader2, User as UserIcon, Store, Check, Lock } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import {
   checkInvitationAction,
   completeProfileSetupAction
 } from "@/lib/actions/auth.actions"
+import type { User } from "@supabase/supabase-js"
 
 interface ProfileSetupProps {
-  user: any
-  onProfileCreated: (result: { role: "dueño" | "empleado"; data?: any }) => void
+  user: User
+  onProfileCreated: (result: { role: "dueño" | "empleado"; data?: Record<string, unknown> }) => void
 }
 
 export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupProps) {
@@ -82,7 +83,7 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
       toast.error("Nombre requerido")
       return
     }
-    if (password.length < 6) {
+    if (password && password.length < 6) {
       toast.error("La contraseña es muy corta", { description: "Debe tener al menos 6 caracteres." })
       return
     }
@@ -90,19 +91,21 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
     setLoading(true)
 
     try {
-      // ✅ PASO 1: Establecer contraseña en Supabase Auth
-      // Esto permite que el usuario entre después sin el Magic Link
-      // NOTA: Se mantiene en el cliente como solicitado
-      const { error: pwdError } = await supabase.auth.updateUser({
-        password: password
-      })
+      // ✅ PASO 1: Establecer contraseña en Supabase Auth (SOLO si el usuario la ingresó)
+      // Usuarios que se registraron con email+contraseña ya la tienen configurada.
+      // Solo quienes entraron por Magic Link (empleados invitados) necesitan crear una.
+      if (password) {
+        const { error: pwdError } = await supabase.auth.updateUser({
+          password: password
+        })
 
-      if (pwdError) throw pwdError
+        if (pwdError) throw pwdError
+      }
 
       // ✅ PASO 2: Completar configuración de perfil (SERVER ACTION)
       const result = await completeProfileSetupAction({
         userId: user.id,
-        email: user.email,
+        email: user.email ?? "",
         name: name.trim(),
         role: selectedRole
       })
@@ -115,12 +118,12 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
       if (result.role) {
         toast.success("¡Cuenta configurada!", { description: result.message || "Ya tienes acceso y contraseña." })
         // Pass the entire result including data from RPC
-        onProfileCreated({ role: result.role!, data: result.data })
+        onProfileCreated({ role: result.role!, data: result.data as unknown as Record<string, unknown> })
       }
 
-    } catch (error: any) {
-      console.error("Error setup:", error)
-      toast.error("Error", { description: error.message || "No se pudo completar el registro." })
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "No se pudo completar el registro."
+      toast.error("Error", { description: message })
     } finally {
       setLoading(false)
     }
@@ -142,8 +145,8 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 mb-2">
             <Check className="h-6 w-6 text-primary" />
           </div>
-          <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-800">Crear Credenciales</h1>
-          <p className="text-slate-500 text-xs font-medium px-4">Configura tu acceso para no depender del enlace de correo.</p>
+          <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-800">Completar Perfil</h1>
+          <p className="text-slate-500 text-xs font-medium px-4">Último paso: elegí tu nombre y tu rol para empezar.</p>
         </div>
 
         <div className="space-y-4">
@@ -160,22 +163,26 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
             />
           </div>
 
-          {/* Input Contraseña */}
-          <div className="space-y-1.5">
-            <label htmlFor="password" className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Crear Contraseña</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-3.5 h-5 w-5 text-slate-300" />
-              <input
-                id="password"
-                type="password"
-                placeholder="Mínimo 6 caracteres"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="flex h-12 w-full rounded-xl border-2 bg-white pl-10 pr-4 font-bold focus:border-primary focus:outline-none transition-all"
-              />
+          {/* Input Contraseña — Solo para usuarios que entraron por Magic Link (no tienen contraseña aún) */}
+          {invitacionData && (
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Crear Contraseña</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3.5 h-5 w-5 text-slate-300" />
+                <input
+                  id="password"
+                  type="password"
+                  placeholder="Mínimo 6 caracteres"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="flex h-12 w-full rounded-xl border-2 bg-white pl-10 pr-4 font-bold focus:border-primary focus:outline-none transition-all"
+                />
+              </div>
+              <p className="text-[9px] text-slate-400 font-bold ml-1">
+                ⚠️ La usarás para entrar al kiosco mañana.
+              </p>
             </div>
-            <p className="text-[9px] text-slate-400 font-bold ml-1">⚠️ La usarás para entrar al kiosco mañana.</p>
-          </div>
+          )}
         </div>
 
         {/* Selector de Roles */}
@@ -207,7 +214,7 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
             onClick={() => setSelectedRole("empleado")}
           >
             <div className="flex items-center gap-3">
-              <div className="bg-slate-800 p-2 rounded-lg"><User className="h-5 w-5 text-white" /></div>
+              <div className="bg-slate-800 p-2 rounded-lg"><UserIcon className="h-5 w-5 text-white" /></div>
               <div>
                 <h2 className="font-bold text-xs uppercase">Soy Empleado</h2>
                 <p className="text-[9px] text-slate-400">Tengo una invitación</p>
@@ -220,7 +227,7 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
         <Button
           onClick={handleSaveProfile}
           className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-widest shadow-xl bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all"
-          disabled={loading || !selectedRole || !password}
+          disabled={loading || !selectedRole}
         >
           {loading ? <Loader2 className="animate-spin" /> : "GUARDAR Y ENTRAR"}
         </Button>
