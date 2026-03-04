@@ -258,14 +258,14 @@ export default function HomePage() {
       // Prioridad 2: Asistencia activa en DB (si es empleado y no hay ID seleccionado)
       if (userProfile.rol === "empleado" && !sucursalId) {
         const { data: asistencia } = await supabase
-          .from('asistencia')
-          .select('sucursal_id')
-          .eq('empleado_id', session.user.id)
-          .is('salida', null)
+          .from('attendance')
+          .select('branch_id')
+          .eq('user_id', session.user.id)
+          .is('check_out', null)
           .maybeSingle()
 
-        if (asistencia?.sucursal_id) {
-          setSucursalId(asistencia.sucursal_id)
+        if (asistencia?.branch_id) {
+          setSucursalId(asistencia.branch_id)
         }
       }
     }

@@ -88,29 +88,29 @@ function FichajeContent() {
 
       // Verificar estado actual de fichaje (en TODAS las sucursales)
       const { data: asistenciaActual } = await supabase
-        .from('asistencia')
-        .select('id, sucursal_id, sucursales(nombre)')
-        .eq('empleado_id', user.id)
-        .is('salida', null)
+        .from('attendance')
+        .select('id, branch_id, branches(name)')
+        .eq('user_id', user.id)
+        .is('check_out', null)
         .maybeSingle()
 
       // Validar lógica de entrada/salida
       if (tipoParam === "entrada") {
         if (asistenciaActual) {
           // Verificar si la asistencia abierta es de otra sucursal
-          if (asistenciaActual.sucursal_id !== sucursalId) {
-            const otraSucursal = (asistenciaActual.sucursales as any)?.nombre || "otra sucursal"
+          if (asistenciaActual.branch_id !== sucursalId) {
+            const otraSucursal = (asistenciaActual.branches as any)?.name || "otra sucursal"
             throw new Error(`Ya tienes una entrada activa en ${otraSucursal}. Debes fichar la salida allí primero.`)
           }
           throw new Error(`Ya tienes una entrada registrada. Debes fichar la salida primero.`)
         }
 
         // Registrar entrada
-        const { error: insertError } = await supabase.from('asistencia').insert({
+        const { error: insertError } = await supabase.from('attendance').insert({
           organization_id: membership.organization_id,
-          sucursal_id: sucursalId,
-          empleado_id: user.id,
-          entrada: new Date().toISOString()
+          branch_id: sucursalId,
+          user_id: user.id,
+          check_in: new Date().toISOString()
         })
 
         if (insertError) throw insertError
@@ -129,14 +129,14 @@ function FichajeContent() {
           throw new Error("No tienes una entrada registrada. Debes fichar la entrada primero.")
         }
 
-        if (asistenciaActual.sucursal_id !== sucursalId) {
+        if (asistenciaActual.branch_id !== sucursalId) {
           throw new Error("Tu entrada fue registrada en otro local. Debes fichar la salida en el mismo local.")
         }
 
         // Registrar salida
         const { error: updateError } = await supabase
-          .from('asistencia')
-          .update({ salida: new Date().toISOString() })
+          .from('attendance')
+          .update({ check_out: new Date().toISOString() })
           .eq('id', asistenciaActual.id)
 
         if (updateError) throw updateError
