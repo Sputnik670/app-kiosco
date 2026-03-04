@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ArrowLeft, MapPin, Settings, Sparkles, DollarSign, Package, TrendingUp, Users, ShieldCheck } from "lucide-react"
 import GestionSucursales from "@/components/gestion-sucursales"
 import { CapitalBadges } from "@/components/capital-badges"
@@ -67,13 +67,15 @@ export function DashboardHeader({
             </Select>
           </div>
           <Dialog>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 rounded-full bg-white/5 hover:bg-white/20"
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 rounded-full bg-white/5 hover:bg-white/20"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </DialogTrigger>
             <DialogContent className="sm:max-w-lg">
               <DialogHeader>
                 <DialogTitle>Configuración de Sucursales</DialogTitle>
