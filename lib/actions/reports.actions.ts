@@ -156,7 +156,7 @@ export async function getSalesReportAction(
         payment_method,
         created_at,
         sale_items(quantity),
-        cash_registers(memberships(display_name))
+        cash_registers(memberships!fk_cash_registers_opened_by_membership(display_name))
       `)
       .eq("branch_id", branchId)
       .gte("created_at", fromDate)
@@ -237,7 +237,7 @@ export async function getCashRegisterReportAction(
         opening_amount,
         closing_amount,
         branch_id,
-        memberships(display_name)
+        memberships!fk_cash_registers_opened_by_membership(display_name)
       `)
       .eq("id", cashRegisterId)
       .single()
@@ -409,7 +409,7 @@ export async function getExpiringProductsReportAction(
       .select(`
         id,
         quantity,
-        cost_per_unit,
+        unit_cost,
         expiration_date,
         products(name)
       `)
@@ -436,8 +436,8 @@ export async function getExpiringProductsReportAction(
         quantity: b.quantity || 0,
         expirationDate: b.expiration_date!,
         daysUntilExpiry: daysUntil,
-        cost: b.cost_per_unit || 0,
-        valueAtRisk: (b.quantity || 0) * (b.cost_per_unit || 0),
+        cost: b.unit_cost || 0,
+        valueAtRisk: (b.quantity || 0) * (b.unit_cost || 0),
       }
     })
 
@@ -481,7 +481,7 @@ export async function getCashRegistersListAction(
 
     const { data, error } = await supabase
       .from("cash_registers")
-      .select("id, date, closed_at, memberships(display_name)")
+      .select("id, date, closed_at, memberships!fk_cash_registers_opened_by_membership(display_name)")
       .eq("branch_id", branchId)
       .gte("date", fromDate)
       .lte("date", toDate)

@@ -103,7 +103,7 @@ export async function getServiceProviderBalanceAction(
 
     const { data, error } = tipo === 'SUBE'
       ? await query.ilike('name', criterio).single()
-      : await query.ilike('notes', criterio).limit(1).single()
+      : await query.ilike('name', criterio).limit(1).single()
 
     if (error) {
       return {

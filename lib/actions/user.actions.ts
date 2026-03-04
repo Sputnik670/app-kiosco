@@ -190,9 +190,9 @@ export async function getEmployeeDashboardContextAction(
         .eq('id', sucursalId)
         .single(),
 
-      // 3. Estado de asistencia (attendance_logs)
+      // 3. Estado de asistencia (attendance)
       supabase
-        .from('attendance_logs')
+        .from('attendance')
         .select('id')
         .eq('user_id', user.id)
         .eq('branch_id', sucursalId)

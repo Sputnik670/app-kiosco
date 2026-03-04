@@ -222,7 +222,7 @@ export function useDashboardData(
       let cashQuery = supabase
         .from("cash_registers")
         .select(
-          "id, date, opening_amount, closing_amount, is_open, opened_at, closed_at, opened_by, memberships(display_name), cash_movements(*), missions(*)"
+          "id, date, opening_amount, closing_amount, is_open, opened_at, closed_at, opened_by, memberships!fk_cash_registers_opened_by_membership(display_name), cash_movements(*), missions(*)"
         )
         .eq("branch_id", sucursalId)
 
@@ -272,7 +272,7 @@ export function useDashboardData(
       // Asistencias
       let attQuery = supabase
         .from("attendance")
-        .select("id, check_in, check_out, user_id, branch_id, memberships(display_name)")
+        .select("id, check_in, check_out, user_id, branch_id, memberships!fk_attendance_user_membership(display_name)")
         .eq("branch_id", sucursalId)
 
       if (dateRange?.from) {
