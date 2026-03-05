@@ -28,7 +28,7 @@ interface DashboardModalsProps {
   // Lotes de stock
   managingStockId: string | null
   onManagingStockIdChange: (id: string | null) => void
-  stockBatchList: { id: string; quantity: number; created_at: string }[]
+  stockBatchList: { id: string; quantity: number; created_at: string; unit_cost: number | null }[]
 
   // Detalle de ventas
   showSalesDetail: boolean
@@ -241,22 +241,36 @@ export function DashboardModals({
             {stockBatchList.map((b) => (
               <div
                 key={b.id}
-                className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border-2 border-slate-100 hover:border-orange-200"
+                className="p-4 bg-slate-50 rounded-2xl border-2 border-slate-100 hover:border-orange-200"
               >
-                <div className="space-y-1">
-                  <p className="font-black text-xs">CANT: {b.quantity} u.</p>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase">
-                    Ingreso: {format(parseISO(b.created_at), "dd/MM/yy HH:mm")} hs
-                  </p>
+                <div className="flex justify-between items-start">
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-sm text-slate-800">{b.quantity} u.</span>
+                      {b.unit_cost != null && (
+                        <span className="text-[10px] font-black text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
+                          {formatMoney(b.unit_cost)} c/u
+                        </span>
+                      )}
+                    </div>
+                    {b.unit_cost != null && (
+                      <p className="text-xs font-bold text-slate-600">
+                        Inversión: <span className="text-slate-900 font-black">{formatMoney(b.unit_cost * b.quantity)}</span>
+                      </p>
+                    )}
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">
+                      {format(parseISO(b.created_at), "dd/MM/yy HH:mm")} hs
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-red-400 hover:bg-red-50 rounded-full shrink-0"
+                    onClick={() => handleDeleteStockBatch(b.id)}
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </Button>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-red-400 hover:bg-red-50 rounded-full"
-                  onClick={() => handleDeleteStockBatch(b.id)}
-                >
-                  <Trash2 className="h-5 w-5" />
-                </Button>
               </div>
             ))}
           </div>

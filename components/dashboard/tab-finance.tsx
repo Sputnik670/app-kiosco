@@ -22,7 +22,7 @@ export function TabFinance({ biMetrics, formatMoney }: FinanceTabProps) {
 
         <Card className="p-5 bg-blue-50 border-2 border-blue-200">
           <p className="text-[10px] font-black text-blue-600 uppercase mb-2">
-            Ventas Rastreables
+            Ventas Digitales
           </p>
           <h3 className="text-3xl font-black text-blue-900">
             {formatMoney(biMetrics.traceable)}

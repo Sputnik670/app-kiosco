@@ -21,7 +21,7 @@ export interface DashboardState {
   // Modales
   editingProduct: ProductoDashboard | null
   managingStockId: string | null
-  stockBatchList: { id: string; quantity: number; created_at: string }[]
+  stockBatchList: { id: string; quantity: number; created_at: string; unit_cost: number | null }[]
   showSalesDetail: boolean
   showPriceHistoryModal: boolean
   historyData: HistorialPrecio[]
@@ -37,7 +37,7 @@ export interface DashboardActions {
   // Modales
   setEditingProduct: (product: ProductoDashboard | null) => void
   setManagingStockId: (id: string | null) => void
-  setStockBatchList: (list: { id: string; quantity: number; created_at: string }[]) => void
+  setStockBatchList: (list: { id: string; quantity: number; created_at: string; unit_cost: number | null }[]) => void
   setShowSalesDetail: (show: boolean) => void
   setShowPriceHistoryModal: (show: boolean) => void
   setHistoryData: (data: HistorialPrecio[]) => void
@@ -62,7 +62,7 @@ export function useDashboardState() {
   // Modal State
   const [editingProduct, setEditingProduct] = useState<ProductoDashboard | null>(null)
   const [managingStockId, setManagingStockId] = useState<string | null>(null)
-  const [stockBatchList, setStockBatchList] = useState<{ id: string; quantity: number; created_at: string }[]>([])
+  const [stockBatchList, setStockBatchList] = useState<{ id: string; quantity: number; created_at: string; unit_cost: number | null }[]>([])
   const [showSalesDetail, setShowSalesDetail] = useState(false)
   const [showPriceHistoryModal, setShowPriceHistoryModal] = useState(false)
   const [historyData, setHistoryData] = useState<HistorialPrecio[]>([])

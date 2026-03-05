@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ArrowLeft, MapPin, Settings, Sparkles, DollarSign, Package, TrendingUp, Users, ShieldCheck } from "lucide-react"
 import GestionSucursales from "@/components/gestion-sucursales"
 import { CapitalBadges } from "@/components/capital-badges"
+import { ThemeToggle } from "@/components/theme-toggle"
 import type { DashboardTab } from "@/types/dashboard.types"
 
 interface DashboardHeaderProps {
@@ -21,11 +22,11 @@ interface DashboardHeaderProps {
 }
 
 const TABS = [
-  { id: "stock", label: "Stock", icon: Package },
   { id: "ventas", label: "Ventas", icon: DollarSign },
+  { id: "analisis", label: "Análisis", icon: TrendingUp },
+  { id: "stock", label: "Stock", icon: Package },
   { id: "proveedores", label: "Proveedores", icon: Users },
   { id: "equipo", label: "Control Empleados", icon: ShieldCheck },
-  { id: "analisis", label: "Análisis", icon: TrendingUp },
 ] as const
 
 export function DashboardHeader({
@@ -66,14 +67,15 @@ export function DashboardHeader({
               </SelectContent>
             </Select>
           </div>
+          <ThemeToggle className="h-10 w-10 rounded-full bg-white/5 hover:bg-white/20 text-white" />
           <Dialog>
             <DialogTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-full bg-white/5 hover:bg-white/20"
+                className="h-10 w-10 rounded-full bg-white/5 hover:bg-white/20"
               >
-                <Settings className="h-4 w-4" />
+                <Settings className="h-5 w-5" />
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-lg">

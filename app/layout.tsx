@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 import { Toaster } from "@/components/ui/sonner"
 import { PWAProvider } from "@/components/pwa"
+import { ThemeProvider } from "@/components/theme-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -57,13 +58,15 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
       <body className={inter.className}>
-        <PWAProvider showConnectionStatus={true} connectionStatusPosition="top">
-          {children}
-        </PWAProvider>
-        <Analytics />
-        <Toaster />
+        <ThemeProvider>
+          <PWAProvider showConnectionStatus={true} connectionStatusPosition="top">
+            {children}
+          </PWAProvider>
+          <Analytics />
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   )

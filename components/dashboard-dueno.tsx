@@ -91,7 +91,7 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
     actions.setManagingStockId(pid)
     const { data: batchData } = await supabase
       .from("stock_batches")
-      .select("id, quantity, created_at")
+      .select("id, quantity, created_at, unit_cost")
       .eq("product_id", pid)
       .eq("branch_id", currentSucursalId)
       .order("created_at", { ascending: false })
