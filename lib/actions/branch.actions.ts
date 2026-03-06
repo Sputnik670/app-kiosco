@@ -96,6 +96,16 @@ export interface DeleteBranchResult {
   error?: string
 }
 
+export interface UpdateBranchData {
+  nombre: string
+  direccion?: string
+}
+
+export interface UpdateBranchResult {
+  success: boolean
+  error?: string
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // SERVER ACTIONS
 // ───────────────────────────────────────────────────────────────────────────────
@@ -369,6 +379,44 @@ export async function deleteBranchAction(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido al eliminar sucursal',
+    }
+  }
+}
+
+/**
+ * ✏️ Actualiza nombre y dirección de una sucursal
+ */
+export async function updateBranchAction(
+  branchId: string,
+  data: UpdateBranchData
+): Promise<UpdateBranchResult> {
+  try {
+    if (!data.nombre.trim()) {
+      return { success: false, error: 'El nombre es obligatorio' }
+    }
+
+    const { supabase, orgId } = await verifyOwner()
+
+    const updateData: Record<string, string> = { name: data.nombre.trim() }
+    if (data.direccion !== undefined) {
+      updateData.address = data.direccion
+    }
+
+    const { error } = await supabase
+      .from('branches')
+      .update(updateData)
+      .eq('id', branchId)
+      .eq('organization_id', orgId)
+
+    if (error) {
+      return { success: false, error: `Error al actualizar: ${error.message}` }
+    }
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
     }
   }
 }

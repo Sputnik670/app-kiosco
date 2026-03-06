@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, Plus, Store, Trash2, MapPin, AlertTriangle } from "lucide-react"
+import { Loader2, Plus, Store, Trash2, MapPin, AlertTriangle, Pencil, Check, X } from "lucide-react"
 import { toast } from "sonner"
 import {
   getBranchesAction,
   createBranchAction,
   deleteBranchAction,
+  updateBranchAction,
   type BranchFull
 } from "@/lib/actions/branch.actions"
 
@@ -26,6 +27,12 @@ export default function GestionSucursales({ onUpdate }: GestionSucursalesProps) 
   const [newNombre, setNewNombre] = useState("")
   const [newDireccion, setNewDireccion] = useState("")
   const [creating, setCreating] = useState(false)
+
+  // Edición inline
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editNombre, setEditNombre] = useState("")
+  const [editDireccion, setEditDireccion] = useState("")
+  const [saving, setSaving] = useState(false)
 
   // ───────────────────────────────────────────────────────────────────────────
   // CARGAR SUCURSALES (Single useEffect - Sin lógica de orgId en cliente)
@@ -97,6 +104,33 @@ export default function GestionSucursales({ onUpdate }: GestionSucursalesProps) 
     }
   }
 
+  const handleStartEdit = (suc: BranchFull) => {
+    setEditingId(suc.id)
+    setEditNombre(suc.nombre)
+    setEditDireccion(suc.direccion || "")
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingId) return
+    setSaving(true)
+
+    const result = await updateBranchAction(editingId, {
+      nombre: editNombre,
+      direccion: editDireccion,
+    })
+
+    if (result.success) {
+      toast.success("Sucursal actualizada")
+      setEditingId(null)
+      fetchSucursales()
+      if (onUpdate) onUpdate()
+    } else {
+      toast.error("Error al actualizar", { description: result.error })
+    }
+
+    setSaving(false)
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in">
         {/* FORMULARIO DE CREACIÓN */}
@@ -151,17 +185,55 @@ export default function GestionSucursales({ onUpdate }: GestionSucursalesProps) 
                     ) : (
                         sucursales.map((suc) => (
                             <TableRow key={suc.id}>
-                                <TableCell className="font-medium flex items-center gap-2">
-                                    <div className="h-8 w-8 bg-primary/10 rounded-full flex items-center justify-center text-primary">
-                                        <Store className="h-4 w-4" />
-                                    </div>
-                                    {suc.nombre}
+                                <TableCell className="font-medium">
+                                    {editingId === suc.id ? (
+                                        <Input
+                                            value={editNombre}
+                                            onChange={e => setEditNombre(e.target.value)}
+                                            className="h-8 text-sm"
+                                            autoFocus
+                                        />
+                                    ) : (
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-8 w-8 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+                                                <Store className="h-4 w-4" />
+                                            </div>
+                                            {suc.nombre}
+                                        </div>
+                                    )}
                                 </TableCell>
-                                <TableCell className="text-muted-foreground text-sm">{suc.direccion || "—"}</TableCell>
+                                <TableCell className="text-muted-foreground text-sm">
+                                    {editingId === suc.id ? (
+                                        <Input
+                                            value={editDireccion}
+                                            onChange={e => setEditDireccion(e.target.value)}
+                                            className="h-8 text-sm"
+                                            placeholder="Dirección..."
+                                        />
+                                    ) : (
+                                        suc.direccion || "—"
+                                    )}
+                                </TableCell>
                                 <TableCell className="text-right">
-                                    <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={() => handleDelete(suc.id)} title="Eliminar permanentemente">
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
+                                    {editingId === suc.id ? (
+                                        <div className="flex justify-end gap-1">
+                                            <Button variant="ghost" size="icon" onClick={handleSaveEdit} disabled={saving} className="text-emerald-600 hover:bg-emerald-50">
+                                                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                            </Button>
+                                            <Button variant="ghost" size="icon" onClick={() => setEditingId(null)} className="text-muted-foreground">
+                                                <X className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <div className="flex justify-end gap-1">
+                                            <Button variant="ghost" size="icon" onClick={() => handleStartEdit(suc)} title="Editar nombre" className="text-muted-foreground hover:text-primary hover:bg-primary/10">
+                                                <Pencil className="h-4 w-4" />
+                                            </Button>
+                                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive hover:bg-destructive/10" onClick={() => handleDelete(suc.id)} title="Eliminar">
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    )}
                                 </TableCell>
                             </TableRow>
                         ))

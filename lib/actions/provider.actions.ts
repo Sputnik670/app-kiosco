@@ -34,6 +34,9 @@ export interface ServiceProvider {
   id: string
   name: string
   balance: number
+  markup_type: 'percentage' | 'fixed' | null
+  markup_value: number | null
+  rubro: string | null
 }
 
 /**
@@ -66,6 +69,9 @@ export interface Provider {
   email: string | null
   balance: number | null
   is_active: boolean
+  markup_type: 'percentage' | 'fixed' | null
+  markup_value: number | null
+  rubro: string | null
 }
 
 /**
@@ -87,7 +93,9 @@ export interface CreateProviderData {
   telefono: string
   email: string
   condicion_pago: string
-  esGlobal: boolean  // true = sucursal_id NULL, false = sucursal_id del usuario
+  esGlobal: boolean
+  markup_type?: 'percentage' | 'fixed' | null
+  markup_value?: number | null
 }
 
 /**
@@ -147,7 +155,7 @@ export async function getServiceProvidersAction(): Promise<GetServiceProvidersRe
 
     const { data, error } = await supabase
       .from('suppliers')
-      .select('id, name, balance')
+      .select('id, name, balance, markup_type, markup_value, rubro')
       .eq('organization_id', orgId)
       .order('name', { ascending: true })
 
@@ -417,6 +425,9 @@ export async function createProviderAction(
         name: formData.nombre,
         phone: formData.telefono,
         email: formData.email,
+        rubro: formData.rubro || null,
+        markup_type: formData.markup_type || null,
+        markup_value: formData.markup_value ?? null,
       }])
       .select()
       .single()
@@ -504,6 +515,183 @@ export async function getProviderPurchaseHistoryAction(
       success: false,
       purchases: [],
       error: error instanceof Error ? error.message : 'Error desconocido al obtener historial',
+    }
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// NUEVAS ACCIONES: Compra de crédito con detalle + Markup
+// ───────────────────────────────────────────────────────────────────────────────
+
+export interface ServicePurchaseData {
+  providerId: string
+  amount: number
+  paymentMethod: string
+  invoiceNumber?: string
+  notes?: string
+  branchId?: string
+}
+
+export interface ServicePurchaseResult {
+  success: boolean
+  nuevoSaldo?: number
+  purchaseId?: string
+  error?: string
+}
+
+/**
+ * 💳 Registra una compra de crédito a un proveedor de servicios
+ * Incrementa el saldo Y crea un registro detallado en service_purchases
+ */
+export async function recordServicePurchaseAction(
+  data: ServicePurchaseData
+): Promise<ServicePurchaseResult> {
+  try {
+    const { supabase, orgId, user } = await verifyOwner()
+
+    if (!data.providerId || !data.amount || data.amount <= 0) {
+      return { success: false, error: 'Proveedor y monto son requeridos' }
+    }
+
+    // 1. Obtener saldo actual
+    const { data: prov, error: fetchErr } = await supabase
+      .from('suppliers')
+      .select('balance')
+      .eq('id', data.providerId)
+      .single<{ balance: number | null }>()
+
+    if (fetchErr || !prov) {
+      return { success: false, error: 'Proveedor no encontrado' }
+    }
+
+    const nuevoSaldo = (prov.balance || 0) + data.amount
+
+    // 2. Actualizar saldo
+    const { error: updateErr } = await supabase
+      .from('suppliers')
+      .update({ balance: nuevoSaldo })
+      .eq('id', data.providerId)
+
+    if (updateErr) {
+      return { success: false, error: `Error al actualizar saldo: ${updateErr.message}` }
+    }
+
+    // 3. Registrar compra detallada en service_purchases
+    const { data: purchase, error: insertErr } = await supabase
+      .from('service_purchases')
+      .insert({
+        supplier_id: data.providerId,
+        organization_id: orgId,
+        branch_id: data.branchId || null,
+        amount: data.amount,
+        payment_method: data.paymentMethod,
+        invoice_number: data.invoiceNumber || null,
+        notes: data.notes || null,
+        created_by: user.id,
+      })
+      .select('id')
+      .single()
+
+    if (insertErr) {
+      // Rollback saldo
+      await supabase
+        .from('suppliers')
+        .update({ balance: prov.balance || 0 })
+        .eq('id', data.providerId)
+      return { success: false, error: `Error al registrar compra: ${insertErr.message}` }
+    }
+
+    return { success: true, nuevoSaldo, purchaseId: purchase?.id }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+export interface UpdateMarkupData {
+  providerId: string
+  markupType: 'percentage' | 'fixed' | null
+  markupValue: number | null
+}
+
+export interface UpdateMarkupResult {
+  success: boolean
+  error?: string
+}
+
+/**
+ * ⚙️ Actualiza la configuración de comisión de un proveedor
+ */
+export async function updateProviderMarkupAction(
+  data: UpdateMarkupData
+): Promise<UpdateMarkupResult> {
+  try {
+    const { supabase } = await verifyOwner()
+
+    const { error } = await supabase
+      .from('suppliers')
+      .update({
+        markup_type: data.markupType,
+        markup_value: data.markupValue,
+      })
+      .eq('id', data.providerId)
+
+    if (error) {
+      return { success: false, error: `Error al actualizar comisión: ${error.message}` }
+    }
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
+ * 📜 Obtiene historial de compras de crédito (service_purchases)
+ */
+export interface ServicePurchaseRecord {
+  id: string
+  amount: number
+  payment_method: string | null
+  invoice_number: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface GetServicePurchaseHistoryResult {
+  success: boolean
+  purchases: ServicePurchaseRecord[]
+  error?: string
+}
+
+export async function getServicePurchaseHistoryAction(
+  providerId: string
+): Promise<GetServicePurchaseHistoryResult> {
+  try {
+    const { supabase } = await verifyAuth()
+
+    const { data, error } = await supabase
+      .from('service_purchases')
+      .select('id, amount, payment_method, invoice_number, notes, created_at')
+      .eq('supplier_id', providerId)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      return { success: false, purchases: [], error: error.message }
+    }
+
+    return { success: true, purchases: (data as ServicePurchaseRecord[]) || [] }
+  } catch (error) {
+    return {
+      success: false,
+      purchases: [],
+      error: error instanceof Error ? error.message : 'Error desconocido',
     }
   }
 }

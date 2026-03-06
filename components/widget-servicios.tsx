@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,8 +22,6 @@ const SERVICIOS = [
 export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada }: { turnoId: string, sucursalId: string, onVentaRegistrada: () => void }) {
     const [servicioId, setServicioId] = useState<string>(SERVICIOS[0].id)
     const [monto, setMonto] = useState("")
-    const [costoServicio, setCostoServicio] = useState("50")
-    const [metodoPago, setMetodoPago] = useState<'efectivo' | 'billetera_virtual'>('efectivo')
     const [loading, setLoading] = useState(false)
     const [proveedorServicios, setProveedorServicios] = useState<ServiceProvider | null>(null)
 
@@ -37,14 +35,27 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
         fetchProveedor()
     }, [])
 
+    // Calcular comisión dinámica según config del proveedor
+    const comision = useMemo(() => {
+        if (!proveedorServicios || !monto) return 0
+        const montoNum = parseFloat(monto) || 0
+        if (proveedorServicios.markup_type === 'percentage' && proveedorServicios.markup_value) {
+            return Math.round(montoNum * proveedorServicios.markup_value / 100)
+        }
+        if (proveedorServicios.markup_type === 'fixed' && proveedorServicios.markup_value) {
+            return proveedorServicios.markup_value
+        }
+        return 0 // Sin comisión configurada
+    }, [monto, proveedorServicios])
+
+    const totalCobrar = (parseFloat(monto) || 0) + comision
+
     const handleCargar = async () => {
         if (!monto || !proveedorServicios) return
         setLoading(true)
 
         try {
             const montoCarga = parseFloat(monto)
-            const comision = parseFloat(costoServicio) || 0
-            const totalCobrar = montoCarga + comision
             const nombreServicio = SERVICIOS.find(s => s.id === servicioId)?.nombre || "Servicio"
 
             const result = await processServiceRechargeAction({
@@ -55,7 +66,7 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
                 montoCarga,
                 comision,
                 totalCobrado: totalCobrar,
-                metodoPago,
+                metodoPago: 'efectivo',
             })
 
             if (!result.success) {
@@ -63,15 +74,13 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
                 return
             }
 
-            // Actualizar saldo local
             if (result.newBalance !== undefined) {
-                setProveedorServicios(prev => prev ? { ...prev, saldo_actual: result.newBalance! } : null)
+                setProveedorServicios(prev => prev ? { ...prev, balance: result.newBalance! } : null)
             }
 
             setMonto("")
             toast.success("Recarga exitosa", { description: result.message })
             onVentaRegistrada()
-
         } catch (error: any) {
             toast.error("Error", { description: error.message })
         } finally {
@@ -79,30 +88,53 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
         }
     }
 
-        return (
-            <Card className="p-4 bg-indigo-600 text-white shadow-lg border-2 border-indigo-500 flex flex-col gap-4">
+    const markupLabel = proveedorServicios?.markup_type === 'percentage'
+        ? `+${proveedorServicios.markup_value}%`
+        : proveedorServicios?.markup_type === 'fixed'
+        ? `+$${proveedorServicios.markup_value}`
+        : 'Sin comisión'
+
+    return (
+        <Card className="p-4 bg-indigo-600 text-white shadow-lg border-2 border-indigo-500 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <div className="p-2 bg-white/20 rounded-full"><Smartphone className="h-6 w-6 text-white" /></div>
                     <div><h3 className="font-bold text-lg leading-none">Cargas Virtuales</h3></div>
                 </div>
+                <span className="text-[9px] font-bold bg-white/20 px-2 py-1 rounded-full">{markupLabel}</span>
+            </div>
 
-                <select 
-                    title="Seleccionar Operadora o Servicio" 
-                    value={servicioId} 
-                    onChange={(e) => setServicioId(e.target.value)} 
-                    className="w-full h-10 rounded-md bg-indigo-700 text-white font-medium px-3 text-sm focus:outline-none"
-                >
-                    {SERVICIOS.map(s => (<option key={s.id} value={s.id}>{s.nombre}</option>))}
-                </select>
+            <select
+                title="Seleccionar Operadora o Servicio"
+                value={servicioId}
+                onChange={(e) => setServicioId(e.target.value)}
+                className="w-full h-10 rounded-md bg-indigo-700 text-white font-medium px-3 text-sm focus:outline-none"
+            >
+                {SERVICIOS.map(s => (<option key={s.id} value={s.id}>{s.nombre}</option>))}
+            </select>
 
-                <div className="grid grid-cols-2 gap-2">
-                    <Input type="number" className="bg-white text-black font-bold h-10" placeholder="Monto" value={monto} onChange={e => setMonto(e.target.value)} />
-                    <Input type="number" className="bg-white/90 text-slate-600 h-10" value={costoServicio} onChange={e => setCostoServicio(e.target.value)} />
-                </div>
+            <div>
+                <Input
+                    type="number"
+                    className="bg-white text-black font-bold h-12 text-lg"
+                    placeholder="Monto de la carga"
+                    value={monto}
+                    onChange={e => setMonto(e.target.value)}
+                />
+                {comision > 0 && monto && (
+                    <p className="text-[10px] text-indigo-200 mt-1 text-center">
+                        Carga: ${(parseFloat(monto) || 0).toLocaleString()} + Comisión: ${comision.toLocaleString()}
+                    </p>
+                )}
+            </div>
 
-                <Button className="w-full bg-yellow-400 hover:bg-yellow-500 text-indigo-900 font-black h-12" onClick={handleCargar} disabled={loading || !monto}>
-                    {loading ? <Loader2 className="animate-spin" /> : `COBRAR $${((parseFloat(monto) || 0) + (parseFloat(costoServicio) || 0)).toLocaleString()}`}
-                </Button>
-            </Card>
-        )
-    }
+            <Button
+                className="w-full bg-yellow-400 hover:bg-yellow-500 text-indigo-900 font-black h-12"
+                onClick={handleCargar}
+                disabled={loading || !monto}
+            >
+                {loading ? <Loader2 className="animate-spin" /> : `COBRAR $${totalCobrar.toLocaleString()}`}
+            </Button>
+        </Card>
+    )
+}

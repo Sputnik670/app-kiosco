@@ -32,6 +32,8 @@ export interface ServiceProvider {
   id: string
   name: string
   balance: number
+  markup_type: 'percentage' | 'fixed' | null
+  markup_value: number | null
 }
 
 /**
@@ -98,7 +100,7 @@ export async function getServiceProviderBalanceAction(
 
     const query = supabase
       .from('suppliers')
-      .select('id, balance, name')
+      .select('id, balance, name, markup_type, markup_value')
       .eq('organization_id', orgId)
 
     const { data, error } = tipo === 'SUBE'
@@ -230,18 +232,19 @@ export async function processServiceRechargeAction(
       }
     }
 
-    // B. Registrar venta de servicio como una sale regular con nota del tipo de servicio
-    // TODO: Migrar a tabla dedicada 'service_sales' en futura versión
+    // B. Registrar venta en tabla dedicada service_sales
     const { error: ventaError } = await supabase
-      .from('sales')
+      .from('service_sales')
       .insert({
         organization_id: turno.organization_id,
         branch_id: data.sucursalId,
         cash_register_id: data.turnoId,
-        cashier_id: (await supabase.auth.getUser()).data.user?.id,
-        total: data.totalCobrado,
+        supplier_id: data.proveedorId,
+        service_type: data.tipoServicio,
+        amount_charged: data.montoCarga,
+        commission: data.comision,
+        total_collected: data.totalCobrado,
         payment_method: data.metodoPago === 'efectivo' ? 'cash' : data.metodoPago === 'billetera_virtual' ? 'wallet' : 'cash',
-        notes: `Servicio: ${data.tipoServicio} | Proveedor: ${data.proveedorId} | Carga: ${data.montoCarga} | Comisión: ${data.comision}`,
       })
 
     if (ventaError) {
