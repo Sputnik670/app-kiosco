@@ -474,12 +474,14 @@ export async function inviteEmployeeAction(
     }
 
     // Enviar Magic Link
-    const baseUrl =
+    const rawUrl =
       process.env.NEXT_PUBLIC_APP_URL ||
       process.env.VERCEL_URL ||
       'http://localhost:3000'
+    // VERCEL_URL no incluye protocolo, agregarlo si falta
+    const baseUrl = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`
 
-    const emailRedirectTo = `${baseUrl}/signup?token=${invite.token}`
+    const emailRedirectTo = `${baseUrl}/auth/callback?invite_token=${invite.token}`
 
     const { error: magicLinkError } = await supabase.auth.signInWithOtp({
       email: normalizedEmail,
