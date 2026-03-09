@@ -23,6 +23,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 import type { Database } from '@/types/database.types'
 import { resolveJoin } from '@/types/supabase-joins'
@@ -473,34 +474,79 @@ export async function inviteEmployeeAction(
       }
     }
 
-    // Enviar Magic Link
+    // Enviar invitación via Admin API (evita PKCE - el code_verifier
+    // no se comparte entre browsers del dueño y empleado)
     const rawUrl =
       process.env.NEXT_PUBLIC_APP_URL ||
       process.env.VERCEL_URL ||
       'http://localhost:3000'
-    // VERCEL_URL no incluye protocolo, agregarlo si falta
     const baseUrl = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`
 
-    const emailRedirectTo = `${baseUrl}/auth/callback?invite_token=${invite.token}`
+    const redirectTo = `${baseUrl}/?invite_token=${invite.token}`
 
-    const { error: magicLinkError } = await supabase.auth.signInWithOtp({
-      email: normalizedEmail,
-      options: {
-        emailRedirectTo,
-        shouldCreateUser: true,
-      },
-    })
+    const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      normalizedEmail,
+      {
+        redirectTo,
+        data: {
+          invite_token: invite.token,
+          organization_id: orgId,
+          branch_id: branchId,
+        },
+      }
+    )
 
-    if (magicLinkError) {
+    if (inviteError) {
+      // Si el usuario ya existe en auth, usar generateLink como fallback
+      if (inviteError.message?.includes('already been registered') ||
+          inviteError.message?.includes('already exists')) {
+        const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+          type: 'magiclink',
+          email: normalizedEmail,
+          options: {
+            redirectTo,
+          },
+        })
+
+        if (linkError) {
+          return {
+            success: false,
+            error: `Error al generar link de acceso: ${linkError.message}`,
+          }
+        }
+
+        // generateLink no envía email, necesitamos enviar el magic link
+        // Usamos signInWithOtp desde el admin client (sin PKCE)
+        const { error: otpError } = await supabaseAdmin.auth.signInWithOtp({
+          email: normalizedEmail,
+          options: {
+            emailRedirectTo: redirectTo,
+            shouldCreateUser: false,
+          },
+        })
+
+        if (otpError) {
+          return {
+            success: false,
+            error: `Error al enviar email de acceso: ${otpError.message}`,
+          }
+        }
+
+        return {
+          success: true,
+          message: 'Invitación enviada. El empleado recibirá un email para acceder.',
+        }
+      }
+
       return {
         success: false,
-        error: `Error al enviar Magic Link: ${magicLinkError.message}`,
+        error: `Error al enviar invitación: ${inviteError.message}`,
       }
     }
 
     return {
       success: true,
-      message: 'Invitación enviada. Se vinculará automáticamente al kiosco asignado.',
+      message: 'Invitación enviada. El empleado recibirá un email para crear su cuenta.',
     }
   } catch (error) {
     return {
