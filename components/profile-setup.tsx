@@ -15,10 +15,11 @@ import type { User } from "@supabase/supabase-js"
 
 interface ProfileSetupProps {
   user: User
+  inviteToken?: string | null
   onProfileCreated: (result: { role: "dueño" | "empleado"; data?: Record<string, unknown> }) => void
 }
 
-export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupProps) {
+export default function ProfileSetup({ user, inviteToken: propToken, onProfileCreated }: ProfileSetupProps) {
   const [selectedRole, setSelectedRole] = useState<"dueño" | "empleado" | null>(null)
   const [loading, setLoading] = useState(false)
   const [name, setName] = useState(user?.email?.split('@')[0] || "Usuario")
@@ -37,7 +38,7 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
       }
 
       try {
-        const result = await checkInvitationAction(user.email)
+        const result = await checkInvitationAction(user.email, propToken || undefined)
 
         if (!result.success) {
           console.error("Error buscando invitación:", result.error)
@@ -107,7 +108,8 @@ export default function ProfileSetup({ user, onProfileCreated }: ProfileSetupPro
         userId: user.id,
         email: user.email ?? "",
         name: name.trim(),
-        role: selectedRole
+        role: selectedRole,
+        inviteToken: invitacionData?.token || propToken || undefined
       })
 
       if (!result.success) {

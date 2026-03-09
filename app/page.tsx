@@ -13,7 +13,8 @@ import QRFichajeScanner from "@/components/qr-fichaje-scanner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { toast } from "sonner"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import { Suspense } from "react"
 import { getQuickSnapshotAction } from "@/lib/actions/dashboard.actions"
 import { getBranchesAction } from "@/lib/actions/branch.actions"
 import { logger } from "@/lib/logging"
@@ -148,7 +149,7 @@ function AppRouter({ userProfile, onLogout, sucursalId }: { userProfile: UserPro
     )
 }
 
-export default function HomePage() {
+function HomePageInner() {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
@@ -156,6 +157,8 @@ export default function HomePage() {
   const [sucursalId, setSucursalId] = useState<string | null>(null)
   const [hasBranches, setHasBranches] = useState<boolean | null>(null)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const inviteToken = searchParams.get("invite_token")
 
   const fetchProfile = async (userId: string, shouldValidate: boolean = false) => {
     setLoading(true)
@@ -292,6 +295,7 @@ export default function HomePage() {
     return (
         <ProfileSetup
             user={session.user}
+            inviteToken={inviteToken}
             onProfileCreated={async (result) => {
               try {
                 logger.info('page', 'Perfil creado, cargando membership...')
@@ -342,4 +346,16 @@ export default function HomePage() {
   }
 
   return null
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    }>
+      <HomePageInner />
+    </Suspense>
+  )
 }
