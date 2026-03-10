@@ -668,10 +668,10 @@ export async function checkInvitationAction(
     }
 
     const emailNormalizado = email.toLowerCase().trim()
-    const supabase = await createClient()
 
-    // Buscar invitación pendiente válida (no expirada)
-    let query = supabase
+    // Usar admin client: el empleado nuevo NO tiene membership,
+    // así que las RLS de pending_invites lo bloquean con el client normal
+    let query = supabaseAdmin
       .from('pending_invites')
       .select('organization_id, branch_id, token, expires_at')
       .eq('email', emailNormalizado)
@@ -836,8 +836,10 @@ export async function completeProfileSetupAction(formData: {
       let token = inviteToken
 
       // Si no viene el token, buscarlo por email
+      // NOTA: Usamos supabaseAdmin porque el empleado nuevo NO tiene membership
+      // y las RLS de pending_invites requieren ser owner/admin de la org
       if (!token) {
-        const { data: invite } = await supabase
+        const { data: invite } = await supabaseAdmin
           .from('pending_invites')
           .select('token')
           .eq('email', emailNormalizado)
