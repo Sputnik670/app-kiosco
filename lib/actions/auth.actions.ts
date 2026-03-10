@@ -411,6 +411,7 @@ export interface InviteEmployeeResult {
   success: boolean
   message?: string
   error?: string
+  inviteLink?: string
 }
 
 /**
@@ -497,9 +498,11 @@ export async function inviteEmployeeAction(
     )
 
     if (inviteError) {
-      // Si el usuario ya existe en auth, usar generateLink como fallback
+      // Si el usuario ya existe en auth, generar link de acceso directo
       if (inviteError.message?.includes('already been registered') ||
           inviteError.message?.includes('already exists')) {
+
+        // Generar magic link via admin (no envía email, pero devuelve la URL)
         const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
           type: 'magiclink',
           email: normalizedEmail,
@@ -508,33 +511,19 @@ export async function inviteEmployeeAction(
           },
         })
 
-        if (linkError) {
+        if (linkError || !linkData?.properties?.action_link) {
           return {
             success: false,
-            error: `Error al generar link de acceso: ${linkError.message}`,
+            error: `Error al generar link de acceso: ${linkError?.message || 'No se pudo generar el link'}`,
           }
         }
 
-        // generateLink no envía email, necesitamos enviar el magic link
-        // Usamos signInWithOtp desde el admin client (sin PKCE)
-        const { error: otpError } = await supabaseAdmin.auth.signInWithOtp({
-          email: normalizedEmail,
-          options: {
-            emailRedirectTo: redirectTo,
-            shouldCreateUser: false,
-          },
-        })
-
-        if (otpError) {
-          return {
-            success: false,
-            error: `Error al enviar email de acceso: ${otpError.message}`,
-          }
-        }
-
+        // Devolver el link directo para que el dueño lo comparta
+        // (generateLink no envía email, pero el link es válido y seguro)
         return {
           success: true,
-          message: 'Invitación enviada. El empleado recibirá un email para acceder.',
+          message: 'El empleado ya tiene cuenta. Compartile este link para que acceda:',
+          inviteLink: linkData.properties.action_link,
         }
       }
 

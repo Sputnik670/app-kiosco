@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Loader2, UserCheck, Users, X, MapPin } from "lucide-react"
+import { Loader2, UserCheck, Users, X, MapPin, Copy, Link as LinkIcon } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -39,6 +39,7 @@ export function InvitarEmpleado() {
   const [loading, setLoading] = useState(false)
   const [invites, setInvites] = useState<Invite[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null)
 
   const cargarDatos = useCallback(async () => {
     const result = await getStaffManagementDataAction()
@@ -67,7 +68,13 @@ export function InvitarEmpleado() {
         return
       }
 
-      toast.success("Invitación enviada", { description: result.message })
+      // Si viene un link directo (usuario ya existente), mostrarlo
+      if (result.inviteLink) {
+        setGeneratedLink(result.inviteLink)
+        toast.info("Link generado", { description: result.message })
+      } else {
+        toast.success("Invitación enviada", { description: result.message })
+      }
       setEmail("")
       cargarDatos()
     } catch (error: any) {
@@ -146,6 +153,45 @@ export function InvitarEmpleado() {
                     {loading ? <Loader2 className="animate-spin" /> : "ENVIAR INVITACIÓN MAGIC LINK"}
                 </Button>
             </form>
+
+            {generatedLink && (
+                <div className="mt-6 p-4 bg-blue-50 border-2 border-blue-200 rounded-2xl space-y-3">
+                    <div className="flex items-center gap-2">
+                        <LinkIcon className="h-4 w-4 text-blue-600" />
+                        <span className="text-xs font-black uppercase text-blue-700">Link de acceso directo</span>
+                    </div>
+                    <p className="text-[10px] text-blue-600 font-bold">
+                        El empleado ya tiene cuenta. Compartile este link por WhatsApp o email:
+                    </p>
+                    <div className="flex gap-2">
+                        <input
+                            readOnly
+                            value={generatedLink}
+                            className="flex-1 h-10 text-[10px] font-mono bg-white rounded-xl border-2 px-3 truncate"
+                        />
+                        <Button
+                            type="button"
+                            size="sm"
+                            className="h-10 rounded-xl font-black text-[10px] uppercase"
+                            onClick={() => {
+                                navigator.clipboard.writeText(generatedLink)
+                                toast.success("Link copiado al portapapeles")
+                            }}
+                        >
+                            <Copy className="h-3 w-3 mr-1" /> Copiar
+                        </Button>
+                    </div>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-[10px] text-blue-400 font-bold"
+                        onClick={() => setGeneratedLink(null)}
+                    >
+                        Cerrar
+                    </Button>
+                </div>
+            )}
 
             {invites.length > 0 && (
                 <div className="mt-10 space-y-4">
