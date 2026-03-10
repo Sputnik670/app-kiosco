@@ -139,8 +139,14 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                 <QRFichajeScanner
                     isOpen={showQRScanner}
                     onClose={() => setShowQRScanner(false)}
-                    onQRScanned={async (data: QRFichajeData) => {
-                        const result = await processQRScanAction(data, sucursalId)
+                    onQRScanned={async (data: any) => {
+                        // El scanner ahora pasa { sucursal_id, tipo } parseados
+                        const qrData: QRFichajeData = {
+                            sucursal_id: data?.sucursal_id || sucursalId,
+                            tipo: data?.tipo || 'entrada',
+                            sucursal_nombre: sucursalNombre
+                        }
+                        const result = await processQRScanAction(qrData, sucursalId)
 
                         if (!result.success) {
                             toast.error("Error al procesar fichaje", { description: result.error })

@@ -88,32 +88,46 @@ export default function QRFichajeScanner({ onClose, isOpen, onQRScanned }: QRFic
 
   const handleScanSuccess = async (text: string) => {
     isProcessingRef.current = true
-    let redirectUrl: string | null = null
+    let sucursalId: string | null = null
+    let tipo: string | null = null
 
     try {
-      if (text.includes('/fichaje?')) {
-        redirectUrl = text.substring(text.indexOf('/fichaje'))
-      } else if (text.startsWith('/fichaje')) {
-        redirectUrl = text
+      // Intentar parsear como URL (formato principal)
+      if (text.includes('sucursal_id=')) {
+        const url = new URL(text, window.location.origin)
+        sucursalId = url.searchParams.get('sucursal_id')
+        tipo = url.searchParams.get('tipo')
       } else {
+        // Intentar parsear como JSON (formato alternativo)
         const data = JSON.parse(text)
-        if (data.sucursal_id && data.tipo) {
-          redirectUrl = `/fichaje?sucursal_id=${data.sucursal_id}&tipo=${data.tipo}`
-        }
+        sucursalId = data.sucursal_id
+        tipo = data.tipo
       }
     } catch (e) {
       console.error("Error parseando QR", e)
     }
 
-    if (redirectUrl) {
-      toast.success("Código detectado")
-      
+    if (sucursalId && tipo && (tipo === 'entrada' || tipo === 'salida')) {
+      toast.success("Código QR detectado")
+
+      // Pasar datos parseados al callback
       if (onQRScanned) {
-        onQRScanned({ text })
+        onQRScanned({ sucursal_id: sucursalId, tipo })
       }
 
-      await stopAndClose()
-      router.push(redirectUrl)
+      // Detener scanner y cerrar dialog
+      try {
+        if (scannerRef.current?.isScanning) {
+          await scannerRef.current.stop()
+          scannerRef.current.clear()
+        }
+      } catch (err) {
+        console.error("Error al detener scanner:", err)
+      }
+      onClose()
+
+      // Navegar a /fichaje para procesar el fichaje
+      router.push(`/fichaje?sucursal_id=${sucursalId}&tipo=${tipo}`)
     } else {
       isProcessingRef.current = false
       toast.error("QR no válido para fichaje")

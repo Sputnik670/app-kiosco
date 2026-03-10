@@ -30,13 +30,37 @@ interface UserProfile {
 
 function EscanearQRFichaje({ onQRScanned }: { onQRScanned: (data: { sucursal_id: string }) => void }) {
   const [showScanner, setShowScanner] = useState(false)
+  const [manualUrl, setManualUrl] = useState("")
+  const [showManual, setShowManual] = useState(false)
+  const [procesando, setProcesando] = useState(false)
+  const router = useRouter()
 
-  const handleQRScanned = (data: { sucursal_id: string, tipo: "entrada" | "salida", sucursal_nombre?: string }) => {
-    onQRScanned(data)
-    toast.success(
-      data.tipo === "entrada" ? "QR de entrada escaneado" : "QR de salida escaneado",
-      { description: `Local: ${data.sucursal_nombre || "Sucursal"}` }
-    )
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleQRScanned = (data: any) => {
+    // El scanner ahora pasa { sucursal_id, tipo } parseados
+    if (data?.sucursal_id) {
+      onQRScanned({ sucursal_id: data.sucursal_id })
+    }
+  }
+
+  const handleManualUrl = () => {
+    try {
+      setProcesando(true)
+      const url = new URL(manualUrl, window.location.origin)
+      const sucursalId = url.searchParams.get('sucursal_id')
+      const tipo = url.searchParams.get('tipo')
+
+      if (sucursalId && tipo) {
+        onQRScanned({ sucursal_id: sucursalId })
+        router.push(`/fichaje?sucursal_id=${sucursalId}&tipo=${tipo}`)
+      } else {
+        toast.error("URL inválida", { description: "Debe contener sucursal_id y tipo" })
+      }
+    } catch {
+      toast.error("URL inválida", { description: "Pega la URL completa del QR de fichaje" })
+    } finally {
+      setProcesando(false)
+    }
   }
 
   return (
@@ -71,7 +95,6 @@ function EscanearQRFichaje({ onQRScanned }: { onQRScanned: (data: { sucursal_id:
                   <li>• Busca el QR en el local</li>
                   <li>• Escanea el QR de ENTRADA al llegar</li>
                   <li>• Escanea el QR de SALIDA al terminar</li>
-                  <li>• No puedes elegir el local manualmente</li>
                 </ul>
               </div>
             </div>
@@ -84,6 +107,39 @@ function EscanearQRFichaje({ onQRScanned }: { onQRScanned: (data: { sucursal_id:
             <QrCode className="mr-2 h-5 w-5" />
             Escanear QR del Local
           </Button>
+
+          {/* Fallback: pegar URL manualmente */}
+          <div className="border-t-2 border-dashed border-slate-200 pt-4">
+            <button
+              onClick={() => setShowManual(!showManual)}
+              className="w-full text-center text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              {showManual ? "▲ Ocultar" : "¿La cámara no funciona? Pega el link del QR ▼"}
+            </button>
+            {showManual && (
+              <div className="mt-3 space-y-3">
+                <p className="text-xs text-slate-500 text-center">
+                  Pedile al dueño que te copie el link del QR y pegalo acá:
+                </p>
+                <input
+                  type="url"
+                  value={manualUrl}
+                  onChange={(e) => setManualUrl(e.target.value)}
+                  placeholder="https://app-kiosco-chi.vercel.app/fichaje?..."
+                  className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm font-mono"
+                />
+                <Button
+                  onClick={handleManualUrl}
+                  disabled={!manualUrl.trim() || procesando}
+                  variant="outline"
+                  className="w-full h-12 font-black rounded-xl"
+                >
+                  {procesando ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Fichar con Link
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
       </Card>
 
