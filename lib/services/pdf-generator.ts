@@ -348,11 +348,12 @@ export async function generateExpiringProductsReportPDF(
     body: [
       ["Total de Lotes", data.summary.totalBatches.toString()],
       ["Unidades en Riesgo", data.summary.totalUnits.toString()],
-      ["Capital en Riesgo", formatMoney(data.summary.totalValueAtRisk)],
+      ["Capital en Riesgo (costo)", formatMoney(data.summary.totalValueAtRisk)],
+      ["Ingreso en Riesgo (venta)", formatMoney(data.summary.totalRevenueAtRisk)],
     ],
     theme: "striped",
     columnStyles: {
-      0: { fontStyle: "bold", cellWidth: 50 },
+      0: { fontStyle: "bold", cellWidth: 60 },
     },
     headStyles: { fillColor: COLORS.warning },
     margin: { left: 14, right: 14 },
@@ -366,13 +367,14 @@ export async function generateExpiringProductsReportPDF(
 
   autoTable(doc, {
     startY: finalY + 20,
-    head: [["Producto", "Cantidad", "Vencimiento", "Días", "Valor en Riesgo"]],
+    head: [["Producto", "Cant.", "Vencimiento", "Días", "Costo", "Ingreso Perdido"]],
     body: data.products.map((p) => [
       p.productName,
       p.quantity.toString(),
       formatDate(p.expirationDate),
       p.daysUntilExpiry <= 0 ? "VENCIDO" : `${p.daysUntilExpiry} días`,
       formatMoney(p.valueAtRisk),
+      formatMoney(p.revenueAtRisk),
     ]),
     theme: "striped",
     headStyles: { fillColor: COLORS.warning },

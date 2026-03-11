@@ -579,7 +579,8 @@ export async function updateProductAction(
  * ORIGEN: Refactorización de eliminación inline en dashboard-dueno.tsx línea 793
  */
 export async function deleteProductAction(
-  productId: string
+  productId: string,
+  reason: string = 'discontinued'
 ): Promise<DeleteProductResult> {
   try {
     if (!productId) {
@@ -592,25 +593,33 @@ export async function deleteProductAction(
     const { supabase, orgId } = await verifyOwner()
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Eliminar producto
+    // SOFT-DELETE: Desactivar producto con motivo y timestamp
+    // No se borra de la BD para mantener historial de ventas y auditoría
     // ───────────────────────────────────────────────────────────────────────────
 
-    const { error: deleteError } = await supabase
+    const { error: deactivateError } = await supabase
       .from('products')
-      .delete()
+      .update({
+        is_active: false,
+        deactivated_at: new Date().toISOString(),
+        deactivation_reason: reason,
+      })
       .eq('id', productId)
       .eq('organization_id', orgId)
 
-    if (deleteError) {
+    if (deactivateError) {
       return {
         success: false,
-        error: `Error al eliminar producto: ${deleteError.message}`,
+        error: `Error al dar de baja: ${deactivateError.message}`,
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // RETORNO EXITOSO
-    // ───────────────────────────────────────────────────────────────────────────
+    // Marcar batches restantes como 'removed' para que no cuenten en stock
+    await supabase
+      .from('stock_batches')
+      .update({ status: 'removed' })
+      .eq('product_id', productId)
+      .gt('quantity', 0)
 
     return {
       success: true,
@@ -618,7 +627,7 @@ export async function deleteProductAction(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Error desconocido al eliminar producto',
+      error: error instanceof Error ? error.message : 'Error desconocido al dar de baja producto',
     }
   }
 }

@@ -1,13 +1,24 @@
 "use client"
 
+import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Search, Loader2, Pencil, History, ChevronRight } from "lucide-react"
+import { Search, Loader2, Pencil, History, ChevronRight, Trash2, AlertTriangle } from "lucide-react"
 import { AgregarStock } from "@/components/agregar-stock"
+import { deleteProductAction } from "@/lib/actions/product.actions"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 import type { InventoryTabProps } from "@/types/dashboard.types"
+
+const DEACTIVATION_REASONS = [
+  { value: "expired", label: "Producto vencido" },
+  { value: "discontinued", label: "Descontinuado" },
+  { value: "damaged", label: "Dañado / Defectuoso" },
+  { value: "low_demand", label: "Sin demanda" },
+  { value: "other", label: "Otro motivo" },
+]
 
 export function TabInventory({
   productos,
@@ -22,6 +33,28 @@ export function TabInventory({
   onLoadPriceHistory,
   onLoadStockBatches,
 }: InventoryTabProps) {
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [deleteReason, setDeleteReason] = useState("expired")
+  const [deleting, setDeleting] = useState(false)
+
+  const handleDeactivate = async (productId: string) => {
+    setDeleting(true)
+    try {
+      const result = await deleteProductAction(productId, deleteReason)
+      if (result.success) {
+        toast.success("Producto dado de baja")
+        setConfirmDelete(null)
+        setDeleteReason("expired")
+        onRefresh()
+      } else {
+        toast.error(result.error || "Error al dar de baja")
+      }
+    } catch {
+      toast.error("Error inesperado")
+    } finally {
+      setDeleting(false)
+    }
+  }
   const inventarioFiltrado = productos.filter(
     p =>
       p.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -109,7 +142,53 @@ export function TabInventory({
                 >
                   <Pencil className="h-4 w-4" />
                 </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-12 w-12 rounded-xl shrink-0 text-red-400 hover:text-red-600 hover:border-red-300"
+                  onClick={() => setConfirmDelete(confirmDelete === item.id ? null : item.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
+
+              {confirmDelete === item.id && (
+                <div className="mt-4 p-4 bg-red-50 border-2 border-red-200 rounded-2xl space-y-3 animate-in fade-in">
+                  <div className="flex items-center gap-2 text-red-600">
+                    <AlertTriangle className="h-4 w-4" />
+                    <p className="text-[11px] font-black uppercase">Dar de baja este producto</p>
+                  </div>
+                  <select
+                    value={deleteReason}
+                    onChange={e => setDeleteReason(e.target.value)}
+                    className="w-full h-10 rounded-xl border-2 border-red-200 bg-white px-3 text-sm font-bold text-slate-700"
+                  >
+                    {DEACTIVATION_REASONS.map(r => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
+                  </select>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="destructive"
+                      className="flex-1 h-10 rounded-xl font-black text-[11px] uppercase"
+                      disabled={deleting}
+                      onClick={() => handleDeactivate(item.id)}
+                    >
+                      {deleting ? <Loader2 className="animate-spin h-4 w-4" /> : "Confirmar baja"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-10 rounded-xl font-black text-[11px] uppercase"
+                      onClick={() => setConfirmDelete(null)}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                  <p className="text-[9px] text-red-400 font-bold">
+                    El producto se ocultará del catálogo y del punto de venta. El historial de ventas se mantiene.
+                  </p>
+                </div>
+              )}
             </Card>
           ))}
         </div>

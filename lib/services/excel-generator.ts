@@ -227,7 +227,8 @@ export async function generateExpiringProductsReportExcel(
     ["RESUMEN DE RIESGO"],
     ["Total de Lotes:", data.summary.totalBatches],
     ["Unidades en Riesgo:", data.summary.totalUnits],
-    ["Capital en Riesgo:", data.summary.totalValueAtRisk],
+    ["Capital en Riesgo (costo):", data.summary.totalValueAtRisk],
+    ["Ingreso en Riesgo (venta):", data.summary.totalRevenueAtRisk],
   ]
 
   const summarySheet = XLSX.utils.aoa_to_sheet(summaryData)
@@ -241,7 +242,9 @@ export async function generateExpiringProductsReportExcel(
     "Fecha Vencimiento",
     "Días Restantes",
     "Costo Unitario",
-    "Valor en Riesgo",
+    "Precio Venta",
+    "Capital en Riesgo",
+    "Ingreso Perdido",
   ]
   const detailData = data.products.map((p) => [
     p.productName,
@@ -250,7 +253,9 @@ export async function generateExpiringProductsReportExcel(
     formatDate(p.expirationDate),
     p.daysUntilExpiry <= 0 ? "VENCIDO" : p.daysUntilExpiry,
     p.cost,
+    p.salePrice,
     p.valueAtRisk,
+    p.revenueAtRisk,
   ])
 
   const detailSheet = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])

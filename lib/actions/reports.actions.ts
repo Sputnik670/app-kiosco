@@ -118,12 +118,15 @@ export interface ExpiringProductsReportData {
     expirationDate: string
     daysUntilExpiry: number
     cost: number
+    salePrice: number
     valueAtRisk: number
+    revenueAtRisk: number
   }[]
   summary: {
     totalBatches: number
     totalUnits: number
     totalValueAtRisk: number
+    totalRevenueAtRisk: number
   }
 }
 
@@ -411,7 +414,7 @@ export async function getExpiringProductsReportAction(
         quantity,
         unit_cost,
         expiration_date,
-        products(name)
+        products(name, sale_price)
       `)
       .eq("branch_id", branchId)
       .gt("quantity", 0)
@@ -425,19 +428,24 @@ export async function getExpiringProductsReportAction(
 
     const today = new Date()
     const products = (batchesData || []).map((b) => {
-      const product = resolveJoin<{ name: string }>(b.products)
+      const product = resolveJoin<{ name: string; sale_price: number }>(b.products)
       const expiryDate = new Date(b.expiration_date!)
       const daysUntil = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+      const qty = b.quantity || 0
+      const unitCost = b.unit_cost || 0
+      const salePrice = product?.sale_price || 0
 
       return {
         id: b.id,
         productName: product?.name || "Producto",
         batchId: b.id,
-        quantity: b.quantity || 0,
+        quantity: qty,
         expirationDate: b.expiration_date!,
         daysUntilExpiry: daysUntil,
-        cost: b.unit_cost || 0,
-        valueAtRisk: (b.quantity || 0) * (b.unit_cost || 0),
+        cost: unitCost,
+        salePrice,
+        valueAtRisk: qty * unitCost,
+        revenueAtRisk: qty * salePrice,
       }
     })
 
@@ -449,6 +457,7 @@ export async function getExpiringProductsReportAction(
           totalBatches: products.length,
           totalUnits: products.reduce((sum, p) => sum + p.quantity, 0),
           totalValueAtRisk: products.reduce((sum, p) => sum + p.valueAtRisk, 0),
+          totalRevenueAtRisk: products.reduce((sum, p) => sum + p.revenueAtRisk, 0),
         },
       },
     }

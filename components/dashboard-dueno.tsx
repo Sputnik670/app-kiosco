@@ -183,9 +183,13 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
 
         {/* Tab Content — 5 tabs consolidados */}
 
-        {/* STOCK: Inventario + Alertas + Alta de Catálogo */}
+        {/* STOCK: Alta de Catálogo + Inventario */}
         {state.activeTab === "stock" && (
           <div className="space-y-6 animate-in fade-in">
+            <CrearProducto
+              sucursalId={currentSucursalId}
+              onProductCreated={() => refetch()}
+            />
             <TabInventory
               sucursalId={currentSucursalId}
               organizationId={data.organizationId}
@@ -199,19 +203,6 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
               onEditProduct={actions.setEditingProduct}
               onLoadPriceHistory={loadPriceHistory}
               onLoadStockBatches={loadStockBatches}
-            />
-            <TabAlerts
-              sucursalId={currentSucursalId}
-              organizationId={data.organizationId}
-              formatMoney={formatMoney}
-              onRefresh={refetch}
-              capitalEnRiesgo={data.capitalEnRiesgo}
-              productos={data.productos}
-              umbralStockBajo={UMBRAL_STOCK_BAJO}
-            />
-            <CrearProducto
-              sucursalId={currentSucursalId}
-              onProductCreated={() => refetch()}
             />
           </div>
         )}
@@ -273,7 +264,7 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
           </div>
         )}
 
-        {/* ANÁLISIS: BI + Reportes */}
+        {/* ANÁLISIS: BI + Alertas + Reportes */}
         {state.activeTab === "analisis" && (
           <div className="space-y-6 animate-in fade-in">
             <TabFinance
@@ -282,6 +273,15 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
               formatMoney={formatMoney}
               onRefresh={refetch}
               biMetrics={data.biMetrics}
+            />
+            <TabAlerts
+              sucursalId={currentSucursalId}
+              organizationId={data.organizationId}
+              formatMoney={formatMoney}
+              onRefresh={refetch}
+              capitalEnRiesgo={data.capitalEnRiesgo}
+              productos={data.productos}
+              umbralStockBajo={UMBRAL_STOCK_BAJO}
             />
             <Reports
               branchId={currentSucursalId}
