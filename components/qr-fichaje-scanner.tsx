@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { useRouter } from "next/navigation"
 // html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -15,7 +14,6 @@ interface QRFichajeScannerProps {
 }
 
 export default function QRFichajeScanner({ onClose, isOpen, onQRScanned }: QRFichajeScannerProps) {
-  const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,9 +123,6 @@ export default function QRFichajeScanner({ onClose, isOpen, onQRScanned }: QRFic
         console.error("Error al detener scanner:", err)
       }
       onClose()
-
-      // Navegar a /fichaje para procesar el fichaje
-      router.push(`/fichaje?sucursal_id=${sucursalId}&tipo=${tipo}`)
     } else {
       isProcessingRef.current = false
       toast.error("QR no válido para fichaje")

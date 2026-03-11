@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { getEmployeeDashboardContextAction, type EmployeeDashboardContext } from "@/lib/actions/user.actions"
-import { processQRScanAction, type QRFichajeData } from "@/lib/actions/attendance.actions"
+// attendance actions se usan vía RelojControl
 import CajaVentas from "@/components/caja-ventas" 
 import ArqueoCaja, { CajaDiaria } from "@/components/arqueo-caja" 
 import MisionesEmpleado from "@/components/misiones-empleado"
@@ -19,10 +19,9 @@ import GestionVencimientos from "@/components/gestion-vencimientos"
 import WidgetServicios from "@/components/widget-servicios" 
 import WidgetSube from "@/components/widget-sube"
 import RelojControl from "@/components/reloj-control" 
-import QRFichajeScanner from "@/components/qr-fichaje-scanner"
+// QR scanner removido: fichaje se hace al entrar al panel
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
-import { QrCode } from "lucide-react"
 
 interface UserProfile {
     id: string
@@ -45,7 +44,7 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
     const [organizationId, setOrganizationId] = useState("")
     const [isClockedIn, setIsClockedIn] = useState(false) 
     const [refreshKey, setRefreshKey] = useState(0)
-    const [showQRScanner, setShowQRScanner] = useState(false) 
+    // QR scanner ya no se necesita dentro del panel: el fichaje se hace al escanear QR de acceso
 
     const fetchContexto = useCallback(async () => {
         try {
@@ -127,42 +126,14 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
             <div className="p-4 space-y-4 -mt-6">
 
                 
+                {/* RelojControl sin QR: el fichaje de entrada ya se hizo al escanear QR de acceso */}
                 <div className="relative z-20">
-                    <RelojControl 
-                        sucursalId={sucursalId} 
-                        sucursalNombre={sucursalNombre} 
+                    <RelojControl
+                        sucursalId={sucursalId}
+                        sucursalNombre={sucursalNombre}
                         onActionComplete={handleDataUpdated}
-                        onScanQR={() => setShowQRScanner(true)}
                     />
                 </div>
-
-                <QRFichajeScanner
-                    isOpen={showQRScanner}
-                    onClose={() => setShowQRScanner(false)}
-                    onQRScanned={async (data: any) => {
-                        // El scanner ahora pasa { sucursal_id, tipo } parseados
-                        const qrData: QRFichajeData = {
-                            sucursal_id: data?.sucursal_id || sucursalId,
-                            tipo: data?.tipo || 'entrada',
-                            sucursal_nombre: sucursalNombre
-                        }
-                        const result = await processQRScanAction(qrData, sucursalId)
-
-                        if (!result.success) {
-                            toast.error("Error al procesar fichaje", { description: result.error })
-                            return
-                        }
-
-                        if (result.action === 'entrada') {
-                            toast.success("Entrada registrada", { description: result.message })
-                        } else if (result.action === 'salida') {
-                            toast.info("Salida registrada", { description: result.message })
-                        }
-
-                        handleDataUpdated()
-                        setShowQRScanner(false)
-                    }}
-                />
 
                 {!isClockedIn ? (
                     <Card className="p-12 border-2 border-dashed border-slate-200 bg-white/80 backdrop-blur-sm flex flex-col items-center text-center space-y-4 rounded-[2.5rem]">

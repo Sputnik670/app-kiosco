@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { supabase } from "@/lib/supabase"
-import { Loader2, QrCode, DollarSign, AlertTriangle, ShoppingCart } from "lucide-react"
+import { Loader2, QrCode, DollarSign, AlertTriangle, ShoppingCart, CheckCircle } from "lucide-react"
 import DashboardDueno from "@/components/dashboard-dueno"
 import VistaEmpleado from "@/components/vista-empleado"
 import AuthForm from "@/components/auth-form"
@@ -17,6 +17,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 import { getQuickSnapshotAction } from "@/lib/actions/dashboard.actions"
 import { getBranchesAction } from "@/lib/actions/branch.actions"
+import { toggleAttendanceAction } from "@/lib/actions/attendance.actions"
 import { logger } from "@/lib/logging"
 import type { QuickSnapshot } from "@/types/dashboard.types"
 import type { Session } from "@supabase/supabase-js"
@@ -33,34 +34,81 @@ function EscanearQRFichaje({ onQRScanned }: { onQRScanned: (data: { sucursal_id:
   const [manualUrl, setManualUrl] = useState("")
   const [showManual, setShowManual] = useState(false)
   const [procesando, setProcesando] = useState(false)
-  const router = useRouter()
+  const [fichajeMsg, setFichajeMsg] = useState("")
+
+  // Unificado: escanear QR = fichar entrada + entrar al panel
+  const registrarEntradaYEntrar = async (sucursalId: string) => {
+    setProcesando(true)
+    setFichajeMsg("Registrando entrada...")
+
+    try {
+      const result = await toggleAttendanceAction(sucursalId)
+
+      if (result.success && result.action === 'entrada') {
+        setFichajeMsg("Entrada registrada. Abriendo panel...")
+        toast.success("Entrada registrada")
+      } else if (result.success && result.action === 'salida') {
+        // Si escaneó y ya tenía entrada, se registra salida
+        setFichajeMsg("Salida registrada.")
+        toast.info("Salida registrada")
+      } else if (!result.success) {
+        // Si falla (ya tiene fichaje activo, etc), entrar igual al panel
+        console.warn("Fichaje automático:", result.error)
+      }
+
+      // Siempre entrar al panel (el empleado ya se autenticó con el QR)
+      setTimeout(() => {
+        onQRScanned({ sucursal_id: sucursalId })
+      }, 500)
+    } catch (err) {
+      console.error("Error en fichaje automático:", err)
+      // Entrar al panel de todas formas
+      onQRScanned({ sucursal_id: sucursalId })
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleQRScanned = (data: any) => {
-    // El scanner ahora pasa { sucursal_id, tipo } parseados
     if (data?.sucursal_id) {
-      onQRScanned({ sucursal_id: data.sucursal_id })
+      registrarEntradaYEntrar(data.sucursal_id)
     }
   }
 
   const handleManualUrl = () => {
     try {
-      setProcesando(true)
       const url = new URL(manualUrl, window.location.origin)
       const sucursalId = url.searchParams.get('sucursal_id')
-      const tipo = url.searchParams.get('tipo')
 
-      if (sucursalId && tipo) {
-        onQRScanned({ sucursal_id: sucursalId })
-        router.push(`/fichaje?sucursal_id=${sucursalId}&tipo=${tipo}`)
+      if (sucursalId) {
+        registrarEntradaYEntrar(sucursalId)
       } else {
-        toast.error("URL inválida", { description: "Debe contener sucursal_id y tipo" })
+        toast.error("URL inválida", { description: "Debe contener sucursal_id" })
       }
     } catch {
       toast.error("URL inválida", { description: "Pega la URL completa del QR de fichaje" })
-    } finally {
-      setProcesando(false)
     }
+  }
+
+  // Estado procesando: mostrar pantalla de carga
+  if (procesando) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
+        <Card className="w-full max-w-md shadow-2xl border-0 rounded-[2.5rem] overflow-hidden p-12">
+          <div className="text-center space-y-6">
+            <div className="mx-auto w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center">
+              {fichajeMsg.includes("Registrada") || fichajeMsg.includes("registrada") ? (
+                <CheckCircle className="h-12 w-12 text-green-600" />
+              ) : (
+                <Loader2 className="h-12 w-12 text-blue-600 animate-spin" />
+              )}
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-slate-800 uppercase">{fichajeMsg}</h2>
+            </div>
+          </div>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -80,24 +128,8 @@ function EscanearQRFichaje({ onQRScanned }: { onQRScanned: (data: { sucursal_id:
               Escanea el QR del Local
             </h2>
             <p className="text-sm font-medium text-slate-400">
-              Cada local tiene un QR de entrada y otro de salida. Escanea el correspondiente según tu situación.
+              Al escanear el QR, se registra tu entrada y se abre el panel de ventas automáticamente.
             </p>
-          </div>
-
-          <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6 space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="bg-blue-500 rounded-lg p-2">
-                <QrCode className="h-5 w-5 text-white" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-black text-blue-900 text-sm uppercase mb-1">Instrucciones</h3>
-                <ul className="text-xs text-blue-800 space-y-1 font-bold">
-                  <li>• Busca el QR en el local</li>
-                  <li>• Escanea el QR de ENTRADA al llegar</li>
-                  <li>• Escanea el QR de SALIDA al terminar</li>
-                </ul>
-              </div>
-            </div>
           </div>
 
           <Button
@@ -114,7 +146,7 @@ function EscanearQRFichaje({ onQRScanned }: { onQRScanned: (data: { sucursal_id:
               onClick={() => setShowManual(!showManual)}
               className="w-full text-center text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors"
             >
-              {showManual ? "▲ Ocultar" : "¿La cámara no funciona? Pega el link del QR ▼"}
+              {showManual ? "Ocultar" : "¿La cámara no funciona? Pega el link del QR"}
             </button>
             {showManual && (
               <div className="mt-3 space-y-3">
@@ -130,11 +162,10 @@ function EscanearQRFichaje({ onQRScanned }: { onQRScanned: (data: { sucursal_id:
                 />
                 <Button
                   onClick={handleManualUrl}
-                  disabled={!manualUrl.trim() || procesando}
+                  disabled={!manualUrl.trim()}
                   variant="outline"
                   className="w-full h-12 font-black rounded-xl"
                 >
-                  {procesando ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Fichar con Link
                 </Button>
               </div>
