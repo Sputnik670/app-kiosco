@@ -17,6 +17,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { verifyAuth } from '@/lib/actions/auth-helpers'
 import { format, addDays } from 'date-fns'
 import { logger } from '@/lib/logging'
@@ -391,7 +392,9 @@ export async function cerrarCajaAction(
         .eq('type', 'arqueo_cierre')
 
       // Otorgar XP al empleado via memberships
-      const { data: membership } = await supabase
+      // IMPORTANTE: Usar supabaseAdmin porque la RLS de memberships_update
+      // requiere is_org_admin(), y el empleado no puede actualizar su propio XP
+      const { data: membership } = await supabaseAdmin
         .from('memberships')
         .select('xp')
         .eq('user_id', cashRegister.opened_by)
@@ -399,7 +402,7 @@ export async function cerrarCajaAction(
         .single<{ xp: number | null }>()
 
       if (membership && membership.xp !== null) {
-        await supabase
+        await supabaseAdmin
           .from('memberships')
           .update({ xp: membership.xp + 20 })
           .eq('user_id', cashRegister.opened_by)
