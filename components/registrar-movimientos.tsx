@@ -24,7 +24,9 @@ export default function RegistrarMovimiento({ cajaId, onMovimientoRegistrado }: 
   const [historial, setHistorial] = useState<CashMovement[]>([])
 
   const fetchMovimientos = async () => {
-    const result = await getShiftMovementsAction(cajaId)
+    // Solo traer egresos reales (pagos a proveedores, retiros, etc.)
+    // Las ventas y servicios NO son gastos del turno
+    const result = await getShiftMovementsAction(cajaId, 'egreso')
 
     if (result.success) {
       setHistorial(result.movements)

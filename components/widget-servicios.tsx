@@ -122,9 +122,20 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
                     onChange={e => setMonto(e.target.value)}
                 />
                 {comision > 0 && monto && (
-                    <p className="text-[10px] text-indigo-200 mt-1 text-center">
-                        Carga: ${(parseFloat(monto) || 0).toLocaleString()} + Comisión: ${comision.toLocaleString()}
-                    </p>
+                    <div className="bg-indigo-700/50 rounded-lg p-2 mt-2 space-y-1">
+                        <div className="flex justify-between text-[10px] text-indigo-200">
+                            <span>Carga</span>
+                            <span>${(parseFloat(monto) || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between text-[10px] text-yellow-300 font-black">
+                            <span>RECARGO</span>
+                            <span>+ ${comision.toLocaleString()}</span>
+                        </div>
+                        <div className="border-t border-indigo-400/30 pt-1 flex justify-between text-[11px] text-white font-black">
+                            <span>TOTAL A COBRAR</span>
+                            <span>${totalCobrar.toLocaleString()}</span>
+                        </div>
+                    </div>
                 )}
             </div>
 
