@@ -14,9 +14,16 @@ interface WidgetSubeProps {
     onVentaRegistrada: () => void
 }
 
+const METODOS_PAGO = [
+    { id: 'efectivo' as const, label: '💵 Efectivo' },
+    { id: 'tarjeta' as const, label: '💳 Tarjeta' },
+    { id: 'billetera_virtual' as const, label: '📱 Billetera' },
+]
+
 export default function WidgetSube({ turnoId, sucursalId, onVentaRegistrada }: WidgetSubeProps) {
     const [monto, setMonto] = useState("")
     const [loading, setLoading] = useState(false)
+    const [metodoPago, setMetodoPago] = useState<'efectivo' | 'tarjeta' | 'billetera_virtual'>('efectivo')
     const [proveedorSube, setProveedorSube] = useState<ServiceProvider | null>(null)
 
     useEffect(() => {
@@ -59,7 +66,7 @@ export default function WidgetSube({ turnoId, sucursalId, onVentaRegistrada }: W
                 montoCarga,
                 comision,
                 totalCobrado: totalCobrar,
-                metodoPago: 'efectivo',
+                metodoPago,
             })
 
             if (!result.success) {
@@ -133,6 +140,24 @@ export default function WidgetSube({ turnoId, sucursalId, onVentaRegistrada }: W
                         </div>
                     </div>
                 )}
+            </div>
+
+            {/* Método de pago */}
+            <div className="flex gap-1.5">
+                {METODOS_PAGO.map(m => (
+                    <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setMetodoPago(m.id)}
+                        className={`flex-1 text-[9px] font-black py-2 rounded-lg transition-all ${
+                            metodoPago === m.id
+                                ? 'bg-white text-blue-700 shadow-md'
+                                : 'bg-blue-700/40 text-blue-200 hover:bg-blue-700/60'
+                        }`}
+                    >
+                        {m.label}
+                    </button>
+                ))}
             </div>
 
             <Button

@@ -8,6 +8,12 @@ import { Smartphone, Zap, Tv, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { getServiceProviderBalanceAction, processServiceRechargeAction, type ServiceProvider } from "@/lib/actions/service.actions"
 
+const METODOS_PAGO = [
+    { id: 'efectivo' as const, label: '💵 Efectivo' },
+    { id: 'tarjeta' as const, label: '💳 Tarjeta' },
+    { id: 'billetera_virtual' as const, label: '📱 Billetera' },
+]
+
 const SERVICIOS = [
     { id: 'claro', nombre: 'Claro', icon: Smartphone },
     { id: 'movistar', nombre: 'Movistar', icon: Smartphone },
@@ -23,6 +29,7 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
     const [servicioId, setServicioId] = useState<string>(SERVICIOS[0].id)
     const [monto, setMonto] = useState("")
     const [loading, setLoading] = useState(false)
+    const [metodoPago, setMetodoPago] = useState<'efectivo' | 'tarjeta' | 'billetera_virtual'>('efectivo')
     const [proveedorServicios, setProveedorServicios] = useState<ServiceProvider | null>(null)
 
     useEffect(() => {
@@ -66,7 +73,7 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
                 montoCarga,
                 comision,
                 totalCobrado: totalCobrar,
-                metodoPago: 'efectivo',
+                metodoPago,
             })
 
             if (!result.success) {
@@ -137,6 +144,24 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
                         </div>
                     </div>
                 )}
+            </div>
+
+            {/* Método de pago */}
+            <div className="flex gap-1.5">
+                {METODOS_PAGO.map(m => (
+                    <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setMetodoPago(m.id)}
+                        className={`flex-1 text-[9px] font-black py-2 rounded-lg transition-all ${
+                            metodoPago === m.id
+                                ? 'bg-white text-indigo-700 shadow-md'
+                                : 'bg-indigo-700/40 text-indigo-200 hover:bg-indigo-700/60'
+                        }`}
+                    >
+                        {m.label}
+                    </button>
+                ))}
             </div>
 
             <Button

@@ -56,7 +56,7 @@ export interface ServiceRechargeData {
   montoCarga: number
   comision: number
   totalCobrado: number
-  metodoPago: 'efectivo' | 'billetera_virtual'
+  metodoPago: 'efectivo' | 'tarjeta' | 'billetera_virtual'
 }
 
 /**
@@ -244,7 +244,7 @@ export async function processServiceRechargeAction(
         amount_charged: data.montoCarga,
         commission: data.comision,
         total_collected: data.totalCobrado,
-        payment_method: data.metodoPago === 'efectivo' ? 'cash' : data.metodoPago === 'billetera_virtual' ? 'wallet' : 'cash',
+        payment_method: data.metodoPago === 'efectivo' ? 'cash' : data.metodoPago === 'tarjeta' ? 'card' : data.metodoPago === 'billetera_virtual' ? 'wallet' : 'cash',
       })
 
     if (ventaError) {

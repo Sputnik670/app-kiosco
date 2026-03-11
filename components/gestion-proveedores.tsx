@@ -19,6 +19,7 @@ import {
   getProvidersAction,
   createProviderAction,
   getProviderPurchaseHistoryAction,
+  updateProviderMarkupAction,
   type Provider,
   type Purchase
 } from "@/lib/actions/provider.actions"
@@ -38,10 +39,17 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
 
   // Formulario nuevo proveedor
   const [formData, setFormData] = useState({
-    nombre: "", rubro: "", contacto_nombre: "", 
+    nombre: "", rubro: "", contacto_nombre: "",
     telefono: "", email: "", condicion_pago: "contado",
-    esGlobal: true // Controla si sucursal_id será null o sucursalId
+    esGlobal: true, // Controla si sucursal_id será null o sucursalId
+    markup_type: "" as "" | "percentage" | "fixed",
+    markup_value: "",
   })
+
+  // Edición de markup en proveedor existente
+  const [editingMarkup, setEditingMarkup] = useState<string | null>(null)
+  const [markupForm, setMarkupForm] = useState({ type: "" as "" | "percentage" | "fixed", value: "" })
+  const [savingMarkup, setSavingMarkup] = useState(false)
 
   const fetchProveedores = useCallback(async () => {
     if (!organizationId) return
@@ -80,18 +88,41 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
 
     setLoading(true)
 
-    const result = await createProviderAction(formData, sucursalId)
+    const dataToSend = {
+      ...formData,
+      markup_type: formData.markup_type || null,
+      markup_value: formData.markup_value ? parseFloat(formData.markup_value) : null,
+    }
+
+    const result = await createProviderAction(dataToSend as any, sucursalId)
 
     if (result.success) {
       toast.success(formData.esGlobal ? "Proveedor Global añadido" : "Proveedor Local añadido")
       setShowAddModal(false)
-      setFormData({ nombre: "", rubro: "", contacto_nombre: "", telefono: "", email: "", condicion_pago: "contado", esGlobal: true })
+      setFormData({ nombre: "", rubro: "", contacto_nombre: "", telefono: "", email: "", condicion_pago: "contado", esGlobal: true, markup_type: "", markup_value: "" })
       fetchProveedores()
     } else {
       toast.error("Error al guardar", { description: result.error })
     }
 
     setLoading(false)
+  }
+
+  async function handleSaveMarkup(providerId: string) {
+    setSavingMarkup(true)
+    const result = await updateProviderMarkupAction({
+      providerId,
+      markupType: markupForm.type || null,
+      markupValue: markupForm.value ? parseFloat(markupForm.value) : null,
+    })
+    if (result.success) {
+      toast.success("Comisión actualizada")
+      setEditingMarkup(null)
+      fetchProveedores()
+    } else {
+      toast.error("Error", { description: result.error })
+    }
+    setSavingMarkup(false)
   }
 
   const formatMoney = (amount: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(amount)
@@ -148,8 +179,68 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
                             <Phone className="h-3 w-3" /> {p.phone || '---'}
                         </div>
                         <div className="flex items-center gap-2 text-[11px] font-bold text-emerald-600">
-                            <DollarSign className="h-3 w-3" /> {''}
+                            <DollarSign className="h-3 w-3" />
+                            {p.markup_type === 'percentage' ? `+${p.markup_value}%` : p.markup_type === 'fixed' ? `+$${p.markup_value}` : 'Sin comisión'}
                         </div>
+                    </div>
+
+                    {/* Edición rápida de markup */}
+                    <div className="mt-3 pt-3 border-t border-dashed">
+                      {editingMarkup === p.id ? (
+                        <div className="flex gap-2 items-end" onClick={e => e.stopPropagation()}>
+                          <select
+                            title="Tipo de comisión"
+                            className="h-8 rounded-md border bg-background px-2 text-[11px] font-bold"
+                            value={markupForm.type}
+                            onChange={e => setMarkupForm({ ...markupForm, type: e.target.value as any })}
+                          >
+                            <option value="">Sin comisión</option>
+                            <option value="percentage">% Porcentaje</option>
+                            <option value="fixed">$ Fijo</option>
+                          </select>
+                          {markupForm.type && (
+                            <Input
+                              type="number"
+                              placeholder={markupForm.type === 'percentage' ? 'Ej: 10' : 'Ej: 50'}
+                              className="h-8 w-20 text-[11px] font-bold"
+                              value={markupForm.value}
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => setMarkupForm({ ...markupForm, value: e.target.value })}
+                            />
+                          )}
+                          <Button
+                            size="sm"
+                            className="h-8 text-[10px] font-black"
+                            disabled={savingMarkup}
+                            onClick={e => { e.stopPropagation(); handleSaveMarkup(p.id) }}
+                          >
+                            {savingMarkup ? <Loader2 className="h-3 w-3 animate-spin" /> : "OK"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 text-[10px]"
+                            onClick={e => { e.stopPropagation(); setEditingMarkup(null) }}
+                          >
+                            ✕
+                          </Button>
+                        </div>
+                      ) : (
+                        <button
+                          className="text-[10px] font-bold text-primary uppercase hover:underline"
+                          onClick={e => {
+                            e.stopPropagation()
+                            setEditingMarkup(p.id)
+                            setMarkupForm({
+                              type: p.markup_type || "",
+                              value: p.markup_value?.toString() || "",
+                            })
+                          }}
+                        >
+                          <Receipt className="h-3 w-3 inline mr-1" />
+                          {p.markup_type ? 'Editar comisión' : 'Configurar comisión'}
+                        </button>
+                      )}
                     </div>
                 </Card>
             ))}
@@ -260,6 +351,41 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
                         <Label className="text-xs font-bold uppercase text-muted-foreground">Email</Label>
                         <Input placeholder="prov@mail.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
                     </div>
+                </div>
+
+                {/* Comisión / Markup */}
+                <div className="bg-indigo-50 p-3 rounded-lg border-2 border-indigo-100">
+                    <Label className="text-xs font-black uppercase text-indigo-600 mb-3 block">Comisión por Reventa</Label>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <Label className="text-[10px] font-bold uppercase text-indigo-400">Tipo</Label>
+                            <select
+                                title="Tipo de comisión"
+                                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm font-bold"
+                                value={formData.markup_type}
+                                onChange={e => setFormData({...formData, markup_type: e.target.value as any})}
+                            >
+                                <option value="">Sin comisión</option>
+                                <option value="percentage">% Porcentaje</option>
+                                <option value="fixed">$ Monto Fijo</option>
+                            </select>
+                        </div>
+                        {formData.markup_type && (
+                            <div>
+                                <Label className="text-[10px] font-bold uppercase text-indigo-400">
+                                    {formData.markup_type === 'percentage' ? 'Porcentaje (%)' : 'Monto ($)'}
+                                </Label>
+                                <Input
+                                    type="number"
+                                    placeholder={formData.markup_type === 'percentage' ? 'Ej: 10' : 'Ej: 50'}
+                                    className="h-10 font-bold"
+                                    value={formData.markup_value}
+                                    onChange={e => setFormData({...formData, markup_value: e.target.value})}
+                                />
+                            </div>
+                        )}
+                    </div>
+                    <p className="text-[9px] text-indigo-400 mt-2">Se aplica automáticamente al precio que cobra el empleado</p>
                 </div>
             </div>
             <DialogFooter>

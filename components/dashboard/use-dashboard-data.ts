@@ -213,10 +213,56 @@ export function useDashboardData(
         setVentasRecientes(ventasRecientesMaped as VentaJoin[])
       }
 
-      // Servicios (vacío por ahora)
-      setVentasServicios([])
-      setTotalServiciosVendido(0)
-      setPaymentBreakdownServicios(emptyPaymentBreakdown)
+      // Servicios virtuales (SUBE, recargas, etc.)
+      {
+        let svcQuery = supabase
+          .from("service_sales")
+          .select("id, service_type, amount_charged, commission, total_collected, payment_method, created_at, cash_register_id")
+          .eq("branch_id", sucursalId)
+
+        if (dateRange?.from) {
+          svcQuery = svcQuery.gte("created_at", dateRange.from.toISOString())
+        }
+        if (dateRange?.to) {
+          svcQuery = svcQuery.lte("created_at", dateRange.to.toISOString())
+        }
+
+        const { data: svcData } = await svcQuery
+          .order("created_at", { ascending: false })
+          .limit(100)
+
+        if (svcData && svcData.length > 0) {
+          const ventasSvc = svcData.map((s) => ({
+            id: s.id,
+            fecha_venta: s.created_at,
+            metodo_pago: s.payment_method || "cash",
+            tipo_servicio: s.service_type || "Servicio",
+            monto_carga: Number(s.amount_charged) || 0,
+            comision: Number(s.commission) || 0,
+            total_cobrado: Number(s.total_collected) || 0,
+            caja_diaria_id: s.cash_register_id,
+          }))
+          setVentasServicios(ventasSvc as VentaServicio[])
+
+          const totalSvc = ventasSvc.reduce((sum, v) => sum + v.total_cobrado, 0)
+          setTotalServiciosVendido(totalSvc)
+
+          const svcBreakdown: PaymentBreakdown = { cash: 0, card: 0, transfer: 0, wallet: 0 }
+          ventasSvc.forEach((v) => {
+            const method = v.metodo_pago as string
+            if (method === "cash") svcBreakdown.cash += v.total_cobrado
+            else if (method === "card") svcBreakdown.card += v.total_cobrado
+            else if (method === "transfer") svcBreakdown.transfer += v.total_cobrado
+            else if (method === "wallet") svcBreakdown.wallet += v.total_cobrado
+            else svcBreakdown.cash += v.total_cobrado
+          })
+          setPaymentBreakdownServicios(svcBreakdown)
+        } else {
+          setVentasServicios([])
+          setTotalServiciosVendido(0)
+          setPaymentBreakdownServicios(emptyPaymentBreakdown)
+        }
+      }
 
       // Turnos/Cajas
       let cashQuery = supabase
