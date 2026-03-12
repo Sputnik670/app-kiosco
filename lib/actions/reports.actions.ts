@@ -47,9 +47,21 @@ export interface SalesReportData {
     itemCount: number
     employeeName: string | null
   }[]
+  serviceSales: {
+    id: string
+    date: string
+    serviceType: string
+    amountCharged: number
+    commission: number
+    totalCollected: number
+    paymentMethod: string
+  }[]
   summary: {
     totalSales: number
     totalAmount: number
+    totalServiceSales: number
+    totalServiceAmount: number
+    grandTotal: number
     byPaymentMethod: Record<string, { count: number; amount: number }>
   }
   period: {
@@ -185,7 +197,26 @@ export async function getSalesReportAction(
       }
     })
 
-    // Calcular resumen
+    // Obtener ventas de servicios virtuales del período
+    const { data: svcData } = await supabase
+      .from("service_sales")
+      .select("id, service_type, amount_charged, commission, total_collected, payment_method, created_at")
+      .eq("branch_id", branchId)
+      .gte("created_at", fromDate)
+      .lte("created_at", toDate)
+      .order("created_at", { ascending: false })
+
+    const serviceSales = (svcData || []).map((s) => ({
+      id: s.id,
+      date: s.created_at,
+      serviceType: s.service_type || "Servicio",
+      amountCharged: Number(s.amount_charged) || 0,
+      commission: Number(s.commission) || 0,
+      totalCollected: Number(s.total_collected) || 0,
+      paymentMethod: s.payment_method || "cash",
+    }))
+
+    // Calcular resumen (productos + servicios)
     const byPaymentMethod: Record<string, { count: number; amount: number }> = {}
     sales.forEach((s) => {
       if (!byPaymentMethod[s.paymentMethod]) {
@@ -194,14 +225,28 @@ export async function getSalesReportAction(
       byPaymentMethod[s.paymentMethod].count++
       byPaymentMethod[s.paymentMethod].amount += s.total
     })
+    serviceSales.forEach((s) => {
+      if (!byPaymentMethod[s.paymentMethod]) {
+        byPaymentMethod[s.paymentMethod] = { count: 0, amount: 0 }
+      }
+      byPaymentMethod[s.paymentMethod].count++
+      byPaymentMethod[s.paymentMethod].amount += s.totalCollected
+    })
+
+    const totalProductAmount = sales.reduce((sum, s) => sum + s.total, 0)
+    const totalServiceAmount = serviceSales.reduce((sum, s) => sum + s.totalCollected, 0)
 
     return {
       success: true,
       data: {
         sales,
+        serviceSales,
         summary: {
           totalSales: sales.length,
-          totalAmount: sales.reduce((sum, s) => sum + s.total, 0),
+          totalAmount: totalProductAmount,
+          totalServiceSales: serviceSales.length,
+          totalServiceAmount,
+          grandTotal: totalProductAmount + totalServiceAmount,
           byPaymentMethod,
         },
         period: { from: fromDate, to: toDate },

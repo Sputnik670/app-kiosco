@@ -58,8 +58,9 @@ export async function generateSalesReportExcel(data: SalesReportData, branchName
     ["Generado:", new Date().toLocaleString("es-AR")],
     [],
     ["RESUMEN"],
-    ["Total de Ventas", data.summary.totalSales],
-    ["Monto Total", data.summary.totalAmount],
+    ["Ventas Productos", data.summary.totalSales, data.summary.totalAmount],
+    ["Ventas Servicios", data.summary.totalServiceSales, data.summary.totalServiceAmount],
+    ["TOTAL GENERAL", data.summary.totalSales + data.summary.totalServiceSales, data.summary.grandTotal],
     [],
     ["DESGLOSE POR MÉTODO DE PAGO"],
     ["Método", "Cantidad", "Monto"],
@@ -73,7 +74,7 @@ export async function generateSalesReportExcel(data: SalesReportData, branchName
   const summarySheet = XLSX.utils.aoa_to_sheet(summaryData)
   XLSX.utils.book_append_sheet(workbook, summarySheet, "Resumen")
 
-  // Hoja de detalle
+  // Hoja de detalle productos
   const detailHeaders = ["ID", "Fecha", "Hora", "Items", "Método de Pago", "Empleado", "Total"]
   const detailData = data.sales.map((s) => [
     s.id,
@@ -86,7 +87,25 @@ export async function generateSalesReportExcel(data: SalesReportData, branchName
   ])
 
   const detailSheet = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailData])
-  XLSX.utils.book_append_sheet(workbook, detailSheet, "Detalle Ventas")
+  XLSX.utils.book_append_sheet(workbook, detailSheet, "Productos")
+
+  // Hoja de detalle servicios virtuales
+  if (data.serviceSales && data.serviceSales.length > 0) {
+    const svcHeaders = ["ID", "Fecha", "Hora", "Servicio", "Carga", "Comisión", "Cobrado", "Método"]
+    const svcData = data.serviceSales.map((s) => [
+      s.id,
+      formatDate(s.date),
+      new Date(s.date).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+      s.serviceType,
+      s.amountCharged,
+      s.commission,
+      s.totalCollected,
+      s.paymentMethod,
+    ])
+
+    const svcSheet = XLSX.utils.aoa_to_sheet([svcHeaders, ...svcData])
+    XLSX.utils.book_append_sheet(workbook, svcSheet, "Servicios")
+  }
 
   downloadExcel(XLSX, workbook, `ventas_${formatDate(data.period.from)}_${formatDate(data.period.to)}.xlsx`)
 }

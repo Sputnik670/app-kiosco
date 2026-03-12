@@ -109,11 +109,12 @@ export async function generateSalesReportPDF(data: SalesReportData, branchName: 
     startY: 52,
     head: [["Métrica", "Valor"]],
     body: [
-      ["Total de Ventas", data.summary.totalSales.toString()],
-      ["Monto Total", formatMoney(data.summary.totalAmount)],
+      ["Ventas Productos", `${data.summary.totalSales} ventas - ${formatMoney(data.summary.totalAmount)}`],
+      ["Ventas Servicios", `${data.summary.totalServiceSales} cargas - ${formatMoney(data.summary.totalServiceAmount)}`],
+      ["TOTAL GENERAL", formatMoney(data.summary.grandTotal)],
       ...Object.entries(data.summary.byPaymentMethod).map(([method, info]) => [
         `${method.charAt(0).toUpperCase() + method.slice(1)}`,
-        `${info.count} ventas - ${formatMoney(info.amount)}`,
+        `${info.count} ops - ${formatMoney(info.amount)}`,
       ]),
     ],
     theme: "striped",
@@ -121,15 +122,15 @@ export async function generateSalesReportPDF(data: SalesReportData, branchName: 
     margin: { left: 14, right: 14 },
   })
 
-  // Detalle de ventas
-  const finalY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
+  // Detalle de ventas de productos
+  let currentY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
 
   doc.setFontSize(12)
   doc.setTextColor(...COLORS.primary)
-  doc.text("Detalle de Ventas", 14, finalY + 15)
+  doc.text("Detalle de Ventas - Productos", 14, currentY + 15)
 
   autoTable(doc, {
-    startY: finalY + 20,
+    startY: currentY + 20,
     head: [["Fecha", "Hora", "Items", "Método", "Total"]],
     body: data.sales.map((s) => [
       formatDate(s.date),
@@ -143,6 +144,33 @@ export async function generateSalesReportPDF(data: SalesReportData, branchName: 
     margin: { left: 14, right: 14 },
     styles: { fontSize: 9 },
   })
+
+  // Detalle de ventas de servicios virtuales
+  if (data.serviceSales && data.serviceSales.length > 0) {
+    currentY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
+
+    doc.setFontSize(12)
+    doc.setTextColor(79, 70, 229) // indigo
+    doc.text("Detalle de Ventas - Servicios Virtuales", 14, currentY + 15)
+
+    autoTable(doc, {
+      startY: currentY + 20,
+      head: [["Fecha", "Hora", "Servicio", "Carga", "Comisión", "Cobrado", "Método"]],
+      body: data.serviceSales.map((s) => [
+        formatDate(s.date),
+        new Date(s.date).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+        s.serviceType,
+        formatMoney(s.amountCharged),
+        formatMoney(s.commission),
+        formatMoney(s.totalCollected),
+        s.paymentMethod,
+      ]),
+      theme: "striped",
+      headStyles: { fillColor: [79, 70, 229] },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 9 },
+    })
+  }
 
   addFooter(doc)
   doc.save(`ventas_${formatDate(data.period.from)}_${formatDate(data.period.to)}.pdf`)
