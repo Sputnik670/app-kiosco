@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Users, Plus, Phone, Mail, ChevronRight, DollarSign, Loader2,
-  ShoppingBag, Receipt, Globe, MapPin
+  ShoppingBag, Receipt, Globe, MapPin, Trash2, AlertTriangle
 } from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -20,6 +20,7 @@ import {
   createProviderAction,
   getProviderPurchaseHistoryAction,
   updateProviderMarkupAction,
+  deleteProviderAction,
   type Provider,
   type Purchase
 } from "@/lib/actions/provider.actions"
@@ -45,6 +46,10 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
     markup_type: "" as "" | "percentage" | "fixed",
     markup_value: "",
   })
+
+  // Eliminación de proveedor
+  const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   // Edición de markup en proveedor existente
   const [editingMarkup, setEditingMarkup] = useState<string | null>(null)
@@ -123,6 +128,24 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
       toast.error("Error", { description: result.error })
     }
     setSavingMarkup(false)
+  }
+
+  async function handleDeleteProveedor() {
+    if (!confirmDelete) return
+    setDeleting(true)
+
+    const result = await deleteProviderAction(confirmDelete.id)
+
+    if (result.success) {
+      toast.success(`${confirmDelete.name} eliminado correctamente`)
+      setConfirmDelete(null)
+      setSelectedProveedor(null)
+      fetchProveedores()
+    } else {
+      toast.error("Error al eliminar", { description: result.error })
+    }
+
+    setDeleting(false)
   }
 
   const formatMoney = (amount: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(amount)
@@ -226,20 +249,31 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
                           </Button>
                         </div>
                       ) : (
-                        <button
-                          className="text-[10px] font-bold text-primary uppercase hover:underline"
-                          onClick={e => {
-                            e.stopPropagation()
-                            setEditingMarkup(p.id)
-                            setMarkupForm({
-                              type: p.markup_type || "",
-                              value: p.markup_value?.toString() || "",
-                            })
-                          }}
-                        >
-                          <Receipt className="h-3 w-3 inline mr-1" />
-                          {p.markup_type ? 'Editar comisión' : 'Configurar comisión'}
-                        </button>
+                        <div className="flex items-center justify-between">
+                          <button
+                            className="text-[10px] font-bold text-primary uppercase hover:underline"
+                            onClick={e => {
+                              e.stopPropagation()
+                              setEditingMarkup(p.id)
+                              setMarkupForm({
+                                type: p.markup_type || "",
+                                value: p.markup_value?.toString() || "",
+                              })
+                            }}
+                          >
+                            <Receipt className="h-3 w-3 inline mr-1" />
+                            {p.markup_type ? 'Editar comisión' : 'Configurar comisión'}
+                          </button>
+                          <button
+                            className="text-[10px] font-bold text-red-400 uppercase hover:text-red-600 transition-colors"
+                            onClick={e => {
+                              e.stopPropagation()
+                              setConfirmDelete(p)
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       )}
                     </div>
                 </Card>
@@ -271,6 +305,19 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
                     </div>
                 </div>
 
+                <div className="flex justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50 text-[10px] font-bold uppercase"
+                      onClick={() => {
+                        if (selectedProveedor) setConfirmDelete(selectedProveedor)
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1" /> Eliminar proveedor
+                    </Button>
+                </div>
+
                 <div className="max-h-[300px] overflow-y-auto pr-2">
                     <h4 className="text-xs font-bold uppercase text-muted-foreground mb-3">Últimos Pedidos</h4>
                     {loadingHistory ? <Loader2 className="animate-spin h-5 w-5 mx-auto"/> : historialCompras.map(compra => (
@@ -281,6 +328,42 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
                     ))}
                 </div>
             </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL CONFIRMAR ELIMINACIÓN */}
+      <Dialog open={!!confirmDelete} onOpenChange={(open) => !open && setConfirmDelete(null)}>
+        <DialogContent className="max-w-sm">
+            <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-red-600">
+                    <AlertTriangle className="h-5 w-5" /> Eliminar Proveedor
+                </DialogTitle>
+            </DialogHeader>
+            <div className="py-4 space-y-3">
+                <p className="text-sm text-muted-foreground">
+                    ¿Estás seguro de que querés eliminar a <span className="font-bold text-foreground">{confirmDelete?.name}</span>?
+                </p>
+                {confirmDelete?.balance && Number(confirmDelete.balance) > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                        <p className="text-[11px] text-amber-700 font-medium">
+                            Este proveedor tiene saldo disponible de {formatMoney(Number(confirmDelete.balance))}. Al eliminarlo, ese saldo se perderá.
+                        </p>
+                    </div>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                    El historial de compras y ventas asociadas se mantendrá para tus reportes.
+                </p>
+            </div>
+            <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setConfirmDelete(null)} disabled={deleting}>
+                    Cancelar
+                </Button>
+                <Button variant="destructive" onClick={handleDeleteProveedor} disabled={deleting} className="font-bold">
+                    {deleting ? <Loader2 className="animate-spin h-4 w-4 mr-2"/> : <Trash2 className="h-4 w-4 mr-2"/>}
+                    Sí, eliminar
+                </Button>
+            </DialogFooter>
         </DialogContent>
       </Dialog>
 

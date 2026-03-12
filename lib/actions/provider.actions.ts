@@ -669,6 +669,65 @@ export interface GetServicePurchaseHistoryResult {
   error?: string
 }
 
+// ───────────────────────────────────────────────────────────────────────────────
+// ELIMINAR PROVEEDOR
+// ───────────────────────────────────────────────────────────────────────────────
+
+export interface DeleteProviderResult {
+  success: boolean
+  error?: string
+}
+
+/**
+ * 🗑️ Elimina (desactiva) un proveedor
+ *
+ * SEGURIDAD:
+ * - Solo el dueño puede eliminar proveedores
+ * - Si el proveedor tiene saldo pendiente, se advierte pero se permite
+ * - Se hace soft-delete (is_active = false) para mantener historial
+ * - Si no existe la columna is_active, se hace hard-delete
+ */
+export async function deleteProviderAction(
+  providerId: string
+): Promise<DeleteProviderResult> {
+  try {
+    const { supabase } = await verifyOwner()
+
+    if (!providerId) {
+      return { success: false, error: 'ID de proveedor es requerido' }
+    }
+
+    // Intentar soft-delete primero (is_active = false)
+    const { error: softError } = await supabase
+      .from('suppliers')
+      .update({ is_active: false })
+      .eq('id', providerId)
+
+    if (softError) {
+      // Si is_active no existe, hacer hard-delete
+      if (softError.message.includes('is_active')) {
+        const { error: hardError } = await supabase
+          .from('suppliers')
+          .delete()
+          .eq('id', providerId)
+
+        if (hardError) {
+          return { success: false, error: `Error al eliminar proveedor: ${hardError.message}` }
+        }
+      } else {
+        return { success: false, error: `Error al eliminar proveedor: ${softError.message}` }
+      }
+    }
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido al eliminar proveedor',
+    }
+  }
+}
+
 export async function getServicePurchaseHistoryAction(
   providerId: string
 ): Promise<GetServicePurchaseHistoryResult> {
