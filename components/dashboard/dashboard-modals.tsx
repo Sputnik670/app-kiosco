@@ -9,7 +9,7 @@ import { format, parseISO } from "date-fns"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { updateProductAction, deleteProductAction } from "@/lib/actions/product.actions"
-import type { ProductoDashboard, HistorialPrecio, VentaJoin } from "@/types/dashboard.types"
+import type { ProductoDashboard, HistorialPrecio, VentaJoin, VentaServicio } from "@/types/dashboard.types"
 
 interface DashboardModalsProps {
   // Editar producto
@@ -34,6 +34,7 @@ interface DashboardModalsProps {
   showSalesDetail: boolean
   onShowSalesDetailChange: (show: boolean) => void
   ventasRecientes: VentaJoin[]
+  ventasServicios: VentaServicio[]
 }
 
 export function DashboardModals({
@@ -52,6 +53,7 @@ export function DashboardModals({
   showSalesDetail,
   onShowSalesDetailChange,
   ventasRecientes,
+  ventasServicios,
 }: DashboardModalsProps) {
   const handleUpdateProduct = async () => {
     if (!editingProduct) return
@@ -286,6 +288,10 @@ export function DashboardModals({
             </DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto pr-3 space-y-3 mt-6">
+            {/* Productos físicos */}
+            {ventasRecientes.length > 0 && (
+              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Productos Físicos</p>
+            )}
             {ventasRecientes.map((v) => (
               <div
                 key={v.id}
@@ -323,6 +329,47 @@ export function DashboardModals({
                 </div>
               </div>
             ))}
+
+            {/* Servicios virtuales */}
+            {ventasServicios.length > 0 && (
+              <>
+                <p className="text-[10px] font-black uppercase text-indigo-500 tracking-widest mt-4">Servicios Virtuales</p>
+                {ventasServicios.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex justify-between items-center p-4 bg-indigo-50 border-2 border-indigo-100 rounded-2xl shadow-sm"
+                  >
+                    <div className="flex items-center gap-4">
+                      <span className="text-3xl bg-indigo-100 w-12 h-12 flex items-center justify-center rounded-xl">
+                        📱
+                      </span>
+                      <div>
+                        <p className="font-black uppercase text-indigo-800 text-sm leading-none mb-1">
+                          {s.tipo_servicio}
+                        </p>
+                        <p className="text-[10px] font-bold text-indigo-400 uppercase">
+                          {format(parseISO(s.fecha_venta), "HH:mm")} hs •{" "}
+                          {s.metodo_pago?.replace("_", " ")}
+                        </p>
+                        {s.comision > 0 && (
+                          <p className="text-[10px] font-black text-emerald-600 mt-1">
+                            Comisión: {formatMoney(s.comision)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-black text-indigo-700 text-lg leading-none mb-0.5">
+                        {formatMoney(s.total_cobrado)}
+                      </p>
+                      <p className="text-[10px] font-black text-indigo-400 uppercase">
+                        Carga: {formatMoney(s.monto_carga)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
           <DialogFooter className="border-t pt-4">
             <Button

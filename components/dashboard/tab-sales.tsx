@@ -19,8 +19,8 @@ export function TabSales({
   formatMoney,
   onShowSalesDetail,
 }: SalesTabProps) {
-  // totalVendido ya incluye productos + servicios desde vista unificada
-  const totalGeneral = totalVendido
+  // Total general = productos + servicios
+  const totalGeneral = totalVendido + totalServiciosVendido
 
   return (
     <div className="space-y-4">
@@ -122,9 +122,6 @@ export function TabSales({
 
       {/* Gráfico de evolución */}
       <Card className="p-5 border-2 shadow-sm">
-        <h3 className="text-[10px] font-black uppercase text-slate-400 mb-6 tracking-widest">
-          Evolución Diaria
-        </h3>
         <div className="h-[200px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>

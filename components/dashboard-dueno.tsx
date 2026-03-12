@@ -59,9 +59,10 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
       maximumFractionDigits: 0,
     }).format(amount || 0)
 
-  // Datos derivados
+  // Datos derivados: Productos + Servicios en el gráfico
   const chartData = useMemo(() => {
     const map: Record<string, number> = {}
+    // Sumar ventas de productos
     data.ventasRecientes
       .slice()
       .reverse()
@@ -71,8 +72,13 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
           (map[k] || 0) +
           (v.precio_venta_historico || v.productos?.precio_venta || 0) * (v.cantidad || 1)
       })
+    // Sumar ventas de servicios virtuales
+    data.ventasServicios.forEach((s) => {
+      const k = format(parseISO(s.fecha_venta), "dd/MM")
+      map[k] = (map[k] || 0) + s.total_cobrado
+    })
     return Object.entries(map).map(([fecha, total]) => ({ fecha, total }))
-  }, [data.ventasRecientes])
+  }, [data.ventasRecientes, data.ventasServicios])
 
   // Handlers
   const loadPriceHistory = async (pid: string) => {
@@ -308,6 +314,7 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
         showSalesDetail={state.showSalesDetail}
         onShowSalesDetailChange={actions.setShowSalesDetail}
         ventasRecientes={data.ventasRecientes}
+        ventasServicios={data.ventasServicios}
       />
     </div>
   )
