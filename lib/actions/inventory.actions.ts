@@ -250,32 +250,43 @@ export async function processComplexStockEntry(
 
     // Actualizar costo del producto si cambió
     if (costoNum > 0) {
-      const { data: productoActual, error: productoError } = await getProductoById(
-        params.productoId
-      )
+      // IMPORTANTE: Usar supabase del server action (no el del repositorio que usa el cliente)
+      const { data: productoActual, error: productoError } = await supabase
+        .from('products')
+        .select('cost, sale_price')
+        .eq('id', params.productoId)
+        .single<{ cost: number | null; sale_price: number | null }>()
 
       if (!productoError && productoActual) {
-        const costoAnterior = productoActual.cost ?? 0
+        const costoAnterior = Number(productoActual.cost) || 0
+        const precioVentaActual = Number(productoActual.sale_price) || 0
 
-        if (costoAnterior !== costoNum) {
+        if (Math.abs(costoAnterior - costoNum) > 0.01) {
           // Registrar en historial de precios
-          await supabase.from('price_history').insert({
+          const { error: histError } = await supabase.from('price_history').insert({
             organization_id: organizationId,
             product_id: params.productoId,
             old_cost: costoAnterior,
             new_cost: costoNum,
-            old_price: productoActual.sale_price,
-            new_price: productoActual.sale_price,
+            old_price: precioVentaActual,
+            new_price: precioVentaActual,
             changed_by: user.id,
           })
 
+          if (histError) {
+            console.error('Error registrando historial de precios:', histError.message)
+          }
+
           // Actualizar costo del producto
-          const { error: updateError } = await updateProducto(params.productoId, {
-            costo: costoNum,
-          })
+          const { error: updateError } = await supabase
+            .from('products')
+            .update({ cost: costoNum })
+            .eq('id', params.productoId)
 
           if (!updateError) {
             precioActualizado = true
+          } else {
+            console.error('Error actualizando costo del producto:', updateError.message)
           }
         }
       }
