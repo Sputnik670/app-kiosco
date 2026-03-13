@@ -467,6 +467,169 @@ export async function processStockLossAction(
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
+// HISTORIAL DE COMPRAS DE STOCK (con filtros)
+// ───────────────────────────────────────────────────────────────────────────────
+
+export interface StockPurchaseRecord {
+  id: string
+  productName: string
+  productCategory: string | null
+  quantity: number
+  unitCost: number
+  totalCost: number
+  supplierName: string | null
+  date: string
+}
+
+export interface StockPurchaseFilters {
+  dateFrom?: string
+  dateTo?: string
+  productId?: string
+  minCost?: number
+  maxCost?: number
+  sortBy?: 'date' | 'product' | 'cost' | 'quantity'
+  sortOrder?: 'asc' | 'desc'
+}
+
+export interface GetStockPurchaseHistoryResult {
+  success: boolean
+  records: StockPurchaseRecord[]
+  summary: {
+    totalRecords: number
+    totalUnits: number
+    totalInvested: number
+  }
+  error?: string
+}
+
+/**
+ * 📊 Historial de compras de stock con filtros completos
+ *
+ * Permite al dueño ver todas las entradas de mercadería filtradas por:
+ * - Rango de fechas (desde/hasta)
+ * - Producto específico
+ * - Rango de costo unitario (mín/máx)
+ * - Ordenamiento por fecha, producto, costo o cantidad
+ */
+export async function getStockPurchaseHistoryAction(
+  filters: StockPurchaseFilters = {}
+): Promise<GetStockPurchaseHistoryResult> {
+  try {
+    const { supabase, orgId } = await verifyAuth()
+
+    let query = supabase
+      .from('stock_batches')
+      .select('id, quantity, unit_cost, created_at, supplier_id, product_id, products(name, category), suppliers:supplier_id(name)')
+      .eq('organization_id', orgId)
+
+    // Filtro por fecha
+    if (filters.dateFrom) {
+      query = query.gte('created_at', `${filters.dateFrom}T00:00:00`)
+    }
+    if (filters.dateTo) {
+      query = query.lte('created_at', `${filters.dateTo}T23:59:59`)
+    }
+
+    // Filtro por producto
+    if (filters.productId) {
+      query = query.eq('product_id', filters.productId)
+    }
+
+    // Filtro por costo
+    if (filters.minCost !== undefined && filters.minCost > 0) {
+      query = query.gte('unit_cost', filters.minCost)
+    }
+    if (filters.maxCost !== undefined && filters.maxCost > 0) {
+      query = query.lte('unit_cost', filters.maxCost)
+    }
+
+    // Ordenamiento
+    const sortField = filters.sortBy === 'product' ? 'product_id'
+      : filters.sortBy === 'cost' ? 'unit_cost'
+      : filters.sortBy === 'quantity' ? 'quantity'
+      : 'created_at'
+    const ascending = filters.sortOrder === 'asc'
+    query = query.order(sortField, { ascending })
+
+    const { data, error } = await query.limit(200)
+
+    if (error) {
+      return { success: false, records: [], summary: { totalRecords: 0, totalUnits: 0, totalInvested: 0 }, error: error.message }
+    }
+
+    let totalUnits = 0
+    let totalInvested = 0
+
+    const records: StockPurchaseRecord[] = (data || []).map((item: any) => {
+      const product = item.products && !Array.isArray(item.products) ? item.products : (Array.isArray(item.products) ? item.products[0] : null)
+      const supplier = item.suppliers && !Array.isArray(item.suppliers) ? item.suppliers : (Array.isArray(item.suppliers) ? item.suppliers[0] : null)
+      const qty = Number(item.quantity) || 0
+      const cost = Number(item.unit_cost) || 0
+      const total = qty * cost
+
+      totalUnits += qty
+      totalInvested += total
+
+      return {
+        id: item.id,
+        productName: product?.name || 'Producto desconocido',
+        productCategory: product?.category || null,
+        quantity: qty,
+        unitCost: cost,
+        totalCost: total,
+        supplierName: supplier?.name || null,
+        date: item.created_at,
+      }
+    })
+
+    return {
+      success: true,
+      records,
+      summary: {
+        totalRecords: records.length,
+        totalUnits,
+        totalInvested,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      records: [],
+      summary: { totalRecords: 0, totalUnits: 0, totalInvested: 0 },
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
+ * 📋 Lista de productos para el filtro dropdown
+ */
+export async function getProductListForFilterAction(): Promise<{
+  success: boolean
+  products: { id: string; name: string; category: string | null }[]
+  error?: string
+}> {
+  try {
+    const { supabase, orgId } = await verifyAuth()
+
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, category')
+      .eq('organization_id', orgId)
+      .eq('is_active', true)
+      .order('name', { ascending: true })
+
+    if (error) {
+      return { success: false, products: [], error: error.message }
+    }
+
+    return { success: true, products: data || [] }
+  } catch (error) {
+    return { success: false, products: [], error: error instanceof Error ? error.message : 'Error desconocido' }
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 // STOCK CRÍTICO
 // ───────────────────────────────────────────────────────────────────────────────
 
