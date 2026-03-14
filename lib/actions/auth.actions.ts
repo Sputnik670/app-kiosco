@@ -119,10 +119,10 @@ export async function signUpAction(
       }
     }
 
-    if (password.length < 6) {
+    if (password.length < 8) {
       return {
         success: false,
-        error: 'La contraseña debe tener al menos 6 caracteres',
+        error: 'La contraseña debe tener al menos 8 caracteres',
       }
     }
 

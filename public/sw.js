@@ -15,13 +15,13 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-const SW_VERSION = '4.0.0';
+const SW_VERSION = '4.1.0';
 const STATIC_CACHE = 'kiosco-static-v4';
 const DYNAMIC_CACHE = 'kiosco-dynamic-v4';
 const FONTS_CACHE = 'kiosco-fonts-v4';
 // CRITICAL: Must match lib/offline/indexed-db.ts constants
 const OFFLINE_DB_NAME = 'kiosco-offline';
-const OFFLINE_DB_VERSION = 2;
+const OFFLINE_DB_VERSION = 3;
 
 // Archivos a precachear (incluye rutas críticas para empleados)
 const PRECACHE_ASSETS = [
@@ -328,7 +328,134 @@ async function syncVentasPendientes() {
  */
 async function syncAsistenciaPendiente() {
   console.log('[SW] Sincronizando asistencia pendiente...');
-  // TODO: Implementar similar a syncVentasPendientes
+
+  try {
+    const db = await openDB(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
+    const asistencias = await getAllFromStore(db, 'asistencia-pendiente');
+
+    // Filtrar solo las pendientes que no agotaron reintentos
+    const pendientes = asistencias.filter(a =>
+      (a.estado === 'pending' || a.estado === 'failed') && a.intentos < 5
+    );
+
+    if (pendientes.length === 0) {
+      console.log('[SW] No hay fichajes pendientes para sincronizar');
+      return;
+    }
+
+    console.log(`[SW] Sincronizando ${pendientes.length} fichajes...`);
+
+    let syncedCount = 0;
+    let failedCount = 0;
+
+    // Procesar secuencialmente (las entradas deben ir antes que las salidas)
+    // Ordenar: entradas primero, luego salidas por timestamp
+    pendientes.sort((a, b) => {
+      if (a.tipo !== b.tipo) return a.tipo === 'entrada' ? -1 : 1;
+      return a.timestamp - b.timestamp;
+    });
+
+    for (const fichaje of pendientes) {
+      try {
+        // Marcar como sincronizando
+        await updateItemEstado(db, 'asistencia-pendiente', fichaje.id, 'syncing');
+
+        const payload = {
+          localId: fichaje.id,
+          organizationId: fichaje.organization_id,
+          branchId: fichaje.branch_id,
+          userId: fichaje.user_id,
+          tipo: fichaje.tipo,
+          timestamp: fichaje.timestamp,
+          attendanceId: fichaje.attendance_id || null,
+        };
+
+        const response = await fetch('/api/asistencia/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+          // Eliminar fichaje sincronizado
+          await deleteFromStore(db, 'asistencia-pendiente', fichaje.id);
+          syncedCount++;
+          console.log(`[SW] Fichaje ${fichaje.id} (${fichaje.tipo}) sincronizado`);
+        } else {
+          // Marcar como fallido
+          await updateItemFailed(db, 'asistencia-pendiente', fichaje.id, result.error || 'Error desconocido');
+          failedCount++;
+          console.error(`[SW] Error sincronizando fichaje ${fichaje.id}:`, result.error);
+        }
+      } catch (err) {
+        await updateItemFailed(db, 'asistencia-pendiente', fichaje.id, err.message || 'Error de red');
+        failedCount++;
+        console.error(`[SW] Error de red sincronizando fichaje ${fichaje.id}:`, err);
+      }
+
+      // Pausa entre fichajes
+      await sleep(100);
+    }
+
+    console.log(`[SW] Sync asistencia completado: ${syncedCount} ok, ${failedCount} failed`);
+
+    // Notificar clientes
+    notifyClients({
+      type: 'ATTENDANCE_SYNC_COMPLETE',
+      syncedCount,
+      failedCount,
+    });
+
+  } catch (error) {
+    console.error('[SW] Error en sincronización de asistencia:', error);
+  }
+}
+
+/**
+ * Actualiza estado de un item en cualquier store
+ */
+async function updateItemEstado(db, storeName, id, estado) {
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+
+  return new Promise((resolve, reject) => {
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const item = getReq.result;
+      if (!item) { resolve(); return; }
+      item.estado = estado;
+      item.intentos = (item.intentos || 0) + (estado === 'syncing' ? 1 : 0);
+      item.ultimo_intento = Date.now();
+      const putReq = store.put(item);
+      putReq.onsuccess = () => resolve();
+      putReq.onerror = () => reject(putReq.error);
+    };
+    getReq.onerror = () => reject(getReq.error);
+  });
+}
+
+/**
+ * Marca un item como fallido
+ */
+async function updateItemFailed(db, storeName, id, errorMsg) {
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+
+  return new Promise((resolve, reject) => {
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const item = getReq.result;
+      if (!item) { resolve(); return; }
+      item.estado = 'failed';
+      item.ultimo_error = errorMsg;
+      const putReq = store.put(item);
+      putReq.onsuccess = () => resolve();
+      putReq.onerror = () => reject(putReq.error);
+    };
+    getReq.onerror = () => reject(getReq.error);
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -363,6 +490,14 @@ function openDB(name, version) {
         productosStore.createIndex('nombre', 'nombre', { unique: false });
         productosStore.createIndex('codigo_barras', 'codigo_barras', { unique: false });
         productosStore.createIndex('cached_at', 'cached_at', { unique: false });
+      }
+
+      // Store para asistencia pendiente (v3)
+      if (!db.objectStoreNames.contains('asistencia-pendiente')) {
+        const asistenciaStore = db.createObjectStore('asistencia-pendiente', { keyPath: 'id' });
+        asistenciaStore.createIndex('estado', 'estado', { unique: false });
+        asistenciaStore.createIndex('branch_id', 'branch_id', { unique: false });
+        asistenciaStore.createIndex('created_at', 'created_at', { unique: false });
       }
 
       // Store para metadata de sync
@@ -551,6 +686,11 @@ self.addEventListener('notificationclick', (event) => {
 // ───────────────────────────────────────────────────────────────────────────────
 
 self.addEventListener('message', (event) => {
+  // SEGURIDAD: Solo aceptar mensajes del mismo origen
+  if (event.origin && event.origin !== self.location.origin) {
+    console.warn('[SW] Mensaje rechazado de origen no autorizado:', event.origin);
+    return;
+  }
   const { type, data } = event.data || {};
 
   switch (type) {
@@ -583,10 +723,25 @@ self.addEventListener('message', (event) => {
       break;
 
     case 'FORCE_SYNC':
-      // Sincronización manual solicitada desde el cliente
+      // Sincronización manual solicitada desde el cliente (ventas + asistencia)
       console.log('[SW] Sincronización manual solicitada');
       event.waitUntil(
-        syncVentasPendientes().then(() => {
+        Promise.all([
+          syncVentasPendientes(),
+          syncAsistenciaPendiente(),
+        ]).then(() => {
+          event.ports?.[0]?.postMessage({ success: true });
+        }).catch(err => {
+          event.ports?.[0]?.postMessage({ success: false, error: err.message });
+        })
+      );
+      break;
+
+    case 'FORCE_SYNC_ATTENDANCE':
+      // Sincronización manual de solo asistencia
+      console.log('[SW] Sincronización manual de asistencia solicitada');
+      event.waitUntil(
+        syncAsistenciaPendiente().then(() => {
           event.ports?.[0]?.postMessage({ success: true });
         }).catch(err => {
           event.ports?.[0]?.postMessage({ success: false, error: err.message });

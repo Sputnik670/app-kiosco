@@ -103,3 +103,6 @@ Análisis completo en: `.skills/competitive-research/reports/`
 ## Skills / Agentes
 
 - `.skills/competitive-research/` — Agente de investigación competitiva. Produce reportes de análisis, no toca código.
+
+**Cada agente responde a una característica concreta del proyecto, hay de arquitectura, ventas, desarrollo, seguridad, corrección, etc.
+Usarlos de manera congruente que cada uno haga su tarea, y genere actualización y mejora permanente haciendo que su sinergia haga mas facil las mejoras y modificaciones.

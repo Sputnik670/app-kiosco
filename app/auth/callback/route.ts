@@ -24,7 +24,10 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code')
   const inviteToken = searchParams.get('invite_token')
   // Supabase puede enviar `next` como redirect destino
-  const next = searchParams.get('next') ?? '/'
+  // SEGURIDAD: Validar que `next` sea una ruta relativa interna
+  // para prevenir open redirect attacks (CWE-601)
+  const rawNext = searchParams.get('next') ?? '/'
+  const next = (rawNext.startsWith('/') && !rawNext.startsWith('//')) ? rawNext : '/'
 
   if (code) {
     const cookieStore = await cookies()

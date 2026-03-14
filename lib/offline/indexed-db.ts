@@ -18,12 +18,13 @@
 // ───────────────────────────────────────────────────────────────────────────────
 
 const DB_NAME = 'kiosco-offline'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 // Store names
 export const STORES = {
   PRODUCTOS_CACHE: 'productos-cache',
   VENTAS_PENDIENTES: 'ventas-pendientes',
+  ASISTENCIA_PENDIENTE: 'asistencia-pendiente',
   SYNC_METADATA: 'sync-metadata',
 } as const
 
@@ -93,6 +94,37 @@ export interface VentaPendiente {
   // Resultado de sync (cuando se completa)
   venta_id_servidor: string | null
   synced_at: number | null
+}
+
+/**
+ * Estado de un fichaje pendiente
+ */
+export type AsistenciaPendienteEstado =
+  | 'pending'      // Esperando sincronización
+  | 'syncing'      // En proceso de sync
+  | 'failed'       // Falló, requiere retry
+  | 'synced'       // Completada exitosamente
+
+/**
+ * Fichaje pendiente de sincronización
+ */
+export interface AsistenciaPendiente {
+  id: string // UUID generado localmente
+  organization_id: string
+  branch_id: string
+  user_id: string
+  tipo: 'entrada' | 'salida'
+  timestamp: number // momento real del fichaje (timestamp local)
+  // Para salidas: ID del registro de attendance activo
+  attendance_id: string | null
+  // Estado de sync
+  estado: AsistenciaPendienteEstado
+  intentos: number
+  ultimo_intento: number | null
+  ultimo_error: string | null
+  // Resultado de sync
+  synced_at: number | null
+  created_at: number
 }
 
 /**
@@ -187,6 +219,16 @@ class OfflineDB {
           ventasStore.createIndex('estado', 'estado', { unique: false })
           ventasStore.createIndex('sucursal_id', 'sucursal_id', { unique: false })
           ventasStore.createIndex('created_at', 'created_at', { unique: false })
+        }
+
+        // Store: asistencia-pendiente (v3)
+        if (!db.objectStoreNames.contains(STORES.ASISTENCIA_PENDIENTE)) {
+          const asistenciaStore = db.createObjectStore(STORES.ASISTENCIA_PENDIENTE, {
+            keyPath: 'id',
+          })
+          asistenciaStore.createIndex('estado', 'estado', { unique: false })
+          asistenciaStore.createIndex('branch_id', 'branch_id', { unique: false })
+          asistenciaStore.createIndex('created_at', 'created_at', { unique: false })
         }
 
         // Store: sync-metadata
@@ -463,6 +505,85 @@ class OfflineDB {
     }
 
     return sincronizadas.length
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // OPERACIONES DE ASISTENCIA PENDIENTE
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Guarda un fichaje pendiente (entrada o salida offline)
+   */
+  async saveAsistenciaPendiente(asistencia: AsistenciaPendiente): Promise<void> {
+    await this.put(STORES.ASISTENCIA_PENDIENTE, asistencia)
+  }
+
+  /**
+   * Obtiene todos los fichajes pendientes
+   */
+  async getAsistenciasPendientes(): Promise<AsistenciaPendiente[]> {
+    return this.getAll<AsistenciaPendiente>(STORES.ASISTENCIA_PENDIENTE)
+  }
+
+  /**
+   * Obtiene fichajes que necesitan sincronización
+   */
+  async getAsistenciasParaSincronizar(): Promise<AsistenciaPendiente[]> {
+    const todas = await this.getAsistenciasPendientes()
+    return todas.filter((a) => a.estado === 'pending' || a.estado === 'failed')
+  }
+
+  /**
+   * Actualiza el estado de un fichaje pendiente
+   */
+  async updateAsistenciaEstado(
+    id: string,
+    estado: AsistenciaPendienteEstado,
+    extra?: Partial<Pick<AsistenciaPendiente, 'ultimo_error' | 'synced_at'>>
+  ): Promise<void> {
+    const asistencia = await this.get<AsistenciaPendiente>(STORES.ASISTENCIA_PENDIENTE, id)
+    if (!asistencia) {
+      throw new Error(`Asistencia ${id} no encontrada`)
+    }
+
+    const updated: AsistenciaPendiente = {
+      ...asistencia,
+      estado,
+      intentos: estado === 'syncing' ? asistencia.intentos + 1 : asistencia.intentos,
+      ultimo_intento: estado === 'syncing' ? Date.now() : asistencia.ultimo_intento,
+      ...extra,
+    }
+
+    await this.put(STORES.ASISTENCIA_PENDIENTE, updated)
+  }
+
+  /**
+   * Elimina un fichaje pendiente
+   */
+  async deleteAsistenciaPendiente(id: string): Promise<void> {
+    await this.delete(STORES.ASISTENCIA_PENDIENTE, id)
+  }
+
+  /**
+   * Elimina fichajes ya sincronizados (limpieza)
+   */
+  async clearAsistenciasSincronizadas(): Promise<number> {
+    const todas = await this.getAsistenciasPendientes()
+    const sincronizadas = todas.filter((a) => a.estado === 'synced')
+
+    for (const asistencia of sincronizadas) {
+      await this.deleteAsistenciaPendiente(asistencia.id)
+    }
+
+    return sincronizadas.length
+  }
+
+  /**
+   * Cuenta fichajes pendientes de sync
+   */
+  async countAsistenciasPendientesSync(): Promise<number> {
+    const asistencias = await this.getAsistenciasParaSincronizar()
+    return asistencias.length
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
