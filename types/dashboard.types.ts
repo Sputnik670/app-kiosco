@@ -175,6 +175,7 @@ export type DashboardTab =
   | "proveedores"
   | "equipo"
   | "analisis"
+  | "ajustes"
 
 export type SupervisionTab = "cajas" | "asistencia"
 

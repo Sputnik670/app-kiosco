@@ -20,6 +20,7 @@ import { generarTicketPDF } from "@/lib/generar-ticket"
 import TeamRanking from "@/components/team-ranking"
 import GenerarQRFichaje from "@/components/generar-qr-fichaje"
 import { Reports } from "@/components/reports"
+import ConfiguracionMercadoPago from "@/components/configuracion-mercadopago"
 
 // Componentes de dashboard refactorizados
 import {
@@ -267,6 +268,13 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
               </p>
               <GenerarQRFichaje />
             </Card>
+          </div>
+        )}
+
+        {/* AJUSTES: Configuración de integraciones */}
+        {state.activeTab === "ajustes" && (
+          <div className="space-y-6 animate-in fade-in">
+            <ConfiguracionMercadoPago />
           </div>
         )}
 

@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { ArrowLeft, MapPin, Settings, Sparkles, DollarSign, Package, TrendingUp, Users, ShieldCheck } from "lucide-react"
+import { ArrowLeft, MapPin, Settings, Sparkles, DollarSign, Package, TrendingUp, Users, ShieldCheck, Wrench } from "lucide-react"
 import GestionSucursales from "@/components/gestion-sucursales"
 import { CapitalBadges } from "@/components/capital-badges"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -27,6 +27,7 @@ const TABS = [
   { id: "stock", label: "Stock", icon: Package },
   { id: "proveedores", label: "Proveedores", icon: Users },
   { id: "equipo", label: "Control Empleados", icon: ShieldCheck },
+  { id: "ajustes", label: "Ajustes", icon: Wrench },
 ] as const
 
 export function DashboardHeader({
