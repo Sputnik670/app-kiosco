@@ -315,17 +315,20 @@ export async function getCashRegisterReportAction(
       other: 0,
     }
     ;(salesData || []).forEach((s) => {
-      salesSummary.total += s.total || 0
-      if (s.payment_method === "cash") salesSummary.cash += s.total || 0
-      else if (s.payment_method === "card") salesSummary.card += s.total || 0
-      else salesSummary.other += s.total || 0
+      // DECIMAL columns arrive as strings, must cast to Number
+      const total = Number(s.total) || 0
+      salesSummary.total += total
+      if (s.payment_method === "cash") salesSummary.cash += total
+      else if (s.payment_method === "card") salesSummary.card += total
+      else salesSummary.other += total
     })
 
     // Procesar movimientos
     const movements = (movementsData || []).map((m) => ({
       id: m.id,
       type: m.type as "ingreso" | "egreso",
-      amount: m.amount || 0,
+      // DECIMAL columns arrive as strings, must cast to Number
+      amount: Number(m.amount) || 0,
       category: m.category || "",
       description: m.description,
       createdAt: m.created_at,
@@ -339,8 +342,10 @@ export async function getCashRegisterReportAction(
       .filter((m) => m.type === "egreso")
       .reduce((sum, m) => sum + m.amount, 0)
 
+    // DECIMAL columns arrive as strings, must cast to Number for arithmetic
+    const openingAmount = Number(registerData.opening_amount) || 0
     const expectedAmount =
-      (registerData.opening_amount || 0) + salesSummary.cash + totalIngresos - totalEgresos
+      openingAmount + salesSummary.cash + totalIngresos - totalEgresos
 
     const membership = resolveJoin<{ display_name: string }>(registerData.memberships)
 
@@ -352,18 +357,18 @@ export async function getCashRegisterReportAction(
           date: registerData.date,
           openedAt: registerData.opened_at,
           closedAt: registerData.closed_at,
-          openingAmount: registerData.opening_amount || 0,
-          closingAmount: registerData.closing_amount,
+          openingAmount: openingAmount,
+          closingAmount: registerData.closing_amount ? Number(registerData.closing_amount) : null,
           employeeName: membership?.display_name || null,
         },
         movements,
         sales: salesSummary,
         summary: {
           expectedAmount,
-          actualAmount: registerData.closing_amount,
+          actualAmount: registerData.closing_amount ? Number(registerData.closing_amount) : null,
           variance:
             registerData.closing_amount !== null
-              ? registerData.closing_amount - expectedAmount
+              ? Number(registerData.closing_amount) - expectedAmount
               : null,
         },
       },

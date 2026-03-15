@@ -523,8 +523,11 @@ export async function updateProductAction(
     // PASO 4: Registrar en historial si cambió precio o costo
     // ───────────────────────────────────────────────────────────────────────────
 
-    const precioChanged = oldProduct.sale_price !== data.precio_venta
-    const costoChanged = oldProduct.cost !== data.costo
+    // DECIMAL columns arrive as strings from Supabase, must cast to Number
+    const oldSalePrice = Number(oldProduct.sale_price) || 0
+    const oldCost = Number(oldProduct.cost) || 0
+    const precioChanged = Math.abs(oldSalePrice - Number(data.precio_venta)) > 0.01
+    const costoChanged = Math.abs(oldCost - Number(data.costo)) > 0.01
 
     if (precioChanged || costoChanged) {
       const { error: historialError } = await supabase

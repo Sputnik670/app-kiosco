@@ -243,9 +243,9 @@ export function MercadoPagoQRDialog({
     switch (state) {
       case "loading":
         return (
-          <div className="flex flex-col items-center justify-center py-12 gap-4">
-            <Loader2 className="h-12 w-12 text-blue-600 animate-spin" />
-            <p className="text-sm font-bold text-slate-600 uppercase">
+          <div className="flex flex-col items-center justify-center py-12 gap-4 px-6">
+            <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 text-blue-600 animate-spin" />
+            <p className="text-xs sm:text-sm font-bold text-slate-600 uppercase">
               Generando código QR...
             </p>
           </div>
@@ -253,48 +253,48 @@ export function MercadoPagoQRDialog({
 
       case "waiting":
         return (
-          <div className="flex flex-col items-center justify-center gap-6 py-6">
+          <div className="flex flex-col items-center justify-center gap-4 py-4 px-6 sm:gap-6 sm:py-6">
             {/* Monto */}
-            <div className="text-center">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+            <div className="text-center w-full">
+              <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
                 Total a pagar
               </p>
-              <p className="text-4xl font-black text-slate-900">
+              <p className="text-3xl sm:text-4xl font-black text-slate-900">
                 {formatAmount(amount)}
               </p>
             </div>
 
             {/* QR Code - Placeholder SVG */}
             {qrData && (
-              <div className="bg-white p-6 rounded-2xl border-2 border-slate-200 shadow-sm">
+              <div className="bg-white p-3 sm:p-6 rounded-2xl border-2 border-slate-200 shadow-sm max-w-xs w-full">
                 <QRCodeDisplay qrData={qrData} />
               </div>
             )}
 
             {/* Instrucciones */}
-            <div className="text-center space-y-2 w-full">
-              <p className="text-xs font-bold text-slate-600 uppercase">
+            <div className="text-center space-y-1 sm:space-y-2 w-full">
+              <p className="text-[10px] sm:text-xs font-bold text-slate-600 uppercase">
                 Escanea con tu celular
               </p>
-              <p className="text-[11px] text-slate-500">
-                Abre Mercado Pago y escanea el código QR para confirmar el pago
+              <p className="text-[10px] sm:text-[11px] text-slate-500 leading-tight">
+                Abre Mercado Pago y escanea el código QR
               </p>
             </div>
 
-            {/* Spinner + Timer */}
-            <div className="flex flex-col items-center gap-3 w-full">
-              <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
-              <div className="flex items-center gap-2 text-sm font-bold text-blue-600 bg-blue-50 px-4 py-2 rounded-lg">
-                <Timer className="h-4 w-4" />
-                {formatTime(timeRemaining)}
-              </div>
+            {/* Timer prominently displayed */}
+            <div className="flex items-center gap-2 text-sm sm:text-base font-bold text-blue-600 bg-blue-50 px-4 py-3 sm:py-4 rounded-lg w-full justify-center border-2 border-blue-100">
+              <Timer className="h-5 w-5 flex-shrink-0" />
+              <span className="font-black text-lg sm:text-xl">{formatTime(timeRemaining)}</span>
             </div>
+
+            {/* Spinner */}
+            <Loader2 className="h-6 w-6 sm:h-8 sm:w-8 text-blue-600 animate-spin" />
 
             {/* Cancel Button */}
             <Button
               variant="outline"
               onClick={handleCancel}
-              className="w-full border-2 border-slate-300 text-slate-600 hover:bg-slate-50"
+              className="w-full border-2 border-slate-300 text-slate-600 hover:bg-slate-50 min-h-[44px] text-sm font-bold"
             >
               Cancelar
             </Button>
@@ -303,13 +303,13 @@ export function MercadoPagoQRDialog({
 
       case "confirmed":
         return (
-          <div className="flex flex-col items-center justify-center py-12 gap-6">
-            <CheckCircle2 className="h-16 w-16 text-green-500 animate-bounce" />
+          <div className="flex flex-col items-center justify-center py-8 sm:py-12 gap-4 sm:gap-6 px-6">
+            <CheckCircle2 className="h-12 w-12 sm:h-16 sm:w-16 text-green-500 animate-bounce" />
             <div className="text-center space-y-2">
-              <p className="text-sm font-black text-slate-900 uppercase">
+              <p className="text-sm sm:text-base font-black text-slate-900 uppercase">
                 Pago confirmado
               </p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs sm:text-sm text-slate-500">
                 {formatAmount(amount)} - Procesando...
               </p>
             </div>
@@ -319,19 +319,19 @@ export function MercadoPagoQRDialog({
       case "failed":
       case "expired":
         return (
-          <div className="flex flex-col items-center justify-center py-12 gap-6">
-            <XCircle className="h-16 w-16 text-red-500" />
+          <div className="flex flex-col items-center justify-center py-8 sm:py-12 gap-4 sm:gap-6 px-6">
+            <XCircle className="h-12 w-12 sm:h-16 sm:w-16 text-red-500" />
             <div className="text-center space-y-2">
-              <p className="text-sm font-black text-slate-900 uppercase">
+              <p className="text-sm sm:text-base font-black text-slate-900 uppercase">
                 {state === "expired" ? "Código expirado" : "Pago rechazado"}
               </p>
               {errorMessage && (
-                <p className="text-xs text-slate-600">{errorMessage}</p>
+                <p className="text-xs sm:text-sm text-slate-600">{errorMessage}</p>
               )}
             </div>
             <Button
               onClick={handleRetry}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold uppercase text-sm"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold uppercase text-sm min-h-[44px]"
             >
               <RefreshCw className="h-4 w-4 mr-2" />
               Intentar nuevamente
@@ -341,19 +341,19 @@ export function MercadoPagoQRDialog({
 
       case "error":
         return (
-          <div className="flex flex-col items-center justify-center py-12 gap-6">
-            <XCircle className="h-16 w-16 text-red-500" />
+          <div className="flex flex-col items-center justify-center py-8 sm:py-12 gap-4 sm:gap-6 px-6">
+            <XCircle className="h-12 w-12 sm:h-16 sm:w-16 text-red-500" />
             <div className="text-center space-y-2">
-              <p className="text-sm font-black text-slate-900 uppercase">
+              <p className="text-sm sm:text-base font-black text-slate-900 uppercase">
                 Error al crear QR
               </p>
               {errorMessage && (
-                <p className="text-xs text-slate-600">{errorMessage}</p>
+                <p className="text-xs sm:text-sm text-slate-600">{errorMessage}</p>
               )}
             </div>
             <Button
               onClick={() => onOpenChange(false)}
-              className="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold uppercase text-sm"
+              className="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold uppercase text-sm min-h-[44px]"
             >
               Cerrar
             </Button>
@@ -391,13 +391,13 @@ function QRCodeDisplay({ qrData }: { qrData: string }) {
   // En producción usar: import QRCode from 'qrcode.react'
 
   return (
-    <div className="space-y-3">
-      {/* Visual placeholder SVG */}
+    <div className="space-y-2">
+      {/* Visual placeholder SVG - responsive size */}
       <svg
         width="200"
         height="200"
         viewBox="0 0 200 200"
-        className="w-full h-auto"
+        className="w-full max-w-xs h-auto mx-auto"
       >
         {/* Marco */}
         <rect x="10" y="10" width="180" height="180" fill="white" stroke="#000" strokeWidth="2" />
@@ -445,7 +445,7 @@ function QRCodeDisplay({ qrData }: { qrData: string }) {
       </svg>
 
       {/* Texto QR Data en monospace como fallback */}
-      <div className="text-center text-[8px] font-mono text-slate-400 max-h-16 overflow-hidden">
+      <div className="text-center text-[7px] sm:text-[8px] font-mono text-slate-400 max-h-12 overflow-hidden break-all px-2">
         {qrData.substring(0, 50)}...
       </div>
     </div>

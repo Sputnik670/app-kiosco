@@ -17,7 +17,6 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
-import { supabase as supabaseStatic } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createInitialSetup } from '@/lib/repositories/organization.repository'

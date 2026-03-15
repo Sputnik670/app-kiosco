@@ -92,24 +92,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
-    // Obtener org_id del usuario
-    const { data: profile } = await supabase
-      .from('profiles')
+    // Obtener org_id del usuario desde memberships
+    const { data: membership } = await supabase
+      .from('memberships')
       .select('organization_id, role')
-      .eq('id', user.id)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
       .single()
 
-    if (!profile || !profile.organization_id) {
-      logger.error('MPOAuthCallback', 'Usuario sin organización', new Error(`userId: ${user.id}`))
+    if (!membership || !membership.organization_id) {
+      logger.error('MPOAuthCallback', 'Usuario sin membresía activa', new Error(`userId: ${user.id}`))
       return NextResponse.redirect(
         new URL('/dashboard?tab=ajustes&mp_error=no_org', request.url)
       )
     }
 
-    if (profile.role !== 'owner') {
+    if (membership.role !== 'owner') {
       logger.warn('MPOAuthCallback', 'Usuario no es owner', {
         userId: user.id,
-        role: profile.role,
+        role: membership.role,
       })
       return NextResponse.redirect(
         new URL('/dashboard?tab=ajustes&mp_error=not_owner', request.url)
@@ -191,7 +192,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .from('mercadopago_credentials')
       .upsert(
         {
-          organization_id: profile.organization_id,
+          organization_id: membership.organization_id,
           access_token_encrypted: encryptedToken,
           refresh_token_encrypted: encryptedRefreshToken,
           webhook_secret_encrypted: null, // OAuth no necesita webhook secret manual
@@ -215,7 +216,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     logger.info('MPOAuthCallback', 'Credenciales OAuth guardadas', {
-      orgId: profile.organization_id,
+      orgId: membership.organization_id,
       mpUserId,
     })
 
@@ -257,16 +258,17 @@ function getEncryptionKey(): Buffer {
     throw new Error('MP_ENCRYPTION_KEY no está configurada')
   }
 
-  if (/^[0-9a-f]{64}$/i.test(keyEnv)) {
-    return Buffer.from(keyEnv, 'hex')
+  // REQUERIMIENTO ESTRICTO: La clave debe ser exactamente 64 caracteres hexadecimales (32 bytes)
+  // Esto garantiza una encriptación AES-256 con entropía máxima
+  if (!/^[0-9a-f]{64}$/i.test(keyEnv)) {
+    throw new Error(
+      'MP_ENCRYPTION_KEY debe ser exactamente 64 caracteres hexadecimales (32 bytes en hex). ' +
+      'Generar una clave segura con: ' +
+      'node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+    )
   }
 
-  if (keyEnv.length >= 32) {
-    return Buffer.from(keyEnv.substring(0, 32), 'utf8')
-  }
-
-  const padded = keyEnv.padEnd(32, '\0')
-  return Buffer.from(padded.substring(0, 32), 'utf8')
+  return Buffer.from(keyEnv, 'hex')
 }
 
 function encrypt(text: string): string {

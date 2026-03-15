@@ -131,6 +131,7 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                     <RelojControl
                         sucursalId={sucursalId}
                         sucursalNombre={sucursalNombre}
+                        organizationId={organizationId}
                         onActionComplete={handleDataUpdated}
                     />
                 </div>

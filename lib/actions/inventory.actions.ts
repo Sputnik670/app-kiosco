@@ -86,7 +86,9 @@ export async function handleProductScan(
   }
 
   try {
+    const { supabase } = await verifyAuth()
     const { data: productos, error: searchError } = await searchProductos(
+      supabase,
       organizationId,
       barcode
     )
@@ -348,10 +350,11 @@ export async function getCapitalSummaryAction(
         !p.is_service &&
         (p.stock_available || 0) > 0
       )
-      .reduce((suma: number, p: any) =>
-        suma + ((p.cost || 0) * (p.stock_available || 0)),
-        0
-      )
+      .reduce((suma: number, p: any) => {
+        // DECIMAL columns arrive as strings, must cast to Number
+        const cost = Number(p.cost) || 0
+        return suma + (cost * (p.stock_available || 0))
+      }, 0)
 
     // Saldo virtual desde suppliers
     const { data: suppliersData, error: suppliersError } = await supabase

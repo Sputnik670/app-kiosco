@@ -14,10 +14,14 @@
  * - codigo_barras → barcode
  * - categoria → category
  *
+ * NOTA CRÍTICA DE SEGURIDAD:
+ * - Este repositorio DEBE recibir un cliente Supabase como parámetro
+ * - NUNCA se debe importar @/lib/supabase (cliente del navegador)
+ * - Usado desde Server Actions que pasan createClient()
+ *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-import { supabase } from '@/lib/supabase'
 import { Database } from '@/types/database.types'
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -32,10 +36,15 @@ type ProductUpdate = Database['public']['Tables']['products']['Update']
 export type Producto = Product
 
 /**
+ * Cliente Supabase que puede ser de servidor (con service role) o navegador con RLS
+ */
+export type SupabaseClient = Awaited<ReturnType<typeof import('@/lib/supabase-server').createClient>>
+
+/**
  * Parámetros para crear un producto
+ * NOTA: organizationId ya NO debe ser pasado desde el cliente
  */
 export interface CreateProductoParams {
-  organizationId: string
   nombre: string
   emoji?: string | null
   codigoBarras?: string | null
@@ -62,13 +71,19 @@ export interface UpdateProductoParams {
 
 /**
  * Crea un nuevo producto en el catálogo
+ *
+ * @param supabase - Cliente Supabase (debe ser del servidor en Server Actions)
+ * @param organizationId - ID de la organización (obtenida del servidor, no del cliente)
+ * @param params - Parámetros del producto
  */
 export async function createProducto(
+  supabase: any,
+  organizationId: string,
   params: CreateProductoParams
 ): Promise<{ data: Product | null; error: Error | null }> {
   try {
     const productData: ProductInsert = {
-      organization_id: params.organizationId,
+      organization_id: organizationId,
       name: params.nombre,
       emoji: params.emoji ?? undefined,
       barcode: params.codigoBarras ?? undefined,
@@ -108,8 +123,12 @@ export async function createProducto(
 
 /**
  * Obtiene un producto por su ID
+ *
+ * @param supabase - Cliente Supabase
+ * @param productoId - ID del producto
  */
 export async function getProductoById(
+  supabase: any,
   productoId: string
 ): Promise<{ data: Product | null; error: Error | null }> {
   try {
@@ -137,8 +156,12 @@ export async function getProductoById(
 
 /**
  * Lista todos los productos de una organización
+ *
+ * @param supabase - Cliente Supabase
+ * @param organizationId - ID de la organización
  */
 export async function listProductosByOrganization(
+  supabase: any,
   organizationId: string
 ): Promise<{ data: Product[] | null; error: Error | null }> {
   try {
@@ -167,8 +190,13 @@ export async function listProductosByOrganization(
 
 /**
  * Actualiza un producto existente
+ *
+ * @param supabase - Cliente Supabase
+ * @param productoId - ID del producto a actualizar
+ * @param updates - Campos a actualizar
  */
 export async function updateProducto(
+  supabase: any,
   productoId: string,
   updates: UpdateProductoParams
 ): Promise<{ data: Product | null; error: Error | null }> {
@@ -207,8 +235,12 @@ export async function updateProducto(
 
 /**
  * Elimina un producto (soft delete - marca como inactivo)
+ *
+ * @param supabase - Cliente Supabase
+ * @param productoId - ID del producto a eliminar
  */
 export async function deleteProducto(
+  supabase: any,
   productoId: string
 ): Promise<{ data: boolean; error: Error | null }> {
   try {
@@ -235,8 +267,13 @@ export async function deleteProducto(
 
 /**
  * Busca productos por nombre o código de barras
+ *
+ * @param supabase - Cliente Supabase
+ * @param organizationId - ID de la organización
+ * @param searchTerm - Término de búsqueda
  */
 export async function searchProductos(
+  supabase: any,
   organizationId: string,
   searchTerm: string
 ): Promise<{ data: Product[] | null; error: Error | null }> {
@@ -267,8 +304,13 @@ export async function searchProductos(
 
 /**
  * Obtiene productos por categoría
+ *
+ * @param supabase - Cliente Supabase
+ * @param organizationId - ID de la organización
+ * @param categoria - Nombre de la categoría
  */
 export async function getProductosByCategoria(
+  supabase: any,
   organizationId: string,
   categoria: string
 ): Promise<{ data: Product[] | null; error: Error | null }> {

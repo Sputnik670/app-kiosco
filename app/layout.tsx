@@ -3,7 +3,7 @@ import { Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 import { Toaster } from "@/components/ui/sonner"
-import { PWAProvider } from "@/components/pwa"
+import { PWAProvider, InstallPrompt, UpdatePrompt } from "@/components/pwa"
 import { ThemeProvider } from "@/components/theme-provider"
 
 const inter = Inter({ subsets: ["latin"] })
@@ -63,6 +63,9 @@ export default function RootLayout({
         <ThemeProvider>
           <PWAProvider showConnectionStatus={true} connectionStatusPosition="top">
             {children}
+            {/* PWA Installation & Update Prompts */}
+            <InstallPrompt position="bottom" showDelay={30000} />
+            <UpdatePrompt autoDismissDelay={10000} />
           </PWAProvider>
           <Analytics />
           <Toaster />

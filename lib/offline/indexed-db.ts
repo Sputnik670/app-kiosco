@@ -18,7 +18,7 @@
 // ───────────────────────────────────────────────────────────────────────────────
 
 const DB_NAME = 'kiosco-offline'
-const DB_VERSION = 3
+const DB_VERSION = 4
 
 // Store names
 export const STORES = {
@@ -26,6 +26,7 @@ export const STORES = {
   VENTAS_PENDIENTES: 'ventas-pendientes',
   ASISTENCIA_PENDIENTE: 'asistencia-pendiente',
   SYNC_METADATA: 'sync-metadata',
+  TURNO_CACHE: 'turno-cache',
 } as const
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -136,6 +137,20 @@ export interface SyncMetadata {
   updated_at: number
 }
 
+/**
+ * Turno cacheado localmente para consulta offline
+ */
+export interface TurnoCacheado {
+  id: string
+  branch_id: string
+  organization_id: string
+  opened_by: string
+  opened_at: string
+  initial_cash: number
+  status: 'open' | 'closed'
+  cached_at: number // timestamp
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // CLASE PRINCIPAL
 // ───────────────────────────────────────────────────────────────────────────────
@@ -236,6 +251,17 @@ class OfflineDB {
           db.createObjectStore(STORES.SYNC_METADATA, {
             keyPath: 'key',
           })
+        }
+
+        // Store: turno-cache (v4)
+        if (!db.objectStoreNames.contains(STORES.TURNO_CACHE)) {
+          const turnoStore = db.createObjectStore(STORES.TURNO_CACHE, {
+            keyPath: 'id',
+          })
+          // Índices para búsqueda
+          turnoStore.createIndex('branch_id', 'branch_id', { unique: false })
+          turnoStore.createIndex('status', 'status', { unique: false })
+          turnoStore.createIndex('cached_at', 'cached_at', { unique: false })
         }
       }
     })
@@ -622,6 +648,116 @@ class OfflineDB {
    */
   async setLastProductosSyncTime(sucursalId: string): Promise<void> {
     await this.setMetadata(`productos-sync-${sucursalId}`, Date.now())
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // OPERACIONES DE TURNO CACHE
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Guarda un turno en cache
+   */
+  async saveTurnoCache(turno: TurnoCacheado): Promise<void> {
+    await this.put(STORES.TURNO_CACHE, turno)
+  }
+
+  /**
+   * Obtiene un turno cacheado por ID
+   */
+  async getTurnoCache(id: string): Promise<TurnoCacheado | undefined> {
+    return this.get<TurnoCacheado>(STORES.TURNO_CACHE, id)
+  }
+
+  /**
+   * Obtiene el turno activo (abierto) de una sucursal
+   */
+  async getTurnoActivo(branchId: string): Promise<TurnoCacheado | undefined> {
+    const db = await this.open()
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.TURNO_CACHE, 'readonly')
+      const store = transaction.objectStore(STORES.TURNO_CACHE)
+      const statusIndex = store.index('status')
+      const statusRequest = statusIndex.getAll('open')
+
+      statusRequest.onsuccess = () => {
+        const openTurnos = statusRequest.result as TurnoCacheado[]
+        // Encontrar el primero que sea de esta sucursal
+        const turno = openTurnos.find((t) => t.branch_id === branchId)
+        resolve(turno)
+      }
+      statusRequest.onerror = () => reject(statusRequest.error)
+    })
+  }
+
+  /**
+   * Obtiene todos los turnos cacheados de una sucursal
+   */
+  async getTurnosBySucursal(branchId: string): Promise<TurnoCacheado[]> {
+    const db = await this.open()
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.TURNO_CACHE, 'readonly')
+      const store = transaction.objectStore(STORES.TURNO_CACHE)
+      const index = store.index('branch_id')
+      const request = index.getAll(branchId)
+
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+  }
+
+  /**
+   * Actualiza un turno cacheado
+   */
+  async updateTurnoCache(id: string, updates: Partial<TurnoCacheado>): Promise<void> {
+    const turno = await this.getTurnoCache(id)
+    if (!turno) {
+      throw new Error(`Turno ${id} no encontrado`)
+    }
+
+    const updated: TurnoCacheado = {
+      ...turno,
+      ...updates,
+      cached_at: Date.now(),
+    }
+
+    await this.put(STORES.TURNO_CACHE, updated)
+  }
+
+  /**
+   * Elimina un turno cacheado
+   */
+  async deleteTurnoCache(id: string): Promise<void> {
+    await this.delete(STORES.TURNO_CACHE, id)
+  }
+
+  /**
+   * Elimina todos los turnos cacheados de una sucursal
+   */
+  async clearTurnosBySucursal(branchId: string): Promise<void> {
+    const turnos = await this.getTurnosBySucursal(branchId)
+    const db = await this.open()
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.TURNO_CACHE, 'readwrite')
+      const store = transaction.objectStore(STORES.TURNO_CACHE)
+
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+
+      // Eliminar cada turno de esta sucursal
+      for (const turno of turnos) {
+        store.delete(turno.id)
+      }
+    })
+  }
+
+  /**
+   * Limpia todo el cache de turnos
+   */
+  async clearAllTurnoCache(): Promise<void> {
+    await this.clear(STORES.TURNO_CACHE)
   }
 }
 

@@ -5,8 +5,9 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Loader2, CheckCircle, XCircle, AlertCircle, LogIn, LogOut } from "lucide-react"
+import { Loader2, CheckCircle, XCircle, AlertCircle, LogIn, LogOut, WifiOff } from "lucide-react"
 import { toast } from "sonner"
+import { useOfflineAttendance } from "@/hooks/use-offline-attendance"
 
 function FichajeContent() {
   const searchParams = useSearchParams()
@@ -18,6 +19,13 @@ function FichajeContent() {
   const [sucursalNombre, setSucursalNombre] = useState("")
   const [sucursalId, setSucursalId] = useState<string | null>(null)
   const [procesado, setProcesado] = useState(false) // Prevenir reprocesamiento
+  const [organizationId, setOrganizationId] = useState<string | null>(null)
+  const [saveOfflineOnError, setSaveOfflineOnError] = useState(false)
+
+  // Offline hook - initialized after we have organizationId
+  const offlineAttendance = organizationId && sucursalId
+    ? useOfflineAttendance({ sucursalId, organizationId })
+    : null
 
   useEffect(() => {
     // Solo procesar si no se ha procesado ya
@@ -27,15 +35,19 @@ function FichajeContent() {
   }, [procesado])
 
   const procesarFichaje = async () => {
+    let tipoParam: string | null = null
+    let sucursalIdLocal: string | null = null
+    let asistenciaActual: any = null
+
     try {
       setLoading(true)
 
       // Obtener parámetros de la URL
-      const sucursalId = searchParams.get("sucursal_id")
-      const tipoParam = searchParams.get("tipo")
+      sucursalIdLocal = searchParams.get("sucursal_id")
+      tipoParam = searchParams.get("tipo")
 
       // Validar parámetros
-      if (!sucursalId || !tipoParam) {
+      if (!sucursalIdLocal || !tipoParam) {
         throw new Error("QR inválido: faltan parámetros requeridos")
       }
 
@@ -55,7 +67,7 @@ function FichajeContent() {
       const { data: sucursal, error: sucursalError } = await supabase
         .from('branches')
         .select('id, name, organization_id')
-        .eq('id', sucursalId)
+        .eq('id', sucursalIdLocal)
         .eq('is_active', true)
         .single()
 
@@ -64,7 +76,8 @@ function FichajeContent() {
       }
 
       setSucursalNombre(sucursal.name)
-      setSucursalId(sucursalId)
+      setSucursalId(sucursalIdLocal)
+      setOrganizationId(sucursal.organization_id)
 
       // Schema V2: Verificar membership del empleado
       const { data: membership } = await supabase
@@ -87,12 +100,14 @@ function FichajeContent() {
       }
 
       // Verificar estado actual de fichaje (en TODAS las sucursales)
-      const { data: asistenciaActual } = await supabase
+      const { data: asistenciaActualData } = await supabase
         .from('attendance')
         .select('id, branch_id, branches(name)')
         .eq('user_id', user.id)
         .is('check_out', null)
         .maybeSingle()
+
+      asistenciaActual = asistenciaActualData
 
       // Validar lógica de entrada/salida
       if (tipoParam === "entrada") {
@@ -113,7 +128,14 @@ function FichajeContent() {
           check_in: new Date().toISOString()
         })
 
-        if (insertError) throw insertError
+        if (insertError) {
+          // Si falla por error de red, intentar guardar offline
+          if (insertError.code === 'PGRST116' || !navigator.onLine) {
+            console.warn('Insert falló, intentando guardar offline:', insertError)
+            throw new Error('network_error')
+          }
+          throw insertError
+        }
 
         setResultado("success")
         setMensaje(`Entrada registrada en ${sucursal.name}`)
@@ -139,7 +161,14 @@ function FichajeContent() {
           .update({ check_out: new Date().toISOString() })
           .eq('id', asistenciaActual.id)
 
-        if (updateError) throw updateError
+        if (updateError) {
+          // Si falla por error de red, intentar guardar offline
+          if (updateError.code === 'PGRST116' || !navigator.onLine) {
+            console.warn('Update falló, intentando guardar offline:', updateError)
+            throw new Error('network_error')
+          }
+          throw updateError
+        }
 
         setResultado("success")
         setMensaje(`Salida registrada en ${sucursal.name}`)
@@ -157,17 +186,54 @@ function FichajeContent() {
       // Redirigir a la app con el sucursalId en la URL para que se establezca automáticamente
       // Usar router.push en lugar de window.location.href para mantener la sesión
       setTimeout(() => {
-        const appUrl = `/?sucursal_id=${sucursalId}`
+        const appUrl = `/?sucursal_id=${sucursalIdLocal}`
         router.push(appUrl)
       }, 1500)
 
     } catch (err: any) {
       console.error("Error procesando fichaje:", err)
+
+      // Intentar guardar offline si hay error de red
+      if (err.message === 'network_error' && offlineAttendance && tipoParam) {
+        console.log('[Fichaje] Guardando fichaje offline por error de red')
+        const tipo = tipoParam as 'entrada' | 'salida'
+        const attendanceId = tipo === 'salida' ? asistenciaActual?.id : undefined
+
+        const offlineResult = await offlineAttendance.saveAttendanceOffline(
+          tipo,
+          attendanceId
+        )
+
+        if (offlineResult.success) {
+          setResultado("success")
+          setMensaje(`${tipo === 'entrada' ? 'Entrada' : 'Salida'} guardada offline - Se sincronizará cuando haya conexión`)
+          toast.success("Fichaje guardado offline", {
+            description: "Se sincronizará cuando haya conexión",
+          })
+
+          // Vibración si está disponible
+          if (navigator.vibrate) {
+            navigator.vibrate([100, 50, 100])
+          }
+
+          setProcesado(true)
+
+          // Redirigir después de 2 segundos
+          setTimeout(() => {
+            const appUrl = `/?sucursal_id=${sucursalIdLocal}`
+            router.push(appUrl)
+          }, 2000)
+
+          setLoading(false)
+          return
+        }
+      }
+
+      // Si no pudo guardarse offline tampoco, mostrar error
       setResultado("error")
       setMensaje(err.message || "Error al procesar el fichaje")
       toast.error("Error", { description: err.message })
       setProcesado(false) // Permitir reintentar en caso de error
-    } finally {
       setLoading(false)
     }
   }
@@ -195,6 +261,12 @@ function FichajeContent() {
                 {tipo === "entrada" ? "Entrada Registrada" : "Salida Registrada"}
               </h2>
               <p className="text-lg font-bold text-slate-700">{mensaje}</p>
+              {mensaje.includes('offline') && (
+                <div className="mt-3 flex items-center justify-center gap-2 px-3 py-2 bg-amber-50 border-2 border-amber-200 rounded-lg">
+                  <WifiOff className="h-4 w-4 text-amber-600" />
+                  <span className="text-sm font-bold text-amber-700">Se sincronizará cuando haya conexión</span>
+                </div>
+              )}
               <p className="text-sm text-slate-500 mt-2">{sucursalNombre}</p>
             </div>
             <div className="flex items-center justify-center gap-2 text-sm text-slate-600">

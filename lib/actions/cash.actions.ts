@@ -483,7 +483,8 @@ export async function getCajaActivaAction(
       hayCajaAbierta: !!cashRegister,
       caja: cashRegister ? {
         id: cashRegister.id,
-        monto_inicial: cashRegister.opening_amount,
+        // DECIMAL columns arrive as strings, must cast to Number
+        monto_inicial: Number(cashRegister.opening_amount) || 0,
         fecha_apertura: cashRegister.opened_at,
         empleado_id: cashRegister.opened_by || '',
       } : undefined,

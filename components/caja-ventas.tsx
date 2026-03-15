@@ -331,23 +331,26 @@ export default function CajaVentas({
           />
           <Button
             onClick={() => setShowScanner(true)}
-            className="absolute right-4 top-1/2 -translate-y-1/2 bg-blue-600 hover:bg-blue-700 h-10 rounded-xl"
+            className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-600 hover:bg-blue-700 h-14 px-4 rounded-xl min-w-[56px] sm:px-6 sm:h-10"
+            aria-label="Abrir escáner de código de barras"
           >
-            <ScanBarcode className="h-4 w-4 mr-2" /> Escanear
+            <ScanBarcode className="h-4 w-4 mr-1 sm:mr-2" />
+            <span className="hidden sm:inline">Escanear</span>
+            <span className="sm:hidden text-xs">Scan</span>
           </Button>
 
           {productos.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border-2 z-50 overflow-hidden">
+            <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border-2 z-50 overflow-hidden max-h-72 overflow-y-auto">
               {productos.map(p => (
                 <button
                   key={p.id}
                   onClick={() => agregarAlCarrito(p)}
-                  className="w-full text-left px-5 py-4 hover:bg-blue-50 flex justify-between items-center border-b last:border-0 uppercase font-bold text-xs"
+                  className="w-full text-left px-4 py-3 hover:bg-blue-50 flex justify-between items-center border-b last:border-0 uppercase font-bold text-xs active:bg-blue-100 min-h-[48px]"
                 >
-                  <span>{p.name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-400 text-[10px]">Stock: {p.stock}</span>
-                    <span className="text-blue-600">$ {p.price}</span>
+                  <span className="flex-1 truncate">{p.name}</span>
+                  <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+                    <span className="text-slate-400 text-[9px] whitespace-nowrap">S:{p.stock}</span>
+                    <span className="text-blue-600 font-black">$ {p.price}</span>
                   </div>
                 </button>
               ))}
@@ -367,37 +370,40 @@ export default function CajaVentas({
             cart.items.map((item) => (
               <div
                 key={item.id}
-                className="flex items-center justify-between bg-white p-4 rounded-2xl border-2 border-transparent shadow-sm"
+                className="flex items-center justify-between bg-white p-3 sm:p-4 rounded-2xl border-2 border-transparent shadow-sm gap-2"
               >
-                <div className="flex-1">
-                  <p className="font-black text-slate-800 text-sm uppercase">{item.name}</p>
-                  <p className="text-[10px] font-bold text-slate-400">$ {item.price} u.</p>
+                <div className="flex-1 min-w-0">
+                  <p className="font-black text-slate-800 text-xs sm:text-sm uppercase truncate">{item.name}</p>
+                  <p className="text-[9px] sm:text-[10px] font-bold text-slate-400">$ {item.price} u.</p>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1.5">
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8"
+                      className="h-10 w-10 min-h-[44px] min-w-[44px]"
                       onClick={() => cart.decrementItem(item.id)}
+                      aria-label={`Disminuir cantidad de ${item.name}`}
                     >
-                      <Minus className="h-3 w-3" />
+                      <Minus className="h-4 w-4" />
                     </Button>
-                    <span className="w-6 text-center text-sm font-black">{item.cantidad}</span>
+                    <span className="w-8 text-center text-sm font-black">{item.cantidad}</span>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8"
+                      className="h-10 w-10 min-h-[44px] min-w-[44px]"
                       onClick={() => cart.incrementItem(item.id)}
+                      aria-label={`Aumentar cantidad de ${item.name}`}
                     >
-                      <Plus className="h-3 w-3" />
+                      <Plus className="h-4 w-4" />
                     </Button>
                   </div>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="text-red-400"
+                    className="h-10 w-10 min-h-[44px] min-w-[44px] text-red-400 hover:bg-red-50"
                     onClick={() => cart.removeItem(item.id)}
+                    aria-label={`Eliminar ${item.name} del carrito`}
                   >
                     <Trash2 className="h-5 w-5" />
                   </Button>
@@ -441,7 +447,7 @@ export default function CajaVentas({
               cash: null,
               wallet: null,
               card: null,
-              mercadopago: <QrCode className="h-3 w-3" />
+              mercadopago: <QrCode className="h-4 w-4" />
             }
             return (
               <button
@@ -450,12 +456,12 @@ export default function CajaVentas({
                 aria-label={`Pagar con ${labels[m]}`}
                 aria-pressed={metodoPago === m}
                 className={cn(
-                  "flex flex-col items-center gap-1 py-3 rounded-xl border-2 font-bold text-[8px] uppercase transition-all",
+                  "flex flex-col items-center justify-center gap-1.5 py-4 px-2 rounded-xl border-2 font-bold text-[9px] sm:text-[8px] uppercase transition-all min-h-[48px]",
                   metodoPago === m ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-100 text-slate-400"
                 )}
               >
                 {icons[m] && <span>{icons[m]}</span>}
-                {labels[m]}
+                <span className="line-clamp-1">{labels[m]}</span>
               </button>
             )
           })}
