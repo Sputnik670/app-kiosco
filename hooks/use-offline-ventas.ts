@@ -37,8 +37,9 @@ import type { SyncStatus } from '@/types/app.types'
 /**
  * Métodos de pago soportados en modo offline
  * Nota: Solo métodos que no requieren validación online
+ * 'mercadopago' está aquí pero requiere validación online (QR dinámico)
  */
-type OfflinePaymentMethod = 'cash' | 'card' | 'wallet'
+type OfflinePaymentMethod = 'cash' | 'card' | 'wallet' | 'mercadopago'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS

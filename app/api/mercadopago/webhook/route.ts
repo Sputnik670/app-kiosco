@@ -17,12 +17,13 @@
  * FLUJO:
  * 1. Mercado Pago envía POST con x-signature header
  * 2. Extraemos timestamp y firma del header
- * 3. Reconstruimos la firma esperada con nuestro webhook_secret
- * 4. Si no coincide → 401 (no es de MP)
- * 5. Si timestamp es viejo → 400 (replay attack)
- * 6. Procesamos según action (payment.created, etc.)
- * 7. Actualizamos estado en mercadopago_orders
- * 8. Retornamos 200 OK
+ * 3. Obtenemos webhook_secret desde DB (desencriptado)
+ * 4. Reconstruimos la firma esperada con webhook_secret
+ * 5. Si no coincide → 401 (no es de MP)
+ * 6. Si timestamp es viejo → 400 (replay attack)
+ * 7. Procesamos según action (payment.created, etc.)
+ * 8. Actualizamos estado en mercadopago_orders
+ * 9. Retornamos 200 OK
  *
  * CONFIGURACIÓN EN MERCADO PAGO:
  * - Ir a: https://www.mercadopago.com.ar/developers/panel/webhooks
@@ -33,13 +34,18 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-import { createClient } from '@/lib/supabase-server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logging'
 import crypto from 'crypto'
+import {
+  MERCADOPAGO_STATUS_MAP,
+  MercadoPagoPaymentStatus,
+  MercadoPagoOrderStatus,
+} from '@/types/mercadopago.types'
 
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 // TIPOS
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 
 /**
  * Payload de webhook de Mercado Pago
@@ -71,16 +77,35 @@ interface SignatureHeader {
   v1: string
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 // CONSTANTES
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 
 const MAX_SIGNATURE_AGE_MS = 5 * 60 * 1000 // 5 minutos
 const WEBHOOK_EVENTS = ['payment.created', 'payment.updated', 'order.updated']
 
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
+// HELPER: Service Role Client
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Crea cliente Supabase con service role (puede leer/escribir por encima de RLS)
+ * Usado en webhooks que necesitan acceso sin restricción por usuario.
+ */
+function createServiceRoleClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY o SUPABASE_URL no configurados')
+  }
+
+  return createServiceClient(supabaseUrl, serviceRoleKey)
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // HANDLER PRINCIPAL
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 
 /**
  * POST /api/mercadopago/webhook
@@ -139,23 +164,34 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PASO 4: Verificar firma HMAC-SHA256
+    // PASO 4: Obtener webhook_secret desde BD (con fallback a env)
     // ─────────────────────────────────────────────────────────────────────────
 
-    // TODO: Obtener webhook_secret de Supabase (desencriptado)
-    // Para implementación completa:
-    // 1. Obtener organization_id desde payload (si está disponible)
-    // 2. O buscar por external_reference → sale_id → sales → organization_id
-    // 3. Luego: SELECT webhook_secret FROM mercadopago_credentials WHERE org_id = X
-    // 4. Desencriptar webhook_secret
-    // 5. Verificar firma
+    let webhookSecret: string | null = null
 
-    const webhookSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET
+    try {
+      webhookSecret = await getWebhookSecretForPayload(payload)
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
+      logger.error('MercadoPagoWebhook', 'Error obteniendo webhook_secret', err)
+    }
+
+    // Fallback a env var (útil para setup inicial)
     if (!webhookSecret) {
-      logger.error('MercadoPagoWebhook', 'webhook_secret no configurado en env')
-      // Nota: Retornamos 200 para que MP no reintente (nosotros no tenemos el secret)
+      webhookSecret = process.env.MP_WEBHOOK_SECRET || null
+    }
+
+    if (!webhookSecret) {
+      logger.warn('MercadoPagoWebhook', 'webhook_secret no disponible', {
+        externalRef: payload.data?.external_reference?.substring(0, 8),
+      })
+      // Retornamos 200 para que MP no reintente (nosotros no tenemos el secret)
       return jsonResponse({ error: 'Servidor no configurado' }, 200)
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PASO 5: Verificar firma HMAC-SHA256
+    // ─────────────────────────────────────────────────────────────────────────
 
     const isSignatureValid = verifyMercadoPagoSignature(
       signature.ts,
@@ -178,7 +214,7 @@ export async function POST(request: Request): Promise<Response> {
     })
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PASO 5: Procesar según tipo de evento
+    // PASO 6: Procesar según tipo de evento
     // ─────────────────────────────────────────────────────────────────────────
 
     if (!WEBHOOK_EVENTS.includes(payload.action)) {
@@ -202,7 +238,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PASO 6: Retornar 200 OK (confirmar recepción)
+    // PASO 7: Retornar 200 OK (confirmar recepción)
     // ─────────────────────────────────────────────────────────────────────────
 
     logger.info('MercadoPagoWebhook', 'Procesado exitosamente', {
@@ -219,9 +255,138 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
+// FUNCIONES DE OBTENCIÓN DE CREDENCIALES
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Obtener webhook_secret desde Supabase basándose en el payload
+ *
+ * Estrategia:
+ * 1. Intentar obtener organization_id desde external_reference (sale_id)
+ * 2. Si no está en datos, buscar por mp_payment_id o mp_order_id
+ * 3. Desencriptar webhook_secret desde mercadopago_credentials
+ *
+ * @param payload - Webhook payload
+ * @returns webhook_secret desencriptado o null si no se encuentra
+ */
+async function getWebhookSecretForPayload(
+  payload: MercadoPagoWebhookPayload
+): Promise<string | null> {
+  const { data } = payload
+  const supabase = createServiceRoleClient()
+
+  // Obtener external_reference
+  const externalReference = data.external_reference
+
+  if (externalReference) {
+    // Buscar en mercadopago_orders por external_reference
+    const { data: order, error: orderError } = await supabase
+      .from('mercadopago_orders')
+      .select('organization_id')
+      .eq('external_reference', externalReference)
+      .single()
+
+    if (orderError) {
+      logger.debug('GetWebhookSecret', 'No se encontró orden por external_reference', {
+        externalRef: externalReference.substring(0, 8),
+      })
+    } else if (order) {
+      return await getDecryptedWebhookSecret(supabase, (order as any).organization_id)
+    }
+  }
+
+  // Fallback: buscar por mp_payment_id (data.id)
+  const mpPaymentId = String(data.id)
+  if (mpPaymentId) {
+    const { data: order, error: orderError } = await supabase
+      .from('mercadopago_orders')
+      .select('organization_id')
+      .eq('mp_payment_id', mpPaymentId)
+      .maybeSingle()
+
+    if (!orderError && order) {
+      return await getDecryptedWebhookSecret(supabase, (order as any).organization_id)
+    }
+  }
+
+  logger.warn('GetWebhookSecret', 'No se pudo determinar organización', {
+    externalRef: externalReference?.substring(0, 8),
+    paymentId: mpPaymentId?.substring(0, 8),
+  })
+  return null
+}
+
+/**
+ * Obtener y desencriptar webhook_secret de una organización
+ *
+ * @param supabase - Cliente Supabase con service role
+ * @param organizationId - ID de organización
+ * @returns webhook_secret desencriptado o null
+ */
+async function getDecryptedWebhookSecret(
+  supabase: any,
+  organizationId: string
+): Promise<string | null> {
+  try {
+    // Usando pgp_sym_decrypt de PostgreSQL
+    // El servidor Supabase tiene la clave en el contexto de encriptación
+    const { data, error } = await supabase
+      .from('mercadopago_credentials')
+      .select('webhook_secret_encrypted')
+      .eq('organization_id', organizationId)
+      .single()
+
+    if (error || !data) {
+      logger.debug('GetDecryptedWebhookSecret', 'No se encontraron credenciales', {
+        orgId: organizationId.substring(0, 8),
+      })
+      return null
+    }
+
+    // Las credenciales llegaron encriptadas. Necesitamos desencriptarlas usando
+    // pgp_sym_decrypt en una query SQL directa con la clave.
+    // Alternativa: usar la función RPC de Supabase si existe.
+
+    // Intentar usar RPC si está disponible
+    try {
+      const { data: decrypted, error: decryptError } = await supabase.rpc(
+        'decrypt_mp_webhook_secret',
+        {
+          org_id: organizationId,
+        }
+      )
+
+      if (!decryptError && decrypted) {
+        return decrypted as string
+      }
+    } catch {
+      // RPC no disponible, continuar con fallback
+    }
+
+    // Fallback: El secret sigue encriptado. Para desencriptarlo, necesitaríamos
+    // la clave MP_ENCRYPTION_KEY y manejar el formato de encriptación.
+    // Por ahora, retornamos null y usamos fallback del env var.
+    //
+    // En producción, se recomienda:
+    // 1. Crear una función RPC en Supabase que maneje pgp_sym_decrypt con la clave
+    // 2. O usar Supabase Vault para almacenar la clave de encriptación
+    // 3. O implementar desencriptación a nivel de aplicación
+
+    logger.debug('GetDecryptedWebhookSecret', 'No se pudo desencriptar credential', {
+      orgId: organizationId.substring(0, 8),
+    })
+    return null
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('GetDecryptedWebhookSecret', 'Error obteniendo secret', err)
+    return null
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // FUNCIONES DE PROCESAMIENTO
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 
 /**
  * Manejar notificaciones de pago (payment.created / payment.updated)
@@ -230,8 +395,6 @@ export async function POST(request: Request): Promise<Response> {
  * - Pago se aprobó (status: approved)
  * - Pago fue rechazado (status: rejected)
  * - Pago está en revisión (status: in_process)
- *
- * TODO: Implementación completa
  */
 async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Promise<void> {
   try {
@@ -243,16 +406,71 @@ async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Pr
       externalRef: data.external_reference?.substring(0, 8) + '...',
     })
 
-    // TODO: Implementar
-    // 1. Validar que external_reference (sale_id) existe
-    // 2. Buscar mercadopago_orders por external_reference
-    // 3. Obtener webhook_secret de mercadopago_credentials
-    // 4. Actualizar status según data.status:
-    //    - approved → confirmed
-    //    - rejected → failed
-    //    - in_process → pending
-    // 5. Guardar mp_payment_id y timestamp de confirmación
-    // 6. Log completo para auditoría
+    if (!data.status) {
+      logger.warn('HandlePaymentNotification', 'Status no presente en payload', {
+        paymentId: data.id,
+      })
+      return
+    }
+
+    const mpStatus = data.status as MercadoPagoPaymentStatus
+
+    // Mapear status de MP a nuestro status
+    const mappedStatus: MercadoPagoOrderStatus = MERCADOPAGO_STATUS_MAP[mpStatus] || 'pending'
+
+    const supabase = createServiceRoleClient()
+
+    // Buscar la orden
+    let externalReference = data.external_reference
+    if (!externalReference) {
+      // Si no tenemos external_reference, buscar por mp_payment_id
+      const { data: order } = await supabase
+        .from('mercadopago_orders')
+        .select('external_reference, organization_id')
+        .eq('mp_payment_id', String(data.id))
+        .maybeSingle()
+
+      if (!order) {
+        logger.warn('HandlePaymentNotification', 'No se encontró orden vinculada', {
+          paymentId: data.id,
+        })
+        return
+      }
+
+      externalReference = (order as any).external_reference
+    }
+
+    if (!externalReference) {
+      logger.warn('HandlePaymentNotification', 'No hay external_reference para actualizar', {
+        paymentId: data.id,
+      })
+      return
+    }
+
+    // Actualizar mercadopago_orders
+    const confirmedAt = mpStatus === 'approved' ? new Date().toISOString() : null
+
+    const { error: updateError } = await supabase
+      .from('mercadopago_orders')
+      .update({
+        status: mappedStatus,
+        mp_payment_id: String(data.id),
+        confirmed_at: confirmedAt,
+        webhook_received_at: new Date().toISOString(),
+        notes: data.status_detail ? `MP: ${data.status_detail}` : null,
+      })
+      .eq('external_reference', externalReference)
+
+    if (updateError) {
+      logger.error('HandlePaymentNotification', 'Error actualizando orden', updateError as Error)
+      return
+    }
+
+    logger.info('HandlePaymentNotification', 'Orden actualizada exitosamente', {
+      externalRef: externalReference.substring(0, 8),
+      newStatus: mappedStatus,
+      mpStatus,
+    })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('HandlePaymentNotification', 'Error procesando pago', err)
@@ -264,8 +482,6 @@ async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Pr
  * Manejar notificaciones de orden (order.updated)
  *
  * Actualiza estado si la orden cambió (ej: expiración)
- *
- * TODO: Implementación
  */
 async function handleOrderNotification(payload: MercadoPagoWebhookPayload): Promise<void> {
   try {
@@ -276,18 +492,52 @@ async function handleOrderNotification(payload: MercadoPagoWebhookPayload): Prom
       externalRef: data.external_reference?.substring(0, 8) + '...',
     })
 
-    // TODO: Implementar
-    // 1. Buscar mercadopago_orders por external_reference
-    // 2. Actualizar estado según necesario
+    const externalReference = data.external_reference
+    if (!externalReference) {
+      logger.warn('HandleOrderNotification', 'External reference no presente', {
+        orderId: data.id,
+      })
+      return
+    }
+
+    // Para order.updated, el status puede ser 'expired', 'active', 'paid', etc.
+    // Mapeamos según nuestro modelo
+    let newStatus: MercadoPagoOrderStatus = 'pending'
+
+    if (data.status === 'expired') {
+      newStatus = 'expired'
+    } else if (data.status === 'paid') {
+      newStatus = 'confirmed'
+    }
+
+    const supabase = createServiceRoleClient()
+
+    const { error: updateError } = await supabase
+      .from('mercadopago_orders')
+      .update({
+        status: newStatus,
+        webhook_received_at: new Date().toISOString(),
+      })
+      .eq('external_reference', externalReference)
+
+    if (updateError) {
+      logger.error('HandleOrderNotification', 'Error actualizando orden', updateError as Error)
+      return
+    }
+
+    logger.info('HandleOrderNotification', 'Orden actualizada exitosamente', {
+      externalRef: externalReference.substring(0, 8),
+      newStatus,
+    })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('HandleOrderNotification', 'Error procesando orden', err)
   }
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 // FUNCIONES DE SEGURIDAD
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 
 /**
  * Parsear el header x-signature de Mercado Pago
@@ -322,7 +572,7 @@ function parseSignatureHeader(header: string): SignatureHeader | null {
  * Verificar firma HMAC-SHA256 de Mercado Pago
  *
  * ALGORITMO:
- * 1. Template: {id}|{ts}|{v1}
+ * 1. Template: {id}|{ts}|{requestId}
  * 2. HMAC-SHA256(template, webhook_secret)
  * 3. Comparar resultado con v1 recibido
  *
@@ -345,7 +595,6 @@ function verifyMercadoPagoSignature(
 ): boolean {
   try {
     // Template según MP docs
-    // Nota: puede variar, revisar docs si falla
     const template = `${payload.id}|${timestamp}|${requestId}`
 
     // Generar HMAC-SHA256
@@ -367,9 +616,9 @@ function verifyMercadoPagoSignature(
   }
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 // UTILIDADES
-// ───────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
 
 /**
  * Helper para retornar JSON con status code

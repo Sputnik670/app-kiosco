@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Trash2, ShoppingCart, Plus, Minus, Loader2, ScanBarcode, ReceiptText, WifiOff, RefreshCw, CloudOff } from "lucide-react"
+import { Trash2, ShoppingCart, Plus, Minus, Loader2, ScanBarcode, ReceiptText, WifiOff, RefreshCw, CloudOff, QrCode } from "lucide-react"
 import { toast } from "sonner"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -13,9 +13,15 @@ import { generarTicketVenta } from "@/lib/generar-ticket"
 import { useOfflineVentas } from "@/hooks/use-offline-ventas"
 import { useCart } from "@/hooks/use-cart"
 import { BarcodeScanner } from "@/components/barcode-scanner"
+import { MercadoPagoQRDialog } from "@/components/mercadopago-qr-dialog"
 import type { ProductoVenta } from "@/lib/actions/ventas.actions"
 
-type CajaPaymentMethod = "cash" | "card" | "wallet"
+type CajaPaymentMethod = "cash" | "card" | "wallet" | "mercadopago"
+
+// Generador de UUID simple sin dependencias externas
+function generateTempSaleId(): string {
+  return `temp_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
+}
 
 interface CajaVentasProps {
   turnoId: string
@@ -42,6 +48,8 @@ export default function CajaVentas({
   const [metodoPago, setMetodoPago] = useState<CajaPaymentMethod>("cash")
   const [showScanner, setShowScanner] = useState(false)
   const [imprimirTicket, setImprimirTicket] = useState(true)
+  const [showMercadoPagoQR, setShowMercadoPagoQR] = useState(false)
+  const [mercadoPagoTempSaleId, setMercadoPagoTempSaleId] = useState<string>("")
 
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -140,6 +148,16 @@ export default function CajaVentas({
 
   const procesarVentaHandler = async () => {
     if (cart.isEmpty) return
+
+    // Si el método de pago es Mercado Pago, abrir el dialog QR en lugar de procesar directamente
+    if (metodoPago === "mercadopago") {
+      const tempSaleId = generateTempSaleId()
+      setMercadoPagoTempSaleId(tempSaleId)
+      setShowMercadoPagoQR(true)
+      return
+    }
+
+    // Flujo normal para otros métodos de pago
     setProcesandoVenta(true)
     try {
       const items = cart.items.map((item) => ({
@@ -189,6 +207,65 @@ export default function CajaVentas({
     } finally {
       setProcesandoVenta(false)
     }
+  }
+
+  const handleMercadoPagoPaymentConfirmed = async () => {
+    // Una vez confirmado el pago, procesar la venta con método mercadopago
+    setProcesandoVenta(true)
+    try {
+      const items = cart.items.map((item) => ({
+        producto_id: item.id,
+        cantidad: item.cantidad,
+        precio_unitario: item.price,
+        nombre: item.name,
+      }))
+
+      const result = await processVenta({
+        items,
+        metodoPago: "mercadopago",
+        montoTotal: cart.getTotal()
+      })
+
+      if (!result.success) {
+        throw new Error(result.error || 'Error al procesar venta')
+      }
+
+      // Generación de ticket
+      if (imprimirTicket) {
+        await generarTicketVenta({
+          organizacion: "Kiosco 24hs",
+          fecha: new Date().toLocaleString("es-AR"),
+          items: cart.items.map((i) => ({
+            cantidad: i.cantidad,
+            producto: i.name,
+            precioUnitario: i.price,
+            subtotal: i.price * i.cantidad,
+          })),
+          total: cart.getTotal(),
+          metodoPago: "mercadopago",
+          vendedor: empleadoNombre,
+          offlinePending: result.isOffline,
+          localId: result.isOffline ? result.ventaId : undefined,
+        })
+      }
+
+      toast.success(result.isOffline ? "Venta guardada (offline)" : "Venta Exitosa")
+      cart.clearCart()
+      if (onVentaCompletada) onVentaCompletada()
+    } catch (error) {
+      toast.error("Error", {
+        description: error instanceof Error ? error.message : 'Error al procesar venta después del pago'
+      })
+    } finally {
+      setProcesandoVenta(false)
+    }
+  }
+
+  const handleMercadoPagoPaymentFailed = () => {
+    setShowMercadoPagoQR(false)
+    toast.error("Pago cancelado o rechazado", {
+      description: "Por favor, intenta nuevamente o usa otro método de pago"
+    })
   }
 
   return (
@@ -352,9 +429,20 @@ export default function CajaVentas({
           </Button>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          {(['cash', 'wallet', 'card'] as const).map((m) => {
-            const labels = { cash: 'Efectivo', wallet: 'Virtual', card: 'Tarjeta' } as const
+        <div className="grid grid-cols-4 gap-2">
+          {(['cash', 'wallet', 'card', 'mercadopago'] as const).map((m) => {
+            const labels = {
+              cash: 'Efectivo',
+              wallet: 'Virtual',
+              card: 'Tarjeta',
+              mercadopago: 'QR MP'
+            } as const
+            const icons = {
+              cash: null,
+              wallet: null,
+              card: null,
+              mercadopago: <QrCode className="h-3 w-3" />
+            }
             return (
               <button
                 key={m}
@@ -362,10 +450,11 @@ export default function CajaVentas({
                 aria-label={`Pagar con ${labels[m]}`}
                 aria-pressed={metodoPago === m}
                 className={cn(
-                  "flex flex-col items-center gap-1 py-3 rounded-xl border-2 font-bold text-[9px] uppercase transition-all",
+                  "flex flex-col items-center gap-1 py-3 rounded-xl border-2 font-bold text-[8px] uppercase transition-all",
                   metodoPago === m ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-100 text-slate-400"
                 )}
               >
+                {icons[m] && <span>{icons[m]}</span>}
                 {labels[m]}
               </button>
             )
@@ -400,6 +489,16 @@ export default function CajaVentas({
           )}
         </DialogContent>
       </Dialog>
+
+      <MercadoPagoQRDialog
+        open={showMercadoPagoQR}
+        onOpenChange={setShowMercadoPagoQR}
+        saleId={mercadoPagoTempSaleId}
+        amount={cart.getTotal()}
+        branchId={sucursalId}
+        onPaymentConfirmed={handleMercadoPagoPaymentConfirmed}
+        onPaymentFailed={handleMercadoPagoPaymentFailed}
+      />
     </Card>
   )
 }

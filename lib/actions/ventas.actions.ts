@@ -42,7 +42,7 @@ type ProductWithStock = Database['public']['Views']['v_products_with_stock']['Ro
 /**
  * Métodos de pago soportados
  */
-export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'wallet'
+export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'wallet' | 'mercadopago'
 
 /**
  * Producto para ventas (vista simplificada para UI)
