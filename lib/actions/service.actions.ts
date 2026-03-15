@@ -96,16 +96,16 @@ export async function getServiceProviderBalanceAction(
     // Buscar proveedor según tipo
     // ───────────────────────────────────────────────────────────────────────────
 
-    const criterio = tipo === 'SUBE' ? '%SUBE%' : '%servicio%'
-
     const query = supabase
       .from('suppliers')
       .select('id, balance, name, markup_type, markup_value')
       .eq('organization_id', orgId)
 
+    // SUBE: buscar por nombre exacto
+    // Servicios: buscar cualquier proveedor que NO sea SUBE
     const { data, error } = tipo === 'SUBE'
-      ? await query.ilike('name', criterio).single()
-      : await query.ilike('name', criterio).limit(1).single()
+      ? await query.ilike('name', '%SUBE%').single()
+      : await query.not('name', 'ilike', '%SUBE%').limit(1).single()
 
     if (error) {
       return {

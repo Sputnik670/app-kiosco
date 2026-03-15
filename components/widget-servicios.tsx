@@ -37,6 +37,10 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
             const result = await getServiceProviderBalanceAction('servicios')
             if (result.success && result.provider) {
                 setProveedorServicios(result.provider)
+            } else {
+                toast.error("Proveedor no encontrado", {
+                    description: "Configurá un proveedor de servicios virtuales para habilitar cargas",
+                })
             }
         }
         fetchProveedor()
@@ -167,7 +171,7 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
             <Button
                 className="w-full bg-yellow-400 hover:bg-yellow-500 text-indigo-900 font-black h-12"
                 onClick={handleCargar}
-                disabled={loading || !monto}
+                disabled={loading || !monto || !proveedorServicios}
             >
                 {loading ? <Loader2 className="animate-spin" /> : `COBRAR $${totalCobrar.toLocaleString()}`}
             </Button>
