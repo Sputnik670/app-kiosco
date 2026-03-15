@@ -1,0 +1,831 @@
+{
+  "node": {
+    "40f9514d7f3e486894a69a1ee200cf46d4b6cfc67e": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getQuickSnapshotAction",
+          "filename": "lib/actions/dashboard.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/dashboard.actions.ts",
+      "exportedName": "getQuickSnapshotAction"
+    },
+    "40aa9625436d528de53f56574a11eede3faa66ec5b": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getEmployeeDashboardContextAction",
+          "filename": "lib/actions/user.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/user.actions.ts",
+      "exportedName": "getEmployeeDashboardContextAction"
+    },
+    "603f7720f2336da855e42f07daa08187dd08444fbd": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "processQRScanAction",
+          "filename": "lib/actions/attendance.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/attendance.actions.ts",
+      "exportedName": "processQRScanAction"
+    },
+    "60241aa8f8d4f05190de64824f914cd6817daac0b0": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "signInWithPasswordAction",
+          "filename": "lib/actions/auth.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/auth.actions.ts",
+      "exportedName": "signInWithPasswordAction"
+    },
+    "60cb25fcc5c5ef2f148937ebd02554bd6dbef5e9fd": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "signUpAction",
+          "filename": "lib/actions/auth.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/auth.actions.ts",
+      "exportedName": "signUpAction"
+    },
+    "607937e3d936efc4984d005834de1842e16a51ffe8": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "signInWithMagicLinkAction",
+          "filename": "lib/actions/auth.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/auth.actions.ts",
+      "exportedName": "signInWithMagicLinkAction"
+    },
+    "60bda5c9140bd53f382f3ed48381e699233059b624": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "checkInvitationAction",
+          "filename": "lib/actions/auth.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/auth.actions.ts",
+      "exportedName": "checkInvitationAction"
+    },
+    "404cf2032b68db384150751baa4d1f0d8c4a762a45": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "completeProfileSetupAction",
+          "filename": "lib/actions/auth.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/auth.actions.ts",
+      "exportedName": "completeProfileSetupAction"
+    },
+    "0096db88f67331cbab7b5298afb5e005d136f36032": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getBranchesAction",
+          "filename": "lib/actions/branch.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/branch.actions.ts",
+      "exportedName": "getBranchesAction"
+    },
+    "4037685c5e9267a3d9b9ac5965fe40710ab06d1600": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "checkExistingProductAction",
+          "filename": "lib/actions/product.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/product.actions.ts",
+      "exportedName": "checkExistingProductAction"
+    },
+    "60aa977d9e70f652e2a321bf878fe8639dcbabc980": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "createFullProductAction",
+          "filename": "lib/actions/product.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/product.actions.ts",
+      "exportedName": "createFullProductAction"
+    },
+    "60f2f6388515ba6be9c5be90f1a147a418444d4ca5": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getProvidersAction",
+          "filename": "lib/actions/provider.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/provider.actions.ts",
+      "exportedName": "getProvidersAction"
+    },
+    "60c031a9fb96ff7df41c67e13c5789aa08cd74cce8": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "createProviderAction",
+          "filename": "lib/actions/provider.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/provider.actions.ts",
+      "exportedName": "createProviderAction"
+    },
+    "40b2da98de267b0a1987e5d60b58b6cb163dc9276d": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getProviderPurchaseHistoryAction",
+          "filename": "lib/actions/provider.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/provider.actions.ts",
+      "exportedName": "getProviderPurchaseHistoryAction"
+    },
+    "0008842f5ca5eec1eca65916006fe2701e2b7c4109": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getServiceProvidersAction",
+          "filename": "lib/actions/provider.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/provider.actions.ts",
+      "exportedName": "getServiceProvidersAction"
+    },
+    "6023522941ecea325787a73f1e0e3d9d8828af5f81": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "rechargeBalanceAction",
+          "filename": "lib/actions/provider.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/provider.actions.ts",
+      "exportedName": "rechargeBalanceAction"
+    },
+    "00690c8ceee35666264a8ea3a01de94dfe36ef7c3f": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getStaffManagementDataAction",
+          "filename": "lib/actions/auth.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/auth.actions.ts",
+      "exportedName": "getStaffManagementDataAction"
+    },
+    "60c7bd07d8cf38cea3f7dee6da14b9074677d23080": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "inviteEmployeeAction",
+          "filename": "lib/actions/auth.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/auth.actions.ts",
+      "exportedName": "inviteEmployeeAction"
+    },
+    "402390b424b065fac8bf0071018ce7b8fc639a7782": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "cancelInviteAction",
+          "filename": "lib/actions/auth.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/auth.actions.ts",
+      "exportedName": "cancelInviteAction"
+    },
+    "40a96472ba46c223dae8cd8a9eb2f4b341ad38aefb": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "removeEmployeeAction",
+          "filename": "lib/actions/auth.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/auth.actions.ts",
+      "exportedName": "removeEmployeeAction"
+    },
+    "000820d3776c231a295006b764fe28b646565a4aef": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getBranchesWithQRAction",
+          "filename": "lib/actions/branch.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/branch.actions.ts",
+      "exportedName": "getBranchesWithQRAction"
+    },
+    "70149795d8dd53edff1c31611cde86efdde422c93a": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "updateBranchQRAction",
+          "filename": "lib/actions/branch.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/branch.actions.ts",
+      "exportedName": "updateBranchQRAction"
+    },
+    "705cf0da7b5e9845b1d65d4cf79b38ea2b9d2963b2": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getSalesReportAction",
+          "filename": "lib/actions/reports.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/reports.actions.ts",
+      "exportedName": "getSalesReportAction"
+    },
+    "40878cd0ad1bdc5adbcebb35ed0494afa56ccb52ce": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getCashRegisterReportAction",
+          "filename": "lib/actions/reports.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/reports.actions.ts",
+      "exportedName": "getCashRegisterReportAction"
+    },
+    "40ce712cd546b72610d5dbdcd104688d7aff60a476": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getStockReportAction",
+          "filename": "lib/actions/reports.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/reports.actions.ts",
+      "exportedName": "getStockReportAction"
+    },
+    "60fdd35c71699cd623fa6469c2c8ced0d7fc735b42": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getExpiringProductsReportAction",
+          "filename": "lib/actions/reports.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/reports.actions.ts",
+      "exportedName": "getExpiringProductsReportAction"
+    },
+    "704bd179d789321c61f1ffc814274d3ee114d8014c": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getCashRegistersListAction",
+          "filename": "lib/actions/reports.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/reports.actions.ts",
+      "exportedName": "getCashRegistersListAction"
+    },
+    "60f2f52e2b5316743d8df511490b173f59955fedbc": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "updateProductAction",
+          "filename": "lib/actions/product.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/product.actions.ts",
+      "exportedName": "updateProductAction"
+    },
+    "40a6b0554342b993720c8318133b6388239460babf": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "deleteProductAction",
+          "filename": "lib/actions/product.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/product.actions.ts",
+      "exportedName": "deleteProductAction"
+    },
+    "78fefa28db228ef2be5fad91633ef642e7e4cad836": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getOwnerStatsAction",
+          "filename": "lib/actions/dashboard.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/dashboard.actions.ts",
+      "exportedName": "getOwnerStatsAction"
+    },
+    "40d029fc6c95ed9534fed10662ea7633d49df97d3b": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getInventoryCriticalAction",
+          "filename": "lib/actions/dashboard.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/dashboard.actions.ts",
+      "exportedName": "getInventoryCriticalAction"
+    },
+    "60b02481f4b5bc1a5fb14f95b984728d8ae305ea59": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "abrirCajaAction",
+          "filename": "lib/actions/cash.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/cash.actions.ts",
+      "exportedName": "abrirCajaAction"
+    },
+    "604dee19f02edc7e0b1cd5ca5672a6d509cc3d2f5b": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "cerrarCajaAction",
+          "filename": "lib/actions/cash.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/cash.actions.ts",
+      "exportedName": "cerrarCajaAction"
+    },
+    "606ba1846f4be572dfb96903cb584c1900bbf1b1aa": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getEmployeeMissionsAction",
+          "filename": "lib/actions/missions.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/missions.actions.ts",
+      "exportedName": "getEmployeeMissionsAction"
+    },
+    "7024f1da317baa26eacaf00562ed0fe771fa14e514": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "completeManualMissionAction",
+          "filename": "lib/actions/missions.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/missions.actions.ts",
+      "exportedName": "completeManualMissionAction"
+    },
+    "788c9679a1ba5b52d6071bf52e053c596c42bbb3d7": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "processMermasMissionAction",
+          "filename": "lib/actions/missions.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/missions.actions.ts",
+      "exportedName": "processMermasMissionAction"
+    },
+    "40e23d79d46b7f28f098b6544b008618dff14d4766": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getCriticalStockAction",
+          "filename": "lib/actions/inventory.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/inventory.actions.ts",
+      "exportedName": "getCriticalStockAction"
+    },
+    "40d3259b75c69edd2a63dc4c418a90edf27bd7662a": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "createCashMovementAction",
+          "filename": "lib/actions/cash.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/cash.actions.ts",
+      "exportedName": "createCashMovementAction"
+    },
+    "609aa0d42bb36841b20bc35494d7f076998227070d": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getShiftMovementsAction",
+          "filename": "lib/actions/cash.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/cash.actions.ts",
+      "exportedName": "getShiftMovementsAction"
+    },
+    "40e3f1e884b589c3b237f0cd5da6ea35d97a9a45c4": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getExpiringStockAction",
+          "filename": "lib/actions/inventory.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/inventory.actions.ts",
+      "exportedName": "getExpiringStockAction"
+    },
+    "70566edb59723eff9936c2369e9dad493a944a2a2d": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "processStockLossAction",
+          "filename": "lib/actions/inventory.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/inventory.actions.ts",
+      "exportedName": "processStockLossAction"
+    },
+    "40cf4b3c64e14aef131fbe3d3e2e379edfdc914af1": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getServiceProviderBalanceAction",
+          "filename": "lib/actions/service.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/service.actions.ts",
+      "exportedName": "getServiceProviderBalanceAction"
+    },
+    "40d204d238deb570b617ce59492188f2804bb6ff29": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "processServiceRechargeAction",
+          "filename": "lib/actions/service.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/service.actions.ts",
+      "exportedName": "processServiceRechargeAction"
+    },
+    "7fb02febcf3e4ffda729548e3a063e639f236633c4": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "processVirtualRechargeAction",
+          "filename": "lib/actions/service.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/service.actions.ts",
+      "exportedName": "processVirtualRechargeAction"
+    },
+    "406749a64aa572cdb6f0333d5b6a1bfcb5215ddfd0": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getAttendanceStatusAction",
+          "filename": "lib/actions/attendance.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/attendance.actions.ts",
+      "exportedName": "getAttendanceStatusAction"
+    },
+    "40296b7b0f274704c36b4c00a045832fc5bf7a8fb9": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "toggleAttendanceAction",
+          "filename": "lib/actions/attendance.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/attendance.actions.ts",
+      "exportedName": "toggleAttendanceAction"
+    },
+    "40d312eba4347109edc330e79fc7650186ab50cdb6": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "createBranchAction",
+          "filename": "lib/actions/branch.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/branch.actions.ts",
+      "exportedName": "createBranchAction"
+    },
+    "40fa7cf7591b7a9e26de206f1238e88633f4286ea6": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "deleteBranchAction",
+          "filename": "lib/actions/branch.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/branch.actions.ts",
+      "exportedName": "deleteBranchAction"
+    },
+    "401c6028156f42d17b0eff5c6bff909e875ffd2d2a": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "applyHappyHourDiscountAction",
+          "filename": "lib/actions/product.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/product.actions.ts",
+      "exportedName": "applyHappyHourDiscountAction"
+    },
+    "40f3411cd7a56651189d8f4f54523c537a747e4984": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "processComplexStockEntry",
+          "filename": "lib/actions/inventory.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/inventory.actions.ts",
+      "exportedName": "processComplexStockEntry"
+    },
+    "7fe05c88088d20400f31915703e9fb7db3615e16a9": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "createMisionAction",
+          "filename": "lib/actions/missions.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/missions.actions.ts",
+      "exportedName": "createMisionAction"
+    },
+    "7f7e9b566cac21c03244539971bb99fb819b3e6578": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getEmpleadosAction",
+          "filename": "lib/actions/missions.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/missions.actions.ts",
+      "exportedName": "getEmpleadosAction"
+    },
+    "4090243096ddef13f26f20bbe15f93e8098ee9428f": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "getCapitalSummaryAction",
+          "filename": "lib/actions/inventory.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/inventory.actions.ts",
+      "exportedName": "getCapitalSummaryAction"
+    },
+    "60f79355d8f31594c6014a2ad1e94387c55a04c34a": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "searchProductsAction",
+          "filename": "lib/actions/ventas.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/ventas.actions.ts",
+      "exportedName": "searchProductsAction"
+    },
+    "40731c17df5b820fab8837f3fc32e57545c7216f6c": {
+      "workers": {
+        "app/page": {
+          "moduleId": "[project]/.next-internal/server/app/page/actions.js { ACTIONS_MODULE0 => \"[project]/lib/actions/dashboard.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/lib/actions/user.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE2 => \"[project]/lib/actions/attendance.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE3 => \"[project]/lib/actions/auth.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE4 => \"[project]/lib/actions/branch.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE5 => \"[project]/lib/actions/product.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE6 => \"[project]/lib/actions/provider.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE7 => \"[project]/lib/actions/reports.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE8 => \"[project]/lib/actions/cash.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE9 => \"[project]/lib/actions/missions.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE10 => \"[project]/lib/actions/inventory.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE11 => \"[project]/lib/actions/service.actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE12 => \"[project]/lib/actions/ventas.actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "confirmSaleAction",
+          "filename": "lib/actions/ventas.actions.ts"
+        }
+      },
+      "layer": {
+        "app/page": "action-browser"
+      },
+      "filename": "lib/actions/ventas.actions.ts",
+      "exportedName": "confirmSaleAction"
+    }
+  },
+  "edge": {},
+  "encryptionKey": "XuStB0WyAy5tBKMo4vJ62AUaUVaso6t/fJpCgRUZjuE="
+}

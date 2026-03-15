@@ -53,6 +53,9 @@ export interface MercadoPagoConfig {
   collecterId: string
   webhookSecret: string
   isSandbox: boolean
+  connectedVia?: 'oauth' | 'manual'
+  tokenExpiresAt?: string | null
+  refreshToken?: string | null
 }
 
 /**
@@ -106,7 +109,24 @@ export interface CheckPaymentStatusResult {
  */
 export interface GetMercadoPagoConfigResult {
   success: boolean
-  config?: Partial<MercadoPagoConfig>
+  config?: Partial<MercadoPagoConfig> & { connectedVia?: string }
+  error?: string
+}
+
+/**
+ * Resultado de desconectar Mercado Pago
+ */
+export interface DisconnectMercadoPagoResult {
+  success: boolean
+  error?: string
+}
+
+/**
+ * Resultado de obtener URL de OAuth
+ */
+export interface GetMercadoPagoOAuthUrlResult {
+  success: boolean
+  url?: string
   error?: string
 }
 
@@ -190,6 +210,7 @@ export async function getMercadoPagoConfigAction(): Promise<GetMercadoPagoConfig
         collecterId: config.collecterId,
         isSandbox: config.isSandbox,
         accessToken: `****${config.accessToken.slice(-4)}`, // Enmascarado
+        connectedVia: config.connectedVia || 'manual',
       },
     }
   } catch (error) {
@@ -692,6 +713,81 @@ export async function cancelMercadoPagoOrderAction(
   }
 }
 
+/**
+ * 🔗 Obtener URL de OAuth para conectar Mercado Pago
+ *
+ * Retorna la URL a la que hay que redirigir al usuario.
+ * No requiere credenciales del usuario — usa las de la app (nuestra).
+ *
+ * @returns GetMercadoPagoOAuthUrlResult con URL de autorización
+ */
+export async function getOAuthUrlAction(): Promise<GetMercadoPagoOAuthUrlResult> {
+  try {
+    await verifyOwner()
+
+    const appId = process.env.MP_APP_ID
+    const redirectUri = process.env.MP_REDIRECT_URI
+
+    if (!appId || !redirectUri) {
+      return {
+        success: false,
+        error: 'La integración OAuth no está configurada en el servidor',
+      }
+    }
+
+    return {
+      success: true,
+      url: `/api/mercadopago/oauth/authorize`,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
+ * 🔌 Desconectar Mercado Pago de la organización
+ *
+ * Elimina las credenciales encriptadas.
+ * Solo el owner puede hacer esto.
+ *
+ * @returns DisconnectMercadoPagoResult
+ */
+export async function disconnectMercadoPagoAction(): Promise<DisconnectMercadoPagoResult> {
+  try {
+    const { supabase, orgId, user } = await verifyOwner()
+
+    logger.info('disconnectMercadoPagoAction', 'Desconectando Mercado Pago', {
+      orgId,
+      userId: user.id,
+    })
+
+    const { error } = await supabase
+      .from('mercadopago_credentials')
+      .delete()
+      .eq('organization_id', orgId)
+
+    if (error) {
+      logger.error('disconnectMercadoPagoAction', 'Error eliminando credenciales', error)
+      return {
+        success: false,
+        error: 'No se pudieron eliminar las credenciales',
+      }
+    }
+
+    logger.info('disconnectMercadoPagoAction', 'Mercado Pago desconectado', { orgId })
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // FUNCIONES INTERNAS (No exportadas)
 // ───────────────────────────────────────────────────────────────────────────────
@@ -786,7 +882,7 @@ async function getDecryptedMercadoPagoConfig(
     const { data: credentials, error } = await supabase
       .from('mercadopago_credentials')
       .select(
-        'access_token_encrypted, webhook_secret_encrypted, public_key, collector_id, is_sandbox'
+        'access_token_encrypted, webhook_secret_encrypted, refresh_token_encrypted, public_key, collector_id, is_sandbox, connected_via, token_expires_at'
       )
       .eq('organization_id', orgId)
       .eq('is_active', true)
@@ -797,14 +893,22 @@ async function getDecryptedMercadoPagoConfig(
     }
 
     const accessToken = decrypt(credentials.access_token_encrypted)
-    const webhookSecret = decrypt(credentials.webhook_secret_encrypted)
+    const webhookSecret = credentials.webhook_secret_encrypted
+      ? decrypt(credentials.webhook_secret_encrypted)
+      : ''
+    const refreshToken = credentials.refresh_token_encrypted
+      ? decrypt(credentials.refresh_token_encrypted)
+      : null
 
     return {
       accessToken,
-      publicKey: credentials.public_key,
+      publicKey: credentials.public_key || '',
       collecterId: credentials.collector_id,
       webhookSecret,
       isSandbox: credentials.is_sandbox || false,
+      connectedVia: (credentials.connected_via as 'oauth' | 'manual') || 'manual',
+      tokenExpiresAt: credentials.token_expires_at,
+      refreshToken,
     }
   } catch (err) {
     logger.error('getDecryptedMercadoPagoConfig', 'Error desencriptando credenciales', err as Error)
