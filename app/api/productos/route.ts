@@ -43,9 +43,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // ─── AUTH: Verificar que la sucursal pertenece a la organización del usuario ───
     const { data: membership } = await supabase
-      .from('organization_members')
+      .from('memberships')
       .select('organization_id')
       .eq('user_id', user.id)
+      .eq('is_active', true)
       .limit(1)
       .single()
 

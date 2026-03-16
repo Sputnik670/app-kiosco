@@ -28,9 +28,21 @@ export default function WidgetSube({ turnoId, sucursalId, onVentaRegistrada }: W
 
     useEffect(() => {
         const fetchProveedorSube = async () => {
-            const result = await getServiceProviderBalanceAction('SUBE')
-            if (result.success && result.provider) {
-                setProveedorSube(result.provider)
+            try {
+                const result = await getServiceProviderBalanceAction('SUBE')
+                if (result.success && result.provider) {
+                    setProveedorSube(result.provider)
+                } else {
+                    console.error('[SUBE] Error cargando proveedor:', result.error)
+                    toast.error("Error cargando SUBE", {
+                        description: result.error || "No se pudo conectar con el proveedor SUBE",
+                    })
+                }
+            } catch (err: any) {
+                console.error('[SUBE] Excepción cargando proveedor:', err)
+                toast.error("Error cargando SUBE", {
+                    description: err.message || "Error de conexión",
+                })
             }
         }
         fetchProveedorSube()
