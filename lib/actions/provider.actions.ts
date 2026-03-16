@@ -630,6 +630,20 @@ export async function updateProviderMarkupAction(
   try {
     const { supabase } = await verifyOwner()
 
+    // Validar rangos de comisión
+    if (data.markupType === 'percentage') {
+      const val = Number(data.markupValue) || 0
+      if (val <= 0 || val > 100) {
+        return { success: false, error: 'El porcentaje debe estar entre 1% y 100%' }
+      }
+    }
+    if (data.markupType === 'fixed') {
+      const val = Number(data.markupValue) || 0
+      if (val <= 0) {
+        return { success: false, error: 'El monto fijo debe ser mayor a $0' }
+      }
+    }
+
     const { error } = await supabase
       .from('suppliers')
       .update({

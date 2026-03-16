@@ -155,11 +155,11 @@ export default function ControlSaldoProveedor() {
                             >
                                 <div className="font-bold text-sm">{p.name}</div>
                                 <div className="text-xs opacity-80">
-                                    Saldo: {formatMoney(p.balance || 0)}
+                                    Saldo: {formatMoney(Number(p.balance) || 0)}
                                 </div>
                                 {p.markup_type && (
                                     <div className="text-[9px] mt-1 opacity-70">
-                                        Comisión: {p.markup_type === 'percentage' ? `${p.markup_value}%` : formatMoney(p.markup_value || 0)}
+                                        Comisión: {p.markup_type === 'percentage' ? `${Number(p.markup_value)}%` : formatMoney(Number(p.markup_value) || 0)}
                                     </div>
                                 )}
                             </button>
@@ -178,7 +178,7 @@ export default function ControlSaldoProveedor() {
                                 <div>
                                     <p className="text-sm text-muted-foreground">Saldo Disponible</p>
                                     <h2 className="text-3xl font-black text-indigo-600">
-                                        {formatMoney(proveedorActivo.balance || 0)}
+                                        {formatMoney(Number(proveedorActivo.balance) || 0)}
                                     </h2>
                                 </div>
                                 <div className="flex gap-1">
@@ -197,8 +197,8 @@ export default function ControlSaldoProveedor() {
                                     <p className="text-[9px] text-indigo-500 font-bold uppercase">Comisión configurada</p>
                                     <p className="text-sm font-black text-indigo-700">
                                         {proveedorActivo.markup_type === 'percentage'
-                                            ? `${proveedorActivo.markup_value}% por operación`
-                                            : `${formatMoney(proveedorActivo.markup_value || 0)} fijo por operación`
+                                            ? `${Number(proveedorActivo.markup_value)}% por operación`
+                                            : `${formatMoney(Number(proveedorActivo.markup_value) || 0)} fijo por operación`
                                         }
                                     </p>
                                 </div>

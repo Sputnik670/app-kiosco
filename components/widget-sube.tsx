@@ -37,14 +37,16 @@ export default function WidgetSube({ turnoId, sucursalId, onVentaRegistrada }: W
     }, [])
 
     // Comisión dinámica desde config del proveedor
+    // DECIMAL de Supabase puede llegar como string — siempre castear con Number()
     const comision = useMemo(() => {
         if (!proveedorSube || !monto) return 0
         const montoNum = parseFloat(monto) || 0
-        if (proveedorSube.markup_type === 'percentage' && proveedorSube.markup_value) {
-            return Math.round(montoNum * proveedorSube.markup_value / 100)
+        const markupVal = Number(proveedorSube.markup_value) || 0
+        if (proveedorSube.markup_type === 'percentage' && markupVal > 0) {
+            return Math.round(montoNum * markupVal / 100)
         }
-        if (proveedorSube.markup_type === 'fixed' && proveedorSube.markup_value) {
-            return proveedorSube.markup_value
+        if (proveedorSube.markup_type === 'fixed' && markupVal > 0) {
+            return markupVal
         }
         return 0
     }, [monto, proveedorSube])
@@ -112,7 +114,7 @@ export default function WidgetSube({ turnoId, sucursalId, onVentaRegistrada }: W
             {proveedorSube && (
                 <div className="bg-blue-700/50 rounded-lg p-2 text-center">
                     <p className="text-[9px] text-blue-200 font-bold uppercase">Saldo SUBE</p>
-                    <p className="text-xl font-black">${proveedorSube.balance.toLocaleString()}</p>
+                    <p className="text-xl font-black">${Number(proveedorSube.balance).toLocaleString('es-AR')}</p>
                 </div>
             )}
 

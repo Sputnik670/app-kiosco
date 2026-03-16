@@ -47,14 +47,16 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
     }, [])
 
     // Calcular comisión dinámica según config del proveedor
+    // DECIMAL de Supabase puede llegar como string — siempre castear con Number()
     const comision = useMemo(() => {
         if (!proveedorServicios || !monto) return 0
         const montoNum = parseFloat(monto) || 0
-        if (proveedorServicios.markup_type === 'percentage' && proveedorServicios.markup_value) {
-            return Math.round(montoNum * proveedorServicios.markup_value / 100)
+        const markupVal = Number(proveedorServicios.markup_value) || 0
+        if (proveedorServicios.markup_type === 'percentage' && markupVal > 0) {
+            return Math.round(montoNum * markupVal / 100)
         }
-        if (proveedorServicios.markup_type === 'fixed' && proveedorServicios.markup_value) {
-            return proveedorServicios.markup_value
+        if (proveedorServicios.markup_type === 'fixed' && markupVal > 0) {
+            return markupVal
         }
         return 0 // Sin comisión configurada
     }, [monto, proveedorServicios])
