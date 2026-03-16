@@ -74,6 +74,18 @@ const withPWA = withPWAInit({
 const nextConfig: NextConfig = {
   // Configuración para Turbopack (Next.js 16+)
   turbopack: {},
+
+  // Server Actions: permitir orígenes válidos para evitar 403 CSRF
+  // Incluye dominio producción + patrón de preview deploys de Vercel
+  experimental: {
+    serverActions: {
+      allowedOrigins: [
+        'app-kiosco-chi.vercel.app',
+        'app-kiosco-git-main-sputnik670s-projects.vercel.app',
+        'localhost:3000',
+      ],
+    },
+  },
 };
 
 export default withPWA(nextConfig);

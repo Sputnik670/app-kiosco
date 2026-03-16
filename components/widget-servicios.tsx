@@ -109,7 +109,11 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
             toast.success("Recarga exitosa", { description: result.message })
             onVentaRegistrada()
         } catch (error: any) {
-            toast.error("Error", { description: error.message })
+            console.error('[Servicios] Excepción al procesar recarga:', error)
+            toast.error("Error al procesar recarga", {
+                description: error?.message || "Error de conexión, intentá de nuevo",
+                duration: 5000,
+            })
         } finally {
             setLoading(false)
         }
@@ -130,6 +134,13 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
                 </div>
                 <span className="text-[9px] font-bold bg-white/20 px-2 py-1 rounded-full">{markupLabel}</span>
             </div>
+
+            {proveedorServicios && (
+                <div className="bg-indigo-700/50 rounded-lg p-2 text-center">
+                    <p className="text-[9px] text-indigo-200 font-bold uppercase">Saldo {proveedorServicios.name}</p>
+                    <p className="text-xl font-black">${Number(proveedorServicios.balance).toLocaleString('es-AR')}</p>
+                </div>
+            )}
 
             <select
                 title="Seleccionar Operadora o Servicio"

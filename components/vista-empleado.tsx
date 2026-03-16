@@ -63,9 +63,12 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                 setIsClockedIn(result.context.isClockedIn)
                 setTurnoActivo(result.context.activeShift as CajaDiaria | null)
             }
-        } catch (error) {
-            // Error handled by toast notification
-            toast.error("Error de conexión con la sucursal")
+        } catch (error: any) {
+            console.error('[VistaEmpleado] Excepción:', error)
+            toast.error("Error de conexión con la sucursal", {
+                description: error?.message || "Intentá recargar la página",
+                duration: 5000,
+            })
         } finally {
             setLoading(false)
         }
