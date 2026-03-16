@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Trash2, ShoppingCart, Plus, Minus, Loader2, ScanBarcode, ReceiptText, WifiOff, RefreshCw, CloudOff, QrCode } from "lucide-react"
+import { Trash2, ShoppingCart, Plus, Minus, Loader2, ScanBarcode, ReceiptText, CloudOff, QrCode } from "lucide-react"
 import { toast } from "sonner"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -14,6 +14,7 @@ import { useOfflineVentas } from "@/hooks/use-offline-ventas"
 import { useCart } from "@/hooks/use-cart"
 import { BarcodeScanner } from "@/components/barcode-scanner"
 import { MercadoPagoQRDialog } from "@/components/mercadopago-qr-dialog"
+import { SyncStatusIndicator, SyncBadge } from "@/components/pwa"
 import type { ProductoVenta } from "@/lib/actions/ventas.actions"
 
 type CajaPaymentMethod = "cash" | "card" | "wallet" | "mercadopago"
@@ -65,6 +66,7 @@ export default function CajaVentas({
     pendingCount,
     syncStatus,
     forceSyncNow,
+    retryFailed,
     connectionQuality,
   } = useOfflineVentas({
     sucursalId,
@@ -279,34 +281,11 @@ export default function CajaVentas({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Indicador de ventas pendientes */}
-          {pendingCount > 0 && (
-            <Badge
-              className="bg-amber-500 cursor-pointer"
-              onClick={() => forceSyncNow()}
-            >
-              <CloudOff className="h-3 w-3 mr-1" />
-              {pendingCount} pendiente{pendingCount > 1 ? 's' : ''}
-            </Badge>
-          )}
-
-          {/* Estado de conexión */}
-          {isOffline ? (
-            <Badge className="bg-red-500">
-              <WifiOff className="h-3 w-3 mr-1" />
-              OFFLINE
-            </Badge>
-          ) : (
-            <Badge className={cn(
-              syncStatus === 'syncing' && "bg-amber-500",
-              syncStatus === 'error' && "bg-red-500",
-              syncStatus === 'success' && "bg-green-500",
-              syncStatus === 'idle' && "bg-blue-500"
-            )}>
-              {syncStatus === 'syncing' && <RefreshCw className="h-3 w-3 mr-1 animate-spin" />}
-              {syncStatus === 'syncing' ? 'SINCRONIZANDO' : 'OPERATIVO'}
-            </Badge>
-          )}
+          <SyncBadge
+            syncStatus={syncStatus}
+            pendingCount={pendingCount}
+            isOffline={isOffline}
+          />
         </div>
       </div>
 
@@ -504,6 +483,16 @@ export default function CajaVentas({
         branchId={sucursalId}
         onPaymentConfirmed={handleMercadoPagoPaymentConfirmed}
         onPaymentFailed={handleMercadoPagoPaymentFailed}
+      />
+
+      {/* Indicador flotante de sincronización offline */}
+      <SyncStatusIndicator
+        syncStatus={syncStatus}
+        pendingCount={pendingCount}
+        isOffline={isOffline}
+        onForceSyncNow={forceSyncNow}
+        onRetryFailed={retryFailed}
+        position="bottom-right"
       />
     </Card>
   )

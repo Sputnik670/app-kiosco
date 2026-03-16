@@ -42,8 +42,12 @@ const FONT_PATTERNS = [
   /^https:\/\/fonts\.(?:gstatic|googleapis)\.com\/.*/i,
 ];
 
+const IMAGE_STORAGE_PATTERNS = [
+  /\.supabase\.co\/storage\/v1\/object\/.*\.(?:png|jpg|jpeg|gif|webp|svg)$/i,
+];
+
 const IGNORE_PATTERNS = [
-  /\.supabase\.co/i,
+  /\.supabase\.co\/(?!storage\/v1\/object\/.*\.(?:png|jpg|jpeg|gif|webp|svg)$)/i,
   /vercel/i,
   /analytics/i,
   /_next\/webpack-hmr/i,
@@ -120,6 +124,14 @@ self.addEventListener('fetch', (event) => {
   // ─────────────────────────────────────────────────────────────────────────────
   if (FONT_PATTERNS.some(pattern => pattern.test(url.href))) {
     event.respondWith(staleWhileRevalidate(request, FONTS_CACHE));
+    return;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // STALE-WHILE-REVALIDATE: Imágenes de productos (Supabase Storage)
+  // ─────────────────────────────────────────────────────────────────────────────
+  if (IMAGE_STORAGE_PATTERNS.some(pattern => pattern.test(url.href))) {
+    event.respondWith(staleWhileRevalidate(request, STATIC_CACHE));
     return;
   }
 

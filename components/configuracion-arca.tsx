@@ -396,7 +396,7 @@ export default function ConfiguracionArca() {
               <Switch
                 checked={config.isActive || false}
                 onCheckedChange={handleToggleActive}
-                disabled={toggling || !config.hasCert || !config.hasCert}
+                disabled={toggling || !config.hasCert}
               />
             </div>
           </CardContent>
