@@ -34,14 +34,27 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
 
     useEffect(() => {
         const fetchProveedor = async () => {
-            // Buscar proveedor que coincida con el servicio seleccionado
-            const nombreServicio = SERVICIOS.find(s => s.id === servicioId)?.nombre || servicioId
-            const result = await getServiceProviderBalanceAction(nombreServicio)
-            if (result.success && result.provider) {
-                setProveedorServicios(result.provider)
-            } else {
-                // Si no hay proveedor específico, el action ya busca genérico como fallback
+            try {
+                // Buscar proveedor que coincida con el servicio seleccionado
+                const nombreServicio = SERVICIOS.find(s => s.id === servicioId)?.nombre || servicioId
+                const result = await getServiceProviderBalanceAction(nombreServicio)
+                if (result.success && result.provider) {
+                    setProveedorServicios(result.provider)
+                } else {
+                    console.error('[Servicios] Error cargando proveedor para', servicioId, ':', result.error)
+                    setProveedorServicios(null)
+                    toast.error("Error cargando proveedor", {
+                        description: result.error || "No se encontró proveedor para este servicio",
+                        duration: 5000,
+                    })
+                }
+            } catch (err: any) {
+                console.error('[Servicios] Excepción:', err)
                 setProveedorServicios(null)
+                toast.error("Error cargando proveedor", {
+                    description: err.message || "Error de conexión",
+                    duration: 5000,
+                })
             }
         }
         fetchProveedor()
