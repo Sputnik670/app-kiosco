@@ -78,16 +78,16 @@ export interface ProcessServiceRechargeResult {
  *
  * FLUJO:
  * 1. Obtiene organization_id del usuario actual
- * 2. Busca el proveedor según el tipo ('servicios' o 'SUBE')
+ * 2. Busca el proveedor según el tipo ('SUBE') o nombre exacto del servicio
  * 3. Devuelve id, nombre y balance
  *
- * @param tipo - Tipo de proveedor: 'servicios' o 'SUBE'
+ * @param tipo - 'SUBE' para SUBE, o nombre del servicio (ej: 'Edenor', 'Claro')
  * @returns GetServiceProviderBalanceResult - Datos del proveedor
  *
  * ORIGEN: Refactorización de fetchProveedor() widget-servicios.tsx y widget-sube.tsx
  */
 export async function getServiceProviderBalanceAction(
-  tipo: 'servicios' | 'SUBE' = 'servicios'
+  tipo: string = 'servicios'
 ): Promise<GetServiceProviderBalanceResult> {
   try {
     const { supabase, orgId } = await verifyAuth()
@@ -101,11 +101,32 @@ export async function getServiceProviderBalanceAction(
       .select('id, balance, name, markup_type, markup_value')
       .eq('organization_id', orgId)
 
-    // SUBE: buscar por nombre exacto
-    // Servicios: buscar cualquier proveedor que NO sea SUBE
-    const { data, error } = tipo === 'SUBE'
-      ? await query.ilike('name', '%SUBE%').single()
-      : await query.not('name', 'ilike', '%SUBE%').limit(1).single()
+    let result
+
+    if (tipo === 'SUBE') {
+      // SUBE: buscar por nombre exacto
+      result = await query.ilike('name', '%SUBE%').single()
+    } else if (tipo === 'servicios') {
+      // Fallback genérico: primer proveedor que no sea SUBE (legacy)
+      result = await query.not('name', 'ilike', '%SUBE%').limit(1).single()
+    } else {
+      // Buscar por nombre exacto del servicio (ej: 'Edenor', 'Telepase')
+      // Primero intento match exacto, si no hay, busco parcial
+      result = await query.ilike('name', `%${tipo}%`).limit(1).single()
+
+      // Si no hay proveedor específico, buscar un proveedor genérico de servicios
+      if (result.error || !result.data) {
+        result = await supabase
+          .from('suppliers')
+          .select('id, balance, name, markup_type, markup_value')
+          .eq('organization_id', orgId)
+          .not('name', 'ilike', '%SUBE%')
+          .limit(1)
+          .single()
+      }
+    }
+
+    const { data, error } = result
 
     if (error) {
       return {

@@ -34,17 +34,18 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
 
     useEffect(() => {
         const fetchProveedor = async () => {
-            const result = await getServiceProviderBalanceAction('servicios')
+            // Buscar proveedor que coincida con el servicio seleccionado
+            const nombreServicio = SERVICIOS.find(s => s.id === servicioId)?.nombre || servicioId
+            const result = await getServiceProviderBalanceAction(nombreServicio)
             if (result.success && result.provider) {
                 setProveedorServicios(result.provider)
             } else {
-                toast.error("Proveedor no encontrado", {
-                    description: "Configurá un proveedor de servicios virtuales para habilitar cargas",
-                })
+                // Si no hay proveedor específico, el action ya busca genérico como fallback
+                setProveedorServicios(null)
             }
         }
         fetchProveedor()
-    }, [])
+    }, [servicioId])
 
     // Calcular comisión dinámica según config del proveedor
     // DECIMAL de Supabase puede llegar como string — siempre castear con Number()

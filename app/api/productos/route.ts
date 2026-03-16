@@ -21,6 +21,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const supabase = await createClient()
 
+    // ─── AUTH: Verificar que el usuario esté logueado ───
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, error: 'No autorizado' },
+        { status: 401 }
+      )
+    }
+
     // Obtener sucursalId de query params
     const { searchParams } = new URL(request.url)
     const sucursalId = searchParams.get('sucursalId')
@@ -29,6 +38,35 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { success: false, error: 'sucursalId es requerido' },
         { status: 400 }
+      )
+    }
+
+    // ─── AUTH: Verificar que la sucursal pertenece a la organización del usuario ───
+    const { data: membership } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single()
+
+    if (!membership) {
+      return NextResponse.json(
+        { success: false, error: 'Usuario sin organización' },
+        { status: 403 }
+      )
+    }
+
+    const { data: branch } = await supabase
+      .from('branches')
+      .select('id')
+      .eq('id', sucursalId)
+      .eq('organization_id', membership.organization_id)
+      .single()
+
+    if (!branch) {
+      return NextResponse.json(
+        { success: false, error: 'Sucursal no pertenece a tu organización' },
+        { status: 403 }
       )
     }
 
@@ -42,8 +80,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .order('nombre', { ascending: true })
 
     if (error) {
+      console.error('Error obteniendo productos:', error.message)
       return NextResponse.json(
-        { success: false, error: `Error obteniendo productos: ${error.message}` },
+        { success: false, error: 'Error obteniendo productos' },
         { status: 500 }
       )
     }

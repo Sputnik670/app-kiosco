@@ -165,7 +165,7 @@ export default function WidgetSube({ turnoId, sucursalId, onVentaRegistrada }: W
             <Button
                 className="w-full bg-yellow-400 hover:bg-yellow-500 text-blue-900 font-black h-12"
                 onClick={handleCargar}
-                disabled={loading || !monto}
+                disabled={loading || !monto || !proveedorSube}
             >
                 {loading ? <Loader2 className="animate-spin" /> : `COBRAR $${totalCobrar.toLocaleString()}`}
             </Button>
