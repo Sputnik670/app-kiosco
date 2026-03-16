@@ -319,6 +319,7 @@ async function getWebhookSecretForPayload(
 
 /**
  * Obtener y desencriptar webhook_secret de una organización
+ * Usa AES-256-GCM con MP_ENCRYPTION_KEY (mismo método que mercadopago.actions.ts)
  *
  * @param supabase - Cliente Supabase con service role
  * @param organizationId - ID de organización
@@ -329,57 +330,58 @@ async function getDecryptedWebhookSecret(
   organizationId: string
 ): Promise<string | null> {
   try {
-    // Usando pgp_sym_decrypt de PostgreSQL
-    // El servidor Supabase tiene la clave en el contexto de encriptación
     const { data, error } = await supabase
       .from('mercadopago_credentials')
       .select('webhook_secret_encrypted')
       .eq('organization_id', organizationId)
       .single()
 
-    if (error || !data) {
-      logger.debug('GetDecryptedWebhookSecret', 'No se encontraron credenciales', {
+    if (error || !data?.webhook_secret_encrypted) {
+      logger.debug('GetDecryptedWebhookSecret', 'No se encontraron credenciales o secret', {
         orgId: organizationId.substring(0, 8),
       })
       return null
     }
 
-    // Las credenciales llegaron encriptadas. Necesitamos desencriptarlas usando
-    // pgp_sym_decrypt en una query SQL directa con la clave.
-    // Alternativa: usar la función RPC de Supabase si existe.
-
-    // Intentar usar RPC si está disponible
-    try {
-      const { data: decrypted, error: decryptError } = await supabase.rpc(
-        'decrypt_mp_webhook_secret',
-        {
-          org_id: organizationId,
-        }
-      )
-
-      if (!decryptError && decrypted) {
-        return decrypted as string
-      }
-    } catch {
-      // RPC no disponible, continuar con fallback
+    // Desencriptar con AES-256-GCM usando MP_ENCRYPTION_KEY
+    const keyEnv = process.env.MP_ENCRYPTION_KEY
+    if (!keyEnv) {
+      logger.warn('GetDecryptedWebhookSecret', 'MP_ENCRYPTION_KEY no configurada')
+      return null
     }
 
-    // Fallback: El secret sigue encriptado. Para desencriptarlo, necesitaríamos
-    // la clave MP_ENCRYPTION_KEY y manejar el formato de encriptación.
-    // Por ahora, retornamos null y usamos fallback del env var.
-    //
-    // En producción, se recomienda:
-    // 1. Crear una función RPC en Supabase que maneje pgp_sym_decrypt con la clave
-    // 2. O usar Supabase Vault para almacenar la clave de encriptación
-    // 3. O implementar desencriptación a nivel de aplicación
+    // Obtener clave de encriptación (mismo formato que mercadopago.actions.ts)
+    let key: Buffer
+    if (/^[0-9a-f]{64}$/i.test(keyEnv)) {
+      key = Buffer.from(keyEnv, 'hex')
+    } else if (keyEnv.length >= 32) {
+      key = Buffer.from(keyEnv.substring(0, 32), 'utf8')
+    } else {
+      logger.warn('GetDecryptedWebhookSecret', 'MP_ENCRYPTION_KEY demasiado corta')
+      return null
+    }
 
-    logger.debug('GetDecryptedWebhookSecret', 'No se pudo desencriptar credential', {
-      orgId: organizationId.substring(0, 8),
-    })
-    return null
+    // Formato: iv:authTag:encryptedText (hex)
+    const parts = data.webhook_secret_encrypted.split(':')
+    if (parts.length !== 3) {
+      logger.warn('GetDecryptedWebhookSecret', 'Formato de encriptación inválido')
+      return null
+    }
+
+    const iv = Buffer.from(parts[0], 'hex')
+    const authTag = Buffer.from(parts[1], 'hex')
+    const encryptedText = parts[2]
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv)
+    decipher.setAuthTag(authTag)
+
+    let decrypted = decipher.update(encryptedText, 'hex', 'utf8')
+    decrypted += decipher.final('utf8')
+
+    return decrypted
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
-    logger.error('GetDecryptedWebhookSecret', 'Error obteniendo secret', err)
+    logger.error('GetDecryptedWebhookSecret', 'Error desencriptando secret', err)
     return null
   }
 }

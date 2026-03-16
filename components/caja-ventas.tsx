@@ -14,6 +14,7 @@ import { useOfflineVentas } from "@/hooks/use-offline-ventas"
 import { useCart } from "@/hooks/use-cart"
 import { BarcodeScanner } from "@/components/barcode-scanner"
 import { MercadoPagoQRDialog } from "@/components/mercadopago-qr-dialog"
+import { linkSaleToMercadoPagoOrderAction } from "@/lib/actions/mercadopago.actions"
 import { SyncStatusIndicator, SyncBadge } from "@/components/pwa"
 import type { ProductoVenta } from "@/lib/actions/ventas.actions"
 
@@ -230,6 +231,12 @@ export default function CajaVentas({
 
       if (!result.success) {
         throw new Error(result.error || 'Error al procesar venta')
+      }
+
+      // Vincular la venta con la orden de Mercado Pago
+      if (result.ventaId && mercadoPagoTempSaleId) {
+        linkSaleToMercadoPagoOrderAction(result.ventaId, mercadoPagoTempSaleId)
+          .catch((err) => console.error('Error vinculando venta a MP:', err))
       }
 
       // Generación de ticket

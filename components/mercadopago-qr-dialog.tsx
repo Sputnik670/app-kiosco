@@ -382,71 +382,51 @@ export function MercadoPagoQRDialog({
 // ───────────────────────────────────────────────────────────────────────────────
 
 /**
- * Renderiza el código QR como una imagen SVG placeholder.
- * En producción, se reemplazará con una librería como `qrcode.react`.
- * Por ahora, mostramos un placeholder que representa el QR.
+ * Renderiza el código QR real usando qrcode.react.
+ * El qrData es el string EMVCo que devuelve la API de Mercado Pago
+ * y que la app de MP escanea para iniciar el pago.
  */
 function QRCodeDisplay({ qrData }: { qrData: string }) {
-  // Placeholder: mostrar el QR data en monospace font como fallback visual
-  // En producción usar: import QRCode from 'qrcode.react'
+  // Lazy import para que no rompa si qrcode.react no está instalado aún
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [QRModule, setQRModule] = useState<any>(null)
 
+  useEffect(() => {
+    import('qrcode.react')
+      .then((mod) => {
+        setQRModule(mod)
+      })
+      .catch(() => {
+        // Si no está instalado, se queda en null y se muestra el fallback
+        console.warn('qrcode.react no instalado — mostrando fallback')
+      })
+  }, [])
+
+  if (QRModule) {
+    const QRCodeSVG = QRModule.QRCodeSVG
+    return (
+      <div className="flex justify-center">
+        <QRCodeSVG
+          value={qrData}
+          size={220}
+          level="M"
+          includeMargin={false}
+          bgColor="#FFFFFF"
+          fgColor="#000000"
+        />
+      </div>
+    )
+  }
+
+  // Fallback si qrcode.react no está disponible
   return (
-    <div className="space-y-2">
-      {/* Visual placeholder SVG - responsive size */}
-      <svg
-        width="200"
-        height="200"
-        viewBox="0 0 200 200"
-        className="w-full max-w-xs h-auto mx-auto"
-      >
-        {/* Marco */}
-        <rect x="10" y="10" width="180" height="180" fill="white" stroke="#000" strokeWidth="2" />
-
-        {/* Patrón de posicionamiento (esquinas) */}
-        {/* Top-left */}
-        <rect x="20" y="20" width="30" height="30" fill="#000" />
-        <rect x="25" y="25" width="20" height="20" fill="white" />
-        <rect x="30" y="30" width="10" height="10" fill="#000" />
-
-        {/* Top-right */}
-        <rect x="150" y="20" width="30" height="30" fill="#000" />
-        <rect x="155" y="25" width="20" height="20" fill="white" />
-        <rect x="160" y="30" width="10" height="10" fill="#000" />
-
-        {/* Bottom-left */}
-        <rect x="20" y="150" width="30" height="30" fill="#000" />
-        <rect x="25" y="155" width="20" height="20" fill="white" />
-        <rect x="30" y="160" width="10" height="10" fill="#000" />
-
-        {/* Patrón pseudo-aleatorio */}
-        {Array.from({ length: 64 }).map((_, i) => {
-          const row = Math.floor(i / 8)
-          const col = i % 8
-          const x = 65 + col * 12
-          const y = 65 + row * 12
-          const filled = Math.random() > 0.5
-          return filled ? (
-            <rect key={i} x={x} y={y} width="8" height="8" fill="#000" />
-          ) : null
-        })}
-
-        {/* Centro blanco */}
-        <circle cx="100" cy="100" r="15" fill="white" />
-        <text
-          x="100"
-          y="105"
-          textAnchor="middle"
-          fontSize="8"
-          fontWeight="bold"
-          fill="#000"
-        >
-          MP
-        </text>
-      </svg>
-
-      {/* Texto QR Data en monospace como fallback */}
-      <div className="text-center text-[7px] sm:text-[8px] font-mono text-slate-400 max-h-12 overflow-hidden break-all px-2">
-        {qrData.substring(0, 50)}...
+    <div className="flex flex-col items-center gap-3 py-4">
+      <QrCode className="h-16 w-16 text-blue-600" />
+      <p className="text-xs text-slate-500 text-center">
+        Código QR generado. Escaneá con Mercado Pago.
+      </p>
+      <div className="text-center text-[7px] font-mono text-slate-400 max-h-12 overflow-hidden break-all px-2">
+        {qrData.substring(0, 80)}...
       </div>
     </div>
   )

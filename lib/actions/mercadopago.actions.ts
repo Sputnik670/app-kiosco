@@ -714,6 +714,64 @@ export async function cancelMercadoPagoOrderAction(
 }
 
 /**
+ * 🔗 Vincular una venta con su orden de Mercado Pago
+ *
+ * Se llama después de crear la venta, para vincular sales.mp_order_id
+ * con la orden de MP que se creó con el tempSaleId como external_reference.
+ *
+ * @param saleId - ID real de la venta en sales
+ * @param tempSaleId - ID temporal usado como external_reference al crear el QR
+ */
+export async function linkSaleToMercadoPagoOrderAction(
+  saleId: string,
+  tempSaleId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { supabase, orgId } = await verifyAuth()
+
+    // Buscar la orden de MP por external_reference (tempSaleId)
+    const { data: order, error: findError } = await supabase
+      .from('mercadopago_orders')
+      .select('id')
+      .eq('organization_id', orgId)
+      .eq('external_reference', tempSaleId)
+      .maybeSingle()
+
+    if (findError || !order) {
+      logger.warn('linkSaleToMPOrder', 'Orden MP no encontrada', {
+        tempSaleId: tempSaleId.substring(0, 8),
+        saleId: saleId.substring(0, 8),
+      })
+      // No es un error crítico — la venta ya se registró
+      return { success: true }
+    }
+
+    // Actualizar la venta con el mp_order_id
+    const { error: updateError } = await supabase
+      .from('sales')
+      .update({ mp_order_id: order.id })
+      .eq('id', saleId)
+
+    if (updateError) {
+      logger.error('linkSaleToMPOrder', 'Error vinculando venta a orden MP', updateError)
+      return { success: false, error: 'No se pudo vincular la venta con MP' }
+    }
+
+    logger.info('linkSaleToMPOrder', 'Venta vinculada a orden MP', {
+      saleId: saleId.substring(0, 8),
+      orderId: order.id.substring(0, 8),
+    })
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
  * 🔗 Obtener URL de OAuth para conectar Mercado Pago
  *
  * Retorna la URL a la que hay que redirigir al usuario.
