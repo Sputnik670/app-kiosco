@@ -324,12 +324,16 @@ export async function processServiceRechargeAction(
 }
 
 /**
- * 🔄 Alias para procesar recargas virtuales (nombre genérico)
+ * 🔄 Procesar recargas virtuales (wrapper para SUBE y servicios)
  *
  * Funciona tanto para servicios (Claro, Movistar, etc.) como para SUBE.
- * Es la misma función que processServiceRechargeAction.
+ * Wrapper explícito en vez de alias para compatibilidad con Next.js server actions.
  *
  * @param data - Datos de la recarga
  * @returns ProcessServiceRechargeResult - Resultado de la operación
  */
-export const processVirtualRechargeAction = processServiceRechargeAction
+export async function processVirtualRechargeAction(
+  data: ServiceRechargeData
+): Promise<ProcessServiceRechargeResult> {
+  return processServiceRechargeAction(data)
+}

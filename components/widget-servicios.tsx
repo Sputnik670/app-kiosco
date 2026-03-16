@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Smartphone, Zap, Tv, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { getServiceProviderBalanceAction, processServiceRechargeAction, type ServiceProvider } from "@/lib/actions/service.actions"
+import { getServiceProviderBalanceAction, processVirtualRechargeAction, type ServiceProvider } from "@/lib/actions/service.actions"
 
 const METODOS_PAGO = [
     { id: 'efectivo' as const, label: '💵 Efectivo' },
@@ -85,7 +85,7 @@ export default function WidgetServicios({ turnoId, sucursalId, onVentaRegistrada
             const montoCarga = parseFloat(monto)
             const nombreServicio = SERVICIOS.find(s => s.id === servicioId)?.nombre || "Servicio"
 
-            const result = await processServiceRechargeAction({
+            const result = await processVirtualRechargeAction({
                 turnoId,
                 sucursalId,
                 proveedorId: proveedorServicios.id,
