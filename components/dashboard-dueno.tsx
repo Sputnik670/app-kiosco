@@ -21,6 +21,7 @@ import TeamRanking from "@/components/team-ranking"
 import GenerarQRFichaje from "@/components/generar-qr-fichaje"
 import { Reports } from "@/components/reports"
 import ConfiguracionMercadoPago from "@/components/configuracion-mercadopago"
+import ConfiguracionArca from "@/components/configuracion-arca"
 
 // Componentes de dashboard refactorizados
 import {
@@ -275,6 +276,7 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
         {state.activeTab === "ajustes" && (
           <div className="space-y-6 animate-in fade-in">
             <ConfiguracionMercadoPago />
+            <ConfiguracionArca />
           </div>
         )}
 
