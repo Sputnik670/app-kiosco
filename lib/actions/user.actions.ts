@@ -108,7 +108,7 @@ export async function completeProfile(prevState: State, formData: FormData) {
   }
 
   try {
-    console.log('Iniciando Setup Atómico para:', email)
+    // Setup iniciado
 
     // 4. EJECUTAR RPC BLINDADO
     const { data, error } = await createInitialSetup({
@@ -125,7 +125,7 @@ export async function completeProfile(prevState: State, formData: FormData) {
       }
     }
 
-    console.log('Setup completado exitosamente:', data)
+    // Setup completado
 
   } catch (err) {
     console.error('Error inesperado:', err)

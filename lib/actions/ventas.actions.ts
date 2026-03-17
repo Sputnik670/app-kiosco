@@ -150,7 +150,9 @@ export async function searchProductsAction(
       .select('*')
       .eq('branch_id', branchId)
       // Buscar por nombre (ilike = case-insensitive) o código de barras (exacto)
-      .or(`name.ilike.%${query}%,barcode.eq.${query}`)
+      // Sanitizar query: eliminar caracteres que PostgREST interpreta como operadores
+      // para prevenir filter injection (ej: ',organization_id.eq.OTRO_ID')
+      .or(`name.ilike.%${query.replace(/[,()]/g, '').trim()}%,barcode.eq.${query.replace(/[,()]/g, '').trim()}`)
       // Excluir servicios
       .eq('is_service', false)
       // Solo productos activos con stock

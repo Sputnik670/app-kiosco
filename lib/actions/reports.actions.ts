@@ -16,18 +16,37 @@ async function verifyReportAccess(): Promise<{
   authorized: boolean
   error?: string
   supabase?: Awaited<ReturnType<typeof createClient>>
+  orgId?: string
 }> {
   try {
-    const { supabase, role } = await verifyMembership()
+    const { supabase, role, orgId } = await verifyMembership()
 
     if (role !== 'owner' && role !== 'admin') {
       return { authorized: false, error: "No tienes permisos para acceder a reportes" }
     }
 
-    return { authorized: true, supabase }
+    return { authorized: true, supabase, orgId }
   } catch (error) {
     return { authorized: false, error: error instanceof Error ? error.message : "No autenticado" }
   }
+}
+
+/**
+ * Valida que un branchId pertenece a la organización del usuario autenticado.
+ * Previene acceso a datos de otras organizaciones si RLS tiene algún gap.
+ */
+async function validateBranchOwnership(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  branchId: string,
+  orgId: string
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('branches')
+    .select('id')
+    .eq('id', branchId)
+    .eq('organization_id', orgId)
+    .maybeSingle()
+  return !!data
 }
 
 // ============================================================================
@@ -153,10 +172,15 @@ export async function getSalesReportAction(
   try {
     // Verificar permisos de acceso a reportes
     const access = await verifyReportAccess()
-    if (!access.authorized || !access.supabase) {
+    if (!access.authorized || !access.supabase || !access.orgId) {
       return { success: false, error: access.error || "Sin permisos" }
     }
     const supabase = access.supabase
+
+    // Validar que la sucursal pertenece a la organización del usuario
+    if (!await validateBranchOwnership(supabase, branchId, access.orgId)) {
+      return { success: false, error: "Sucursal no encontrada o sin acceso" }
+    }
 
     // Obtener ventas del período
     const { data: salesData, error: salesError } = await supabase
@@ -386,10 +410,15 @@ export async function getStockReportAction(
   try {
     // Verificar permisos de acceso a reportes
     const access = await verifyReportAccess()
-    if (!access.authorized || !access.supabase) {
+    if (!access.authorized || !access.supabase || !access.orgId) {
       return { success: false, error: access.error || "Sin permisos" }
     }
     const supabase = access.supabase
+
+    // Validar que la sucursal pertenece a la organización del usuario
+    if (!await validateBranchOwnership(supabase, branchId, access.orgId)) {
+      return { success: false, error: "Sucursal no encontrada o sin acceso" }
+    }
 
     // Obtener productos con stock
     const { data: productsData, error: productsError } = await supabase
@@ -445,10 +474,15 @@ export async function getExpiringProductsReportAction(
   try {
     // Verificar permisos de acceso a reportes
     const access = await verifyReportAccess()
-    if (!access.authorized || !access.supabase) {
+    if (!access.authorized || !access.supabase || !access.orgId) {
       return { success: false, error: access.error || "Sin permisos" }
     }
     const supabase = access.supabase
+
+    // Validar que la sucursal pertenece a la organización del usuario
+    if (!await validateBranchOwnership(supabase, branchId, access.orgId)) {
+      return { success: false, error: "Sucursal no encontrada o sin acceso" }
+    }
 
     const futureDate = new Date()
     futureDate.setDate(futureDate.getDate() + daysAhead)

@@ -257,7 +257,7 @@ export function TabTimeline({ formatMoney }: { formatMoney: (n: number) => strin
             <p className="text-lg font-black text-slate-800">
               {format(selectedDate, "d 'de' MMMM", { locale: es })}
             </p>
-            <p className="text-[10px] text-slate-400 font-bold uppercase">
+            <p className="text-xs text-slate-400 font-bold uppercase">
               {format(selectedDate, "EEEE yyyy", { locale: es })}
               {isToday && ' · HOY'}
             </p>
@@ -271,7 +271,7 @@ export function TabTimeline({ formatMoney }: { formatMoney: (n: number) => strin
         {!isToday && (
           <button
             onClick={goToToday}
-            className="w-full mt-2 text-[10px] font-bold text-indigo-600 hover:underline"
+            className="w-full mt-2 text-xs font-bold text-indigo-600 hover:underline"
           >
             Ir a hoy
           </button>
@@ -297,19 +297,19 @@ export function TabTimeline({ formatMoney }: { formatMoney: (n: number) => strin
       {!loading && events.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
           <Card className="p-3 border-2 border-emerald-200 bg-emerald-50/50 text-center">
-            <p className="text-[9px] font-black text-emerald-600 uppercase">Ingresos</p>
+            <p className="text-xs font-black text-emerald-600 uppercase">Ingresos</p>
             <p className="text-sm font-black text-slate-800">
               {formatMoney(summary.totalVentas + summary.totalServicios)}
             </p>
           </Card>
           <Card className="p-3 border-2 border-orange-200 bg-orange-50/50 text-center">
-            <p className="text-[9px] font-black text-orange-600 uppercase">Compras</p>
+            <p className="text-xs font-black text-orange-600 uppercase">Compras</p>
             <p className="text-sm font-black text-slate-800">
               {formatMoney(summary.totalCompras)}
             </p>
           </Card>
           <Card className={`p-3 border-2 text-center ${netDay >= 0 ? 'border-blue-200 bg-blue-50/50' : 'border-red-200 bg-red-50/50'}`}>
-            <p className={`text-[9px] font-black uppercase ${netDay >= 0 ? 'text-blue-600' : 'text-red-600'}`}>Neto</p>
+            <p className={`text-xs font-black uppercase ${netDay >= 0 ? 'text-blue-600' : 'text-red-600'}`}>Neto</p>
             <p className="text-sm font-black text-slate-800">
               {formatMoney(netDay)}
             </p>
@@ -321,7 +321,7 @@ export function TabTimeline({ formatMoney }: { formatMoney: (n: number) => strin
       <div className="flex gap-1 flex-wrap items-center">
         <button
           onClick={clearFilters}
-          className={`text-[8px] font-bold px-2.5 py-1.5 rounded-full border transition-all ${
+          className={`text-xs font-bold px-2.5 py-1.5 rounded-full border transition-all ${
             !activeFilters ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'
           }`}
         >
@@ -333,7 +333,7 @@ export function TabTimeline({ formatMoney }: { formatMoney: (n: number) => strin
             <button
               key={f.type}
               onClick={() => toggleFilter(f.type)}
-              className={`text-[8px] font-bold px-2.5 py-1.5 rounded-full border transition-all ${
+              className={`text-xs font-bold px-2.5 py-1.5 rounded-full border transition-all ${
                 isActive ? 'bg-slate-800 text-white border-slate-800' : `${f.color}`
               }`}
             >
@@ -360,7 +360,7 @@ export function TabTimeline({ formatMoney }: { formatMoney: (n: number) => strin
       {showNoteForm && (
         <Card className="p-4 border-2 border-indigo-200 bg-indigo-50/50 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between">
-            <Label className="text-[10px] font-black text-indigo-700 uppercase">
+            <Label className="text-xs font-black text-indigo-700 uppercase">
               {editingNoteId ? 'Editar nota' : 'Nueva nota'}
             </Label>
             <button onClick={resetNoteForm} className="text-slate-400 hover:text-slate-600">
@@ -388,7 +388,7 @@ export function TabTimeline({ formatMoney }: { formatMoney: (n: number) => strin
               <button
                 key={cat.value}
                 onClick={() => setNoteCategory(cat.value)}
-                className={`text-[9px] font-bold px-2.5 py-1.5 rounded-full border transition-all ${
+                className={`text-xs font-bold px-2.5 py-1.5 rounded-full border transition-all ${
                   noteCategory === cat.value
                     ? 'bg-indigo-600 text-white border-indigo-600'
                     : 'bg-white text-slate-500 border-slate-200'
@@ -422,7 +422,7 @@ export function TabTimeline({ formatMoney }: { formatMoney: (n: number) => strin
           <p className="text-sm font-bold text-slate-400">
             Sin actividad el {format(selectedDate, "d 'de' MMMM", { locale: es })}
           </p>
-          <p className="text-[10px] text-slate-300 mt-1">
+          <p className="text-xs text-slate-300 mt-1">
             Navegá a otro día o agregá una nota
           </p>
         </Card>
@@ -441,7 +441,7 @@ export function TabTimeline({ formatMoney }: { formatMoney: (n: number) => strin
               }
             />
           ))}
-          <p className="text-center text-[10px] text-slate-300 pt-2">
+          <p className="text-center text-xs text-slate-300 pt-2">
             {events.length} eventos
           </p>
         </div>
@@ -512,24 +512,24 @@ function TimelineCard({
 
           {/* Footer */}
           <div className="flex items-center justify-between mt-1">
-            <span className="text-[9px] text-slate-300 font-bold">{time}</span>
+            <span className="text-xs text-slate-300 font-bold">{time}</span>
 
             {/* Note actions */}
             {isNote && (
-              <div className="flex gap-0.5">
+              <div className="flex gap-1">
                 {onTogglePin && (
-                  <button onClick={onTogglePin} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-indigo-600">
-                    {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+                  <button onClick={onTogglePin} className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-indigo-600 min-h-[36px] min-w-[36px] flex items-center justify-center">
+                    {isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
                   </button>
                 )}
                 {onEdit && (
-                  <button onClick={onEdit} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600">
-                    <Pencil className="h-3 w-3" />
+                  <button onClick={onEdit} className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600 min-h-[36px] min-w-[36px] flex items-center justify-center">
+                    <Pencil className="h-4 w-4" />
                   </button>
                 )}
                 {onDelete && (
-                  <button onClick={onDelete} className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600">
-                    <Trash2 className="h-3 w-3" />
+                  <button onClick={onDelete} className="p-2 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 min-h-[36px] min-w-[36px] flex items-center justify-center">
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 )}
               </div>

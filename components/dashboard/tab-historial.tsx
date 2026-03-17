@@ -218,69 +218,76 @@ export function TabHistorial({
         return
       }
 
-      const employeeRecords: EmployeeRecord[] = []
+      // ── Batch queries: 3 queries fijas sin importar cuántos empleados haya ──
+      const userIds = members.map(m => m.user_id)
 
-      for (const member of members) {
-        // Asistencias
-        const { data: attendance } = await supabase
+      const [attendanceResult, cashRegistersResult] = await Promise.all([
+        // 1. Todas las asistencias del equipo en un solo fetch
+        supabase
           .from("attendance")
-          .select("id, check_in, check_out")
-          .eq("user_id", member.user_id)
+          .select("id, user_id, check_in, check_out")
+          .in("user_id", userIds)
           .eq("branch_id", sucursalId)
           .order("check_in", { ascending: false })
-          .limit(50)
+          .limit(500),
 
-        const totalAttendance = attendance?.length || 0
+        // 2. Todos los turnos de caja del equipo en un solo fetch
+        supabase
+          .from("cash_registers")
+          .select("id, opened_by, opening_amount, closing_amount")
+          .in("opened_by", userIds)
+          .eq("branch_id", sucursalId)
+          .eq("is_open", false)
+          .limit(500),
+      ])
+
+      const allAttendance = attendanceResult.data || []
+      const allCashRegisters = cashRegistersResult.data || []
+
+      // 3. Todas las misiones de todos los turnos en un solo fetch
+      const allRegisterIds = allCashRegisters.map(c => c.id)
+      const { data: allMissions } = allRegisterIds.length > 0
+        ? await supabase
+            .from("missions")
+            .select("id, cash_register_id, is_completed")
+            .in("cash_register_id", allRegisterIds)
+        : { data: [] }
+
+      // ── Agregar por empleado en memoria (sin más queries) ──
+      const employeeRecords: EmployeeRecord[] = members.map(member => {
+        const attendance = allAttendance.filter(a => a.user_id === member.user_id)
+        const cashRegisters = allCashRegisters.filter(c => c.opened_by === member.user_id)
+        const registerIds = new Set(cashRegisters.map(c => c.id))
+        const missions = (allMissions || []).filter(m => registerIds.has(m.cash_register_id))
+
         let totalMinutes = 0
-        ;(attendance || []).forEach(a => {
+        attendance.forEach(a => {
           if (a.check_in && a.check_out) {
             totalMinutes += differenceInMinutes(parseISO(a.check_out), parseISO(a.check_in))
           }
         })
-        const completedShifts = (attendance || []).filter(a => a.check_out).length
+        const completedShifts = attendance.filter(a => a.check_out).length
         const avgHours = completedShifts > 0 ? totalMinutes / completedShifts / 60 : 0
 
-        // Turnos de caja
-        const { data: cashRegisters } = await supabase
-          .from("cash_registers")
-          .select("id, opening_amount, closing_amount")
-          .eq("opened_by", member.user_id)
-          .eq("branch_id", sucursalId)
-          .eq("is_open", false)
-          .limit(50)
-
-        const totalShifts = cashRegisters?.length || 0
-
-        // Diferencias de caja (simplificado: suma de |closing - opening|)
         let cashDiff = 0
-        ;(cashRegisters || []).forEach(cr => {
+        cashRegisters.forEach(cr => {
           if (cr.closing_amount !== null && cr.opening_amount !== null) {
-            // Solo contar si hay diferencia significativa
             const diff = Math.abs(Number(cr.closing_amount) - Number(cr.opening_amount))
             if (diff > 100) cashDiff += diff
           }
         })
 
-        // Misiones
-        const { data: missions } = await supabase
-          .from("missions")
-          .select("id, is_completed")
-          .in("cash_register_id", (cashRegisters || []).map(c => c.id))
-
-        const missionsTotal = missions?.length || 0
-        const missionsCompleted = (missions || []).filter(m => m.is_completed).length
-
-        employeeRecords.push({
+        return {
           userId: member.user_id,
           name: member.display_name || 'Empleado',
-          totalShifts,
-          totalAttendance,
+          totalShifts: cashRegisters.length,
+          totalAttendance: attendance.length,
           avgHoursPerShift: Math.round(avgHours * 10) / 10,
-          missionsCompleted,
-          missionsTotal,
+          missionsCompleted: missions.filter(m => m.is_completed).length,
+          missionsTotal: missions.length,
           cashDifferences: cashDiff,
-        })
-      }
+        }
+      })
 
       setEmployees(employeeRecords)
     } catch (err) {
