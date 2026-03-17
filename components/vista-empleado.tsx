@@ -18,7 +18,8 @@ import RegistrarMovimiento from "@/components/registrar-movimientos"
 import GestionVencimientos from "@/components/gestion-vencimientos" 
 import WidgetServicios from "@/components/widget-servicios" 
 import WidgetSube from "@/components/widget-sube"
-import RelojControl from "@/components/reloj-control" 
+import RelojControl from "@/components/reloj-control"
+import MisIncidentes from "@/components/mis-incidentes"
 // QR scanner removido: fichaje se hace al entrar al panel
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
@@ -138,6 +139,9 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                         onActionComplete={handleDataUpdated}
                     />
                 </div>
+
+                {/* Incidentes pendientes — siempre visibles si hay */}
+                <MisIncidentes />
 
                 {!isClockedIn ? (
                     <Card className="p-12 border-2 border-dashed border-slate-200 bg-white/80 backdrop-blur-sm flex flex-col items-center text-center space-y-4 rounded-[2.5rem]">

@@ -18,10 +18,12 @@ import ControlSaldoProveedor from "@/components/control-saldo-proveedor"
 import { InvitarEmpleado } from "@/components/invitar-empleado"
 import { generarTicketPDF } from "@/lib/generar-ticket"
 import TeamRanking from "@/components/team-ranking"
+import GestionIncidentes from "@/components/gestion-incidentes"
 import GenerarQRFichaje from "@/components/generar-qr-fichaje"
 import { Reports } from "@/components/reports"
 import ConfiguracionMercadoPago from "@/components/configuracion-mercadopago"
 import ConfiguracionArca from "@/components/configuracion-arca"
+import DiarioDueno from "@/components/diario-dueno"
 
 // Componentes de dashboard refactorizados
 import {
@@ -259,6 +261,7 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
               onPrintTurno={handlePrintTurno}
             />
             <TeamRanking />
+            <GestionIncidentes sucursalId={currentSucursalId} organizationId={data.organizationId} />
             <InvitarEmpleado />
             <Card className="p-6 border-2">
               <h3 className="text-lg font-black text-slate-800 uppercase mb-4 flex items-center gap-2">
@@ -275,12 +278,15 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
 
         {/* HISTORIAL: Registro histórico completo */}
         {state.activeTab === "historial" && (
-          <TabHistorial
-            sucursalId={currentSucursalId}
-            organizationId={data.organizationId}
-            formatMoney={formatMoney}
-            onRefresh={refetch}
-          />
+          <div className="space-y-6 animate-in fade-in">
+            <DiarioDueno />
+            <TabHistorial
+              sucursalId={currentSucursalId}
+              organizationId={data.organizationId}
+              formatMoney={formatMoney}
+              onRefresh={refetch}
+            />
+          </div>
         )}
 
         {/* AJUSTES: Configuración de integraciones */}
