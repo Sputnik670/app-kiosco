@@ -68,14 +68,17 @@ SaaS de gestión para cadenas de kioscos en Argentina. El objetivo es convertir 
 - `branch.actions.ts`
 
 ### Nuevos (en desarrollo)
-- **Actualización masiva de precios** — `actualizacion-masiva-precios.tsx` / funciones en `product.actions.ts`
-- **Mercado Pago QR** — `mercadopago.actions.ts`, `types/mercadopago.types.ts`, `app/api/mercadopago/webhook/route.ts` (stubs, pendiente de implementación completa)
+- **Mercado Pago QR** — `mercadopago.actions.ts`, `configuracion-mercadopago.tsx`, `mercadopago-qr-dialog.tsx`, `app/api/mercadopago/` (OAuth + webhook implementados)
+- **ARCA** — `configuracion-arca.tsx` / `arca.actions.ts`, `arca.service.ts` (en desarrollo activo)
+
+### Descartado / Suspendido
+- **Actualización masiva de precios** — `actualizacion-masiva-precios.tsx` — DESCARTADO por Ram (2026-03-17). El componente existe en el código pero no se continúa desarrollando.
 
 ## Decisiones de Producto
 
 ### Roadmap Aprobado
-1. **Actualización masiva de precios** — HACER YA (inflación argentina, uso diario)
-2. **Integración Mercado Pago QR** — HACER YA (medio de pago dominante)
+1. **Integración Mercado Pago QR** — EN CURSO (OAuth implementado, webhook activo)
+2. **ARCA** — EN CURSO (en desarrollo activo)
 3. **Modo offline / PWA con sync** — PLANIFICAR
 
 ### Pospuesto (cubierto por onboarding personalizado)

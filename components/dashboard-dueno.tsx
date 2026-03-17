@@ -75,12 +75,9 @@ const GenerarQRFichaje = dynamic(() => import("@/components/generar-qr-fichaje")
   loading: TabLoadingFallback,
 })
 
-// Tab Historial
-const DiarioDueno = dynamic(() => import("@/components/diario-dueno"), {
-  loading: TabLoadingFallback,
-})
-const TabHistorial = dynamic(
-  () => import("@/components/dashboard/tab-historial").then((m) => ({ default: m.TabHistorial })),
+// Tab Historial (Timeline unificada)
+const TabTimeline = dynamic(
+  () => import("@/components/dashboard/tab-timeline").then((m) => ({ default: m.TabTimeline })),
   { loading: TabLoadingFallback }
 )
 
@@ -343,17 +340,9 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
           </div>
         )}
 
-        {/* HISTORIAL: Registro histórico completo */}
+        {/* HISTORIAL: Timeline unificada con todo el registro del negocio */}
         {state.activeTab === "historial" && (
-          <div className="space-y-6 animate-in fade-in">
-            <DiarioDueno />
-            <TabHistorial
-              sucursalId={currentSucursalId}
-              organizationId={data.organizationId}
-              formatMoney={formatMoney}
-              onRefresh={refetch}
-            />
-          </div>
+          <TabTimeline formatMoney={formatMoney} />
         )}
 
         {/* AJUSTES: Configuración de integraciones */}
