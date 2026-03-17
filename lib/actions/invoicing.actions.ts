@@ -38,26 +38,12 @@ async function verifyOwnerAccess(): Promise<{
   supabase?: Awaited<ReturnType<typeof createClient>>
   orgId?: string
 }> {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    return { authorized: false, error: "No autenticado" }
+  try {
+    const { supabase, orgId } = await verifyOwner()
+    return { authorized: true, supabase, orgId }
+  } catch (error) {
+    return { authorized: false, error: error instanceof Error ? error.message : "No autenticado" }
   }
-
-  // Verificar rol del usuario - solo owner puede facturar
-  const { data: isOwner } = await supabase.rpc('is_owner')
-
-  if (!isOwner) {
-    return { authorized: false, error: "Solo el dueño puede gestionar facturación" }
-  }
-
-  const { data: orgId } = await supabase.rpc('get_my_org_id')
-  if (!orgId) {
-    return { authorized: false, error: "No se encontró organización" }
-  }
-
-  return { authorized: true, supabase, orgId }
 }
 import {
   type GetUninvoicedSalesResult,
@@ -320,15 +306,15 @@ export async function createInvoiceDraftAction(
     // Calcular impuestos
     const { taxAmount, total } = calculateTax(subtotal, invoiceType)
 
-    // Obtener siguiente número de factura
-    const { data: nextNumber } = await supabase.rpc('get_next_invoice_number', {
-      p_org_id: orgId,
-      p_point_of_sale: fiscalConfig.point_of_sale,
-      p_invoice_type: invoiceType,
-    })
-
-    // Obtener usuario actual
-    const { data: { user } } = await supabase.auth.getUser()
+    // Obtener siguiente número de factura y usuario actual en paralelo
+    const [{ data: nextNumber }, { data: { user } }] = await Promise.all([
+      supabase.rpc('get_next_invoice_number', {
+        p_org_id: orgId,
+        p_point_of_sale: fiscalConfig.point_of_sale,
+        p_invoice_type: invoiceType,
+      }),
+      supabase.auth.getUser(),
+    ])
 
     // Crear borrador de factura
     const { data: invoice, error: insertError } = await supabase

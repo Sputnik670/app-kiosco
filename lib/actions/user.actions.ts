@@ -17,6 +17,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { verifyAuth } from '@/lib/actions/auth-helpers'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createInitialSetup } from '@/lib/repositories/organization.repository'
@@ -152,22 +153,9 @@ export async function getEmployeeDashboardContextAction(
       return { success: false, error: 'ID de sucursal requerido' }
     }
 
-    const supabase = await createClient()
+    const { supabase, user, orgId } = await verifyAuth()
 
-    // PASO 1: Obtener usuario
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return { success: false, error: 'No hay sesión activa' }
-    }
-
-    // PASO 2: Obtener organization_id del usuario
-    const { data: orgId } = await supabase.rpc('get_my_org_id')
-
-    if (!orgId) {
-      return { success: false, error: 'No se encontró tu organización' }
-    }
-
-    // PASO 3: Consultas paralelas (Schema V2)
+    // Consultas paralelas (Schema V2)
     const [
       membershipResult,
       branchResult,

@@ -5,6 +5,7 @@
   "installCommand": "npm install",
   "outputDirectory": ".next",
   "framework": "nextjs",
+  "regions": ["gru1"],
   "headers": [
     {
       "source": "/(.*)",

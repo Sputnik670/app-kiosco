@@ -27,25 +27,33 @@ export default function WidgetSube({ turnoId, sucursalId, onVentaRegistrada }: W
     const [proveedorSube, setProveedorSube] = useState<ServiceProvider | null>(null)
 
     useEffect(() => {
-        const fetchProveedorSube = async () => {
+        let cancelled = false
+        const fetchProveedorSube = async (retries = 2) => {
             try {
                 const result = await getServiceProviderBalanceAction('SUBE')
+                if (cancelled) return
                 if (result.success && result.provider) {
                     setProveedorSube(result.provider)
                 } else {
-                    console.error('[SUBE] Error cargando proveedor:', result.error)
-                    toast.error("Error cargando SUBE", {
-                        description: result.error || "No se pudo conectar con el proveedor SUBE",
-                    })
+                    // No es error de red, es que no existe el proveedor
+                    console.warn('[SUBE] Proveedor no encontrado:', result.error)
                 }
             } catch (err: any) {
-                console.error('[SUBE] Excepción cargando proveedor:', err)
+                if (cancelled) return
+                // Error de red (cold start, timeout) → reintentar
+                if (retries > 0) {
+                    console.warn(`[SUBE] Reintentando... (${retries} intentos restantes)`)
+                    await new Promise(r => setTimeout(r, 1500))
+                    return fetchProveedorSube(retries - 1)
+                }
+                console.error('[SUBE] Error cargando proveedor tras reintentos:', err)
                 toast.error("Error cargando SUBE", {
-                    description: err.message || "Error de conexión",
+                    description: "Error de conexión. Recargá la página.",
                 })
             }
         }
         fetchProveedorSube()
+        return () => { cancelled = true }
     }, [])
 
     // Comisión dinámica desde config del proveedor

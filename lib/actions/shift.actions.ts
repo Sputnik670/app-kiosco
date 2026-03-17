@@ -19,7 +19,9 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { verifyAuth } from '@/lib/actions/auth-helpers'
 import { format } from 'date-fns'
+import { openShiftSchema, closeShiftSchema, getZodError } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -97,33 +99,10 @@ export interface CloseShiftResult {
  */
 export async function getActiveShiftAction(): Promise<GetActiveShiftResult> {
   try {
-    const supabase = await createClient()
+    const { supabase, user, orgId } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        shift: null,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id')
-
-    if (!orgId) {
-      return {
-        success: false,
-        shift: null,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Resolver sucursal automáticamente
+    // Resolver sucursal automáticamente
     // ───────────────────────────────────────────────────────────────────────────
 
     const { data: branch } = await supabase
@@ -182,39 +161,12 @@ export async function getActiveShiftAction(): Promise<GetActiveShiftResult> {
  */
 export async function openShiftAction(montoInicial: number): Promise<OpenShiftResult> {
   try {
-    const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
-    if (isNaN(montoInicial) || montoInicial < 0) {
-      return {
-        success: false,
-        error: 'Monto inicial inválido',
-      }
+    const parsed = openShiftSchema.safeParse({ montoInicial })
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
     }
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener organización y sucursal
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id')
-
-    if (!orgId) {
-      return {
-        success: false,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
+    const { supabase, user, orgId } = await verifyAuth()
 
     const { data: branch } = await supabase
       .from('branches')
@@ -291,33 +243,12 @@ export async function closeShiftAction(
   montoFinal: number
 ): Promise<CloseShiftResult> {
   try {
-    const supabase = await createClient()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
-    if (!shiftId) {
-      return {
-        success: false,
-        error: 'ID de turno requerido',
-      }
+    const parsed = closeShiftSchema.safeParse({ shiftId, montoFinal })
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
     }
 
-    if (isNaN(montoFinal) || montoFinal < 0) {
-      return {
-        success: false,
-        error: 'Monto final inválido',
-      }
-    }
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
+    const { supabase, user } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 1: Obtener datos del turno (Schema V2: cash_registers)

@@ -12,6 +12,7 @@
 'use server'
 
 import { verifyOwner } from '@/lib/actions/auth-helpers'
+import { createNoteSchema, updateNoteSchema, getZodError, idSchema } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -55,12 +56,16 @@ export interface UpdateNoteParams {
 
 export async function createNoteAction(params: CreateNoteParams) {
   try {
-    const { supabase, orgId } = await verifyOwner()
-    const { data: { user } } = await supabase.auth.getUser()
+    const parsed = createNoteSchema.safeParse(params)
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
+    const { supabase, user, orgId } = await verifyOwner()
 
     const { data, error } = await supabase.from('owner_notes').insert({
       organization_id: orgId,
-      author_id: user!.id,
+      author_id: user.id,
       note_date: params.noteDate,
       title: params.title || null,
       content: params.content,
@@ -190,6 +195,11 @@ export async function getNoteDatesAction(month: number, year: number): Promise<{
 
 export async function updateNoteAction(params: UpdateNoteParams) {
   try {
+    const parsed = updateNoteSchema.safeParse(params)
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
     const { supabase } = await verifyOwner()
 
     const updateData: Record<string, unknown> = {}
@@ -220,6 +230,11 @@ export async function updateNoteAction(params: UpdateNoteParams) {
 
 export async function deleteNoteAction(noteId: string) {
   try {
+    const parsed = idSchema.safeParse(noteId)
+    if (!parsed.success) {
+      return { success: false, error: 'ID de nota inválido' }
+    }
+
     const { supabase } = await verifyOwner()
 
     const { error } = await supabase
@@ -243,6 +258,11 @@ export async function deleteNoteAction(noteId: string) {
 
 export async function toggleNotePinAction(noteId: string, pinned: boolean) {
   try {
+    const parsed = idSchema.safeParse(noteId)
+    if (!parsed.success) {
+      return { success: false, error: 'ID de nota inválido' }
+    }
+
     const { supabase } = await verifyOwner()
 
     const { error } = await supabase

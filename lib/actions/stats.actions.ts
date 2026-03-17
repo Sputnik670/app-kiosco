@@ -20,6 +20,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { verifyAuth } from '@/lib/actions/auth-helpers'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -65,33 +66,10 @@ export interface GetTeamRankingResult {
  */
 export async function getTeamRankingAction(): Promise<GetTeamRankingResult> {
   try {
-    const supabase = await createClient()
+    const { supabase, orgId } = await verifyAuth()
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PASO 1: Obtener usuario y organización
-    // ─────────────────────────────────────────────────────────────────────────
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        ranking: [],
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id')
-
-    if (!orgId) {
-      return {
-        success: false,
-        ranking: [],
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // PASO 2: Obtener empleados de la organización
+    // Obtener empleados de la organización
     // ─────────────────────────────────────────────────────────────────────────
 
     const { data: membershipsData, error: empleadosError } = await supabase

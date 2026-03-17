@@ -20,6 +20,7 @@
 
 import { createClient } from '@/lib/supabase-server'
 import { verifyAuth } from '@/lib/actions/auth-helpers'
+import { serviceRechargeSchema, getZodError } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -69,9 +70,49 @@ export interface ProcessServiceRechargeResult {
   error?: string
 }
 
+/**
+ * Resultado de listado de proveedores de servicios
+ */
+export interface GetServiceProvidersListResult {
+  success: boolean
+  providers: ServiceProvider[]
+  error?: string
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // SERVER ACTIONS
 // ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 📋 Lista todos los proveedores de servicios virtuales (excluye SUBE)
+ *
+ * Devuelve todos los suppliers con rubro != 'SUBE' para el dropdown dinámico
+ * del widget de Cargas Virtuales.
+ */
+export async function getServiceProvidersListAction(): Promise<GetServiceProvidersListResult> {
+  try {
+    const { supabase, orgId } = await verifyAuth()
+
+    const { data, error } = await supabase
+      .from('suppliers')
+      .select('id, balance, name, markup_type, markup_value')
+      .eq('organization_id', orgId)
+      .not('name', 'ilike', '%SUBE%')
+      .order('name', { ascending: true })
+
+    if (error) {
+      return { success: false, providers: [], error: `Error al obtener proveedores: ${error.message}` }
+    }
+
+    return { success: true, providers: (data || []) as ServiceProvider[] }
+  } catch (error) {
+    return {
+      success: false,
+      providers: [],
+      error: error instanceof Error ? error.message : 'Error desconocido al obtener proveedores',
+    }
+  }
+}
 
 /**
  * 💰 Obtiene el saldo del proveedor de servicios virtuales
@@ -101,32 +142,38 @@ export async function getServiceProviderBalanceAction(
       .select('id, balance, name, markup_type, markup_value')
       .eq('organization_id', orgId)
 
-    let result
+    let data = null
+    let error = null
 
     if (tipo === 'SUBE') {
-      // SUBE: buscar por nombre exacto
-      result = await query.ilike('name', '%SUBE%').single()
+      // SUBE: buscar por nombre que contenga "SUBE"
+      const result = await query.ilike('name', '%SUBE%').limit(1).maybeSingle()
+      data = result.data
+      error = result.error
     } else if (tipo === 'servicios') {
       // Fallback genérico: primer proveedor que no sea SUBE (legacy)
-      result = await query.not('name', 'ilike', '%SUBE%').limit(1).single()
+      const result = await query.not('name', 'ilike', '%SUBE%').limit(1).maybeSingle()
+      data = result.data
+      error = result.error
     } else {
-      // Buscar por nombre exacto del servicio (ej: 'Edenor', 'Telepase')
-      // Primero intento match exacto, si no hay, busco parcial
-      result = await query.ilike('name', `%${tipo}%`).limit(1).single()
+      // Buscar por nombre del servicio (ej: 'Edenor', 'Claro')
+      const result = await query.ilike('name', `%${tipo}%`).limit(1).maybeSingle()
+      data = result.data
+      error = result.error
 
       // Si no hay proveedor específico, buscar un proveedor genérico de servicios
-      if (result.error || !result.data) {
-        result = await supabase
+      if (!error && !data) {
+        const fallback = await supabase
           .from('suppliers')
           .select('id, balance, name, markup_type, markup_value')
           .eq('organization_id', orgId)
           .not('name', 'ilike', '%SUBE%')
           .limit(1)
-          .single()
+          .maybeSingle()
+        data = fallback.data
+        error = fallback.error
       }
     }
-
-    const { data, error } = result
 
     if (error) {
       return {
@@ -138,7 +185,7 @@ export async function getServiceProviderBalanceAction(
     if (!data) {
       return {
         success: false,
-        error: `No se encontró proveedor de ${tipo}`,
+        error: `No se encontró proveedor de ${tipo}. Creá un proveedor en la sección de Proveedores.`,
       }
     }
 
@@ -180,18 +227,12 @@ export async function processServiceRechargeAction(
   data: ServiceRechargeData
 ): Promise<ProcessServiceRechargeResult> {
   try {
-    const { supabase } = await verifyAuth()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
-    if (!data.turnoId || !data.proveedorId || !data.montoCarga) {
-      return {
-        success: false,
-        error: 'Datos incompletos para procesar recarga',
-      }
+    const parsed = serviceRechargeSchema.safeParse(data)
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
     }
+
+    const { supabase } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 1: Obtener organization_id del turno (Schema V2: cash_registers)

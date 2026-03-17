@@ -19,6 +19,7 @@
 
 import { createClient } from '@/lib/supabase-server'
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
+import { createBranchSchema, updateBranchSchema, updateBranchQRSchema, getZodError, idSchema } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -115,27 +116,7 @@ export interface UpdateBranchResult {
  */
 export async function getBranchesWithQRAction(): Promise<GetBranchesResult> {
   try {
-    const supabase = await createClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        branches: [],
-        error: 'No hay sesión activa',
-      }
-    }
-
-    // Schema V2: Usar RPC get_my_org_id (lee de memberships)
-    const { data: orgId } = await supabase.rpc('get_my_org_id')
-
-    if (!orgId) {
-      return {
-        success: false,
-        branches: [],
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
+    const { supabase, orgId } = await verifyAuth()
 
     // Schema V2: Usar tabla branches
     const { data: branchesData, error } = await supabase
@@ -183,21 +164,12 @@ export async function updateBranchQRAction(
   qrUrl: string
 ): Promise<UpdateBranchQRResult> {
   try {
+    const parsed = updateBranchQRSchema.safeParse({ sucursalId, tipo, qrUrl })
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
     const { supabase, orgId } = await verifyOwner()
-
-    if (!sucursalId || !tipo || !qrUrl) {
-      return {
-        success: false,
-        error: 'Parámetros incompletos',
-      }
-    }
-
-    if (tipo !== 'entrada' && tipo !== 'salida') {
-      return {
-        success: false,
-        error: 'Tipo de QR inválido (debe ser "entrada" o "salida")',
-      }
-    }
 
     // Schema V2: Usar columnas qr_entry_url / qr_exit_url
     const updateData: Record<string, string> = {}
@@ -236,27 +208,7 @@ export async function updateBranchQRAction(
  */
 export async function getBranchesAction(): Promise<GetBranchesFullResult> {
   try {
-    const supabase = await createClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        branches: [],
-        error: 'No hay sesión activa',
-      }
-    }
-
-    // Schema V2: Usar RPC get_my_org_id
-    const { data: orgId } = await supabase.rpc('get_my_org_id')
-
-    if (!orgId) {
-      return {
-        success: false,
-        branches: [],
-        error: 'No se encontró la organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
+    const { supabase, orgId } = await verifyAuth()
 
     // Schema V2: Usar tabla branches
     const { data, error } = await supabase
@@ -303,11 +255,9 @@ export async function createBranchAction(
   data: CreateBranchData
 ): Promise<CreateBranchResult> {
   try {
-    if (!data.nombre.trim()) {
-      return {
-        success: false,
-        error: 'El nombre es obligatorio',
-      }
+    const parsed = createBranchSchema.safeParse(data)
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
     }
 
     const { supabase, orgId } = await verifyOwner()
@@ -349,14 +299,12 @@ export async function deleteBranchAction(
   branchId: string
 ): Promise<DeleteBranchResult> {
   try {
-    const { supabase, orgId } = await verifyOwner()
-
-    if (!branchId) {
-      return {
-        success: false,
-        error: 'Branch ID es requerido',
-      }
+    const parsed = idSchema.safeParse(branchId)
+    if (!parsed.success) {
+      return { success: false, error: 'Branch ID inválido' }
     }
+
+    const { supabase, orgId } = await verifyOwner()
 
     // Schema V2: Soft delete (is_active = false)
     const { error } = await supabase
@@ -391,8 +339,9 @@ export async function updateBranchAction(
   data: UpdateBranchData
 ): Promise<UpdateBranchResult> {
   try {
-    if (!data.nombre.trim()) {
-      return { success: false, error: 'El nombre es obligatorio' }
+    const parsed = updateBranchSchema.safeParse({ branchId, ...data })
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
     }
 
     const { supabase, orgId } = await verifyOwner()

@@ -15,13 +15,13 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-const SW_VERSION = '4.1.0';
+const SW_VERSION = '4.2.0';
 const STATIC_CACHE = 'kiosco-static-v4';
 const DYNAMIC_CACHE = 'kiosco-dynamic-v4';
 const FONTS_CACHE = 'kiosco-fonts-v4';
 // CRITICAL: Must match lib/offline/indexed-db.ts constants
 const OFFLINE_DB_NAME = 'kiosco-offline';
-const OFFLINE_DB_VERSION = 3;
+const OFFLINE_DB_VERSION = 4;
 
 // Archivos a precachear (incluye rutas críticas para empleados)
 const PRECACHE_ASSETS = [
@@ -515,6 +515,14 @@ function openDB(name, version) {
       // Store para metadata de sync
       if (!db.objectStoreNames.contains('sync-metadata')) {
         db.createObjectStore('sync-metadata', { keyPath: 'key' });
+      }
+
+      // Store para turno-cache (v4) — MUST match lib/offline/indexed-db.ts
+      if (!db.objectStoreNames.contains('turno-cache')) {
+        const turnoStore = db.createObjectStore('turno-cache', { keyPath: 'id' });
+        turnoStore.createIndex('branch_id', 'branch_id', { unique: false });
+        turnoStore.createIndex('status', 'status', { unique: false });
+        turnoStore.createIndex('cached_at', 'cached_at', { unique: false });
       }
     };
   });

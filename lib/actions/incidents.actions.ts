@@ -12,6 +12,7 @@
 'use server'
 
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
+import { createIncidentSchema, justifyIncidentSchema, resolveIncidentSchema, getZodError } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -49,14 +50,18 @@ export interface CreateIncidentParams {
 
 export async function createIncidentAction(params: CreateIncidentParams) {
   try {
-    const { supabase, orgId } = await verifyOwner()
-    const { data: { user } } = await supabase.auth.getUser()
+    const parsed = createIncidentSchema.safeParse(params)
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
+    const { supabase, user, orgId } = await verifyOwner()
 
     const { error } = await supabase.from('incidents').insert({
       organization_id: orgId,
       branch_id: params.branchId || null,
       employee_id: params.employeeId,
-      reported_by: user!.id,
+      reported_by: user.id,
       cash_register_id: params.cashRegisterId || null,
       type: params.type,
       description: params.description,
@@ -160,6 +165,11 @@ export async function justifyIncidentAction(
   justificationType: 'desconocimiento' | 'olvido' | 'externo' | 'otro'
 ) {
   try {
+    const parsed = justifyIncidentSchema.safeParse({ incidentId, justification, justificationType })
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
     const { supabase } = await verifyAuth()
 
     const { error } = await supabase
@@ -191,6 +201,11 @@ export async function resolveIncidentAction(
   resolution?: string
 ) {
   try {
+    const parsed = resolveIncidentSchema.safeParse({ incidentId, status, resolution })
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
     const { supabase } = await verifyOwner()
 
     const updateData: Record<string, any> = {
@@ -222,9 +237,7 @@ export async function resolveIncidentAction(
 
 export async function getMyIncidentsAction(): Promise<{ success: boolean; incidents: Incident[]; error?: string }> {
   try {
-    const { supabase } = await verifyAuth()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return { success: false, incidents: [], error: 'No autenticado' }
+    const { supabase, user } = await verifyAuth()
 
     const { data, error } = await supabase
       .from('incidents')

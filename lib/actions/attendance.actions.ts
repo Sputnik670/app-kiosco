@@ -19,6 +19,8 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { verifyAuth } from '@/lib/actions/auth-helpers'
+import { toggleAttendanceSchema, processQRScanSchema, getZodError } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -95,8 +97,6 @@ export async function getAttendanceStatusAction(
   sucursalId: string
 ): Promise<GetAttendanceStatusResult> {
   try {
-    const supabase = await createClient()
-
     if (!sucursalId) {
       return {
         success: false,
@@ -105,14 +105,7 @@ export async function getAttendanceStatusAction(
       }
     }
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        activeRecord: null,
-        error: 'No hay sesión activa',
-      }
-    }
+    const { supabase, user } = await verifyAuth()
 
     const { data, error } = await supabase
       .from('attendance')
@@ -159,34 +152,12 @@ export async function toggleAttendanceAction(
   sucursalId: string
 ): Promise<ToggleAttendanceResult> {
   try {
-    const supabase = await createClient()
-
-    if (!sucursalId) {
-      return {
-        success: false,
-        action: null,
-        error: 'ID de sucursal requerido',
-      }
+    const parsed = toggleAttendanceSchema.safeParse({ sucursalId })
+    if (!parsed.success) {
+      return { success: false, action: null, error: getZodError(parsed) }
     }
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        action: null,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id')
-
-    if (!orgId) {
-      return {
-        success: false,
-        action: null,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
+    const { supabase, user, orgId } = await verifyAuth()
 
     // Verificar fichaje activo
     const { data: fichajeActivo } = await supabase
@@ -272,14 +243,9 @@ export async function processQRScanAction(
   sucursalId: string
 ): Promise<ProcessQRScanResult> {
   try {
-    const supabase = await createClient()
-
-    if (!qrData.sucursal_id || !sucursalId) {
-      return {
-        success: false,
-        action: null,
-        error: 'Datos de sucursal incompletos',
-      }
+    const parsed = processQRScanSchema.safeParse({ qrData, sucursalId })
+    if (!parsed.success) {
+      return { success: false, action: null, error: getZodError(parsed) }
     }
 
     // Validar que el QR pertenezca a la sucursal correcta
@@ -291,24 +257,7 @@ export async function processQRScanAction(
       }
     }
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        action: null,
-        error: 'No hay sesión activa',
-      }
-    }
-
-    const { data: orgId } = await supabase.rpc('get_my_org_id')
-
-    if (!orgId) {
-      return {
-        success: false,
-        action: null,
-        error: 'No se encontró tu organización. Por favor, cierra sesión e inicia de nuevo.',
-      }
-    }
+    const { supabase, user, orgId } = await verifyAuth()
 
     // CASO 1: REGISTRAR ENTRADA
     if (qrData.tipo === 'entrada') {

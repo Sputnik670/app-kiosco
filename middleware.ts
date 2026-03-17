@@ -1,10 +1,45 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 // Rutas de API que NO requieren autenticación
 const PUBLIC_API_ROUTES = ['/api/health']
 
+// Rutas de auth que tienen rate limit más estricto
+const AUTH_ROUTES = ['/api/auth', '/signup']
+
 export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // RATE LIMITING (antes de cualquier otra lógica)
+  // ──────────────────────────────────────────────────────────────────────────
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || request.headers.get('x-real-ip')
+    || 'unknown'
+
+  if (pathname.startsWith('/api/')) {
+    const isAuthRoute = AUTH_ROUTES.some(route => pathname.startsWith(route))
+    const config = isAuthRoute ? RATE_LIMITS.AUTH : RATE_LIMITS.API
+    const rateLimitResult = rateLimit(`ip:${ip}`, config)
+
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: rateLimitResult.error, code: 'RATE_LIMIT' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(Math.ceil((rateLimitResult.resetAt - Date.now()) / 1000)),
+            'X-RateLimit-Remaining': '0',
+          },
+        }
+      )
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // SUPABASE AUTH (refresh session)
+  // ──────────────────────────────────────────────────────────────────────────
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -40,8 +75,6 @@ export async function middleware(request: NextRequest) {
   // PROTECCIÓN DE RUTAS API
   // Las rutas /api/* (excepto las públicas) requieren autenticación
   // ──────────────────────────────────────────────────────────────────────────
-  const pathname = request.nextUrl.pathname
-
   if (pathname.startsWith('/api/')) {
     const isPublicRoute = PUBLIC_API_ROUTES.some(route => pathname.startsWith(route))
 

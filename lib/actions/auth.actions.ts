@@ -315,30 +315,7 @@ export interface StaffManagementData {
  */
 export async function getStaffManagementDataAction(): Promise<StaffManagementData> {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.id) {
-      return {
-        success: false,
-        branches: [],
-        invites: [],
-        employees: [],
-        error: 'No hay sesión activa',
-      }
-    }
-
-    // Obtener organization_id desde memberships via RPC
-    const { data: orgId } = await supabase.rpc('get_my_org_id')
-
-    if (!orgId) {
-      return {
-        success: false,
-        branches: [],
-        invites: [],
-        employees: [],
-        error: 'No se encontró la organización',
-      }
-    }
+    const { supabase, user, orgId } = await verifyOwner()
 
     // Cargar branches
     const { data: branches } = await supabase
@@ -916,15 +893,7 @@ export interface CurrentUserData {
  */
 export async function getCurrentUserAction(): Promise<CurrentUserData> {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    if (!user?.id) {
-      return {
-        success: false,
-        error: 'No hay sesión activa',
-      }
-    }
+    const { supabase, user } = await verifyAuth()
 
     // Obtener membership activa
     const { data: membership, error } = await supabase

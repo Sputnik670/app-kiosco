@@ -1,6 +1,7 @@
 "use server"
 
 import { createClient } from "@/lib/supabase-server"
+import { verifyMembership } from "@/lib/actions/auth-helpers"
 import { resolveJoin } from "@/types/supabase-joins"
 
 // ============================================================================
@@ -16,22 +17,17 @@ async function verifyReportAccess(): Promise<{
   error?: string
   supabase?: Awaited<ReturnType<typeof createClient>>
 }> {
-  const supabase = await createClient()
+  try {
+    const { supabase, role } = await verifyMembership()
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    return { authorized: false, error: "No autenticado" }
+    if (role !== 'owner' && role !== 'admin') {
+      return { authorized: false, error: "No tienes permisos para acceder a reportes" }
+    }
+
+    return { authorized: true, supabase }
+  } catch (error) {
+    return { authorized: false, error: error instanceof Error ? error.message : "No autenticado" }
   }
-
-  // Verificar rol del usuario
-  const { data: role } = await supabase.rpc('get_my_role')
-
-  // Solo owner y admin pueden acceder a reportes
-  if (!role || (role !== 'owner' && role !== 'admin')) {
-    return { authorized: false, error: "No tienes permisos para acceder a reportes" }
-  }
-
-  return { authorized: true, supabase }
 }
 
 // ============================================================================

@@ -33,10 +33,10 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
     ],
-    // Usar SVG para Apple también (funciona en iOS 15+)
     apple: [
-      { url: "/icon.svg", type: "image/svg+xml" }
+      { url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }
     ],
   },
   appleWebApp: {

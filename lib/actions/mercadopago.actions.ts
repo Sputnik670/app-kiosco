@@ -38,6 +38,7 @@ import { createClient } from '@/lib/supabase-server'
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 import { logger } from '@/lib/logging'
 import { randomBytes, createCipheriv, createDecipheriv, createHmac } from 'crypto'
+import { saveMPCredentialsSchema, createMPOrderSchema, getZodError } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -245,23 +246,13 @@ export async function saveMercadoPagoCredentialsAction(
   webhookSecret: string
 ): Promise<SaveMercadoPagoCredentialsResult> {
   try {
+    const parsed = saveMPCredentialsSchema.safeParse({ accessToken, webhookSecret })
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
     // Solo owner puede configurar integración de pago
     const { supabase, orgId, user } = await verifyOwner()
-
-    // Validaciones básicas
-    if (!accessToken || accessToken.trim().length === 0) {
-      return {
-        success: false,
-        error: 'El access token no puede estar vacío',
-      }
-    }
-
-    if (!webhookSecret || webhookSecret.trim().length === 0) {
-      return {
-        success: false,
-        error: 'El webhook secret no puede estar vacío',
-      }
-    }
 
     // Validar que accessToken es válido llamando a MP API
     const mpUser = await validateMercadoPagoToken(accessToken)
@@ -358,43 +349,12 @@ export async function createMercadoPagoOrderAction(
   branchId: string
 ): Promise<CreateMercadoPagoOrderResult> {
   try {
+    const parsed = createMPOrderSchema.safeParse({ saleId, amount, description, branchId })
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed), retryable: false }
+    }
+
     const { supabase, orgId } = await verifyAuth()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
-    if (!saleId || saleId.trim().length === 0) {
-      return {
-        success: false,
-        error: 'Sale ID es requerido',
-        retryable: false,
-      }
-    }
-
-    if (!branchId || branchId.trim().length === 0) {
-      return {
-        success: false,
-        error: 'Branch ID es requerido',
-        retryable: false,
-      }
-    }
-
-    if (amount <= 0) {
-      return {
-        success: false,
-        error: 'El monto debe ser mayor a cero',
-        retryable: false,
-      }
-    }
-
-    if (amount > 999999999.99) {
-      return {
-        success: false,
-        error: 'El monto excede el límite máximo',
-        retryable: false,
-      }
-    }
 
     // ───────────────────────────────────────────────────────────────────────────
     // OBTENER CONFIGURACIÓN DE MERCADO PAGO

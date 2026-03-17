@@ -22,6 +22,7 @@
 
 import { createClient } from '@/lib/supabase-server'
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
+import { rechargeBalanceSchema, updateProviderMarkupSchema, getZodError, idSchema } from '@/lib/validations'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -212,25 +213,12 @@ export async function rechargeBalanceAction(
   monto: number
 ): Promise<RechargeBalanceResult> {
   try {
+    const parsed = rechargeBalanceSchema.safeParse({ providerId, monto })
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
+
     const { supabase } = await verifyOwner()
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // VALIDACIONES
-    // ───────────────────────────────────────────────────────────────────────────
-
-    if (!providerId) {
-      return {
-        success: false,
-        error: 'ID de proveedor es requerido',
-      }
-    }
-
-    if (isNaN(monto) || monto <= 0) {
-      return {
-        success: false,
-        error: 'El monto debe ser un número positivo',
-      }
-    }
 
     // ───────────────────────────────────────────────────────────────────────────
     // MÉTODO 1: Intentar RPC (preferido - función atómica en DB)
@@ -628,21 +616,12 @@ export async function updateProviderMarkupAction(
   data: UpdateMarkupData
 ): Promise<UpdateMarkupResult> {
   try {
-    const { supabase } = await verifyOwner()
+    const parsed = updateProviderMarkupSchema.safeParse(data)
+    if (!parsed.success) {
+      return { success: false, error: getZodError(parsed) }
+    }
 
-    // Validar rangos de comisión
-    if (data.markupType === 'percentage') {
-      const val = Number(data.markupValue) || 0
-      if (val <= 0 || val > 100) {
-        return { success: false, error: 'El porcentaje debe estar entre 1% y 100%' }
-      }
-    }
-    if (data.markupType === 'fixed') {
-      const val = Number(data.markupValue) || 0
-      if (val <= 0) {
-        return { success: false, error: 'El monto fijo debe ser mayor a $0' }
-      }
-    }
+    const { supabase } = await verifyOwner()
 
     const { error } = await supabase
       .from('suppliers')
@@ -705,11 +684,12 @@ export async function deleteProviderAction(
   providerId: string
 ): Promise<DeleteProviderResult> {
   try {
-    const { supabase } = await verifyOwner()
-
-    if (!providerId) {
-      return { success: false, error: 'ID de proveedor es requerido' }
+    const parsed = idSchema.safeParse(providerId)
+    if (!parsed.success) {
+      return { success: false, error: 'ID de proveedor inválido' }
     }
+
+    const { supabase } = await verifyOwner()
 
     // Intentar soft-delete primero (is_active = false)
     const { error: softError } = await supabase
