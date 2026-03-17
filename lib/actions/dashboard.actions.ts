@@ -256,10 +256,10 @@ export async function getOwnerStatsAction(
     })
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 4: Obtener top productos vendidos (filtrado por branch vía sales)
+    // PASO 4: Obtener sale_items con costos reales
+    // Una sola query cubre tanto top productos como cálculo de costo real.
     // ───────────────────────────────────────────────────────────────────────────
 
-    // Primero obtenemos los IDs de ventas de esta sucursal en el rango de fechas
     let salesQuery = supabase
       .from('sales')
       .select('id')
@@ -271,28 +271,42 @@ export async function getOwnerStatsAction(
     const { data: branchSales } = await salesQuery
     const saleIds = (branchSales || []).map(s => s.id)
 
-    // Si no hay ventas, retornamos vacío para top products
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let topData: any[] | null = null
+    let saleItemsData: any[] | null = null
 
     if (saleIds.length > 0) {
       const { data } = await supabase
         .from('sale_items')
-        .select('quantity, products(name, emoji)')
+        .select('quantity, unit_price, unit_cost, products(name, emoji)')
         .in('sale_id', saleIds)
-      topData = data
+      saleItemsData = data
     }
 
+    // Top productos + costo real en un mismo recorrido
     const productCounts: Record<string, { count: number; emoji?: string }> = {}
+    let realCost = 0
+    let estimatedCostFromItems = 0
+    const ratio = Math.max(0, Math.min(1, costRatio))
 
-    ;(topData || []).forEach((item) => {
+    ;(saleItemsData || []).forEach((item) => {
       const product = resolveJoin<{ name: string; emoji?: string }>(item.products)
-      if (!product?.name) return
+      const qty = Number(item.quantity) || 0
+      const unitCost = Number(item.unit_cost) || 0
+      const unitPrice = Number(item.unit_price) || 0
 
+      // Costo real si está registrado, estimado si es 0
+      if (unitCost > 0) {
+        realCost += unitCost * qty
+      } else {
+        estimatedCostFromItems += unitPrice * qty * ratio
+      }
+
+      // Top productos
+      if (!product?.name) return
       if (!productCounts[product.name]) {
         productCounts[product.name] = { count: 0, emoji: product.emoji || undefined }
       }
-      productCounts[product.name].count += item.quantity
+      productCounts[product.name].count += qty
     })
 
     const topProducts: TopProduct[] = Object.entries(productCounts)
@@ -301,16 +315,18 @@ export async function getOwnerStatsAction(
       .slice(0, 5)
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 5: Calcular métricas finales
+    // PASO 5: Calcular métricas finales con costo híbrido (real + estimado)
     // ───────────────────────────────────────────────────────────────────────────
 
-    // Costo estimado configurable (default 55% del bruto)
-    const ratio = Math.max(0, Math.min(1, costRatio))
-    const estimatedCost = gross * ratio
-    const productProfit = gross - estimatedCost
+    // Si no había items (no hubo ventas en el período), caer al ratio sobre gross
+    const totalCost = (saleItemsData && saleItemsData.length > 0)
+      ? realCost + estimatedCostFromItems
+      : gross * ratio
+
+    const productProfit = gross - totalCost
     const net = productProfit + manualIncome - manualExpense
     const margin = gross > 0 ? (productProfit / gross) * 100 : 0
-    const ROI = estimatedCost > 0 ? (net / estimatedCost) * 100 : 0
+    const ROI = totalCost > 0 ? (net / totalCost) * 100 : 0
 
     return {
       success: true,
