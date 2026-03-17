@@ -21,6 +21,7 @@ e2e/screenshots/
 
 # Next.js
 /.next/
+/.next_old/
 /out/
 
 # Production
