@@ -1,76 +1,77 @@
 import { defineConfig, devices } from '@playwright/test';
+import path from 'path';
 
 /**
- * Configuración de Playwright para tests E2E
- * @see https://playwright.dev/docs/test-configuration
+ * Configuración de Playwright para App Kiosco
+ *
+ * Para correr los tests:
+ *   1. Crear .env.test con TEST_OWNER_EMAIL y TEST_OWNER_PASSWORD
+ *   2. npm run dev (en otra terminal)
+ *   3. npm run test:e2e
+ *
+ * Para ver los tests en pantalla:
+ *   npm run test:e2e:headed
+ *   npm run test:e2e:ui
  */
 export default defineConfig({
   testDir: './e2e',
 
-  /* Run tests in files in parallel */
-  fullyParallel: true,
+  /* Timeout generoso — Supabase auth puede tardar */
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
 
-  /* Fail the build on CI if you accidentally left test.only in the source code */
+  fullyParallel: false, // Los smoke tests son secuenciales (comparten estado de DB)
   forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 1,
+  workers: 1, // Secuencial para evitar conflictos de datos
 
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
+  reporter: [
+    ['html', { open: 'never' }],
+    ['list'], // Muestra progreso en terminal
+  ],
 
-  /* Opt out of parallel tests on CI */
-  workers: process.env.CI ? 1 : undefined,
-
-  /* Reporter to use */
-  reporter: 'html',
-
-  /* Shared settings for all the projects below */
   use: {
-    /* Base URL to use in actions like `await page.goto('/')` */
-    baseURL: 'http://localhost:3000',
-
-    /* Collect trace when retrying the failed test */
+    baseURL: process.env.TEST_BASE_URL || 'http://localhost:3000',
     trace: 'on-first-retry',
-
-    /* Screenshot on failure */
     screenshot: 'only-on-failure',
-
-    /* Video on retry */
     video: 'retain-on-failure',
+
+    // Mobile-first: el kiosquero usa celular
+    ...devices['Pixel 5'],
   },
 
-  /* Configure projects for major browsers */
   projects: [
+    // Setup: autenticación (se ejecuta primero)
     {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      name: 'auth-setup',
+      testMatch: /auth\.setup\.ts/,
     },
-
+    // Smoke tests principales (mobile)
     {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
+      name: 'smoke-mobile',
+      dependencies: ['auth-setup'],
+      use: {
+        ...devices['Pixel 5'],
+        storageState: path.join(__dirname, 'e2e/.auth/owner.json'),
+      },
+      testMatch: /smoke-.*\.spec\.ts/,
     },
-
+    // Smoke tests en desktop (opcional)
     {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-
-    /* Test against mobile viewports */
-    {
-      name: 'mobile-chrome',
-      use: { ...devices['Pixel 5'] },
-    },
-
-    {
-      name: 'mobile-safari',
-      use: { ...devices['iPhone 12'] },
+      name: 'smoke-desktop',
+      dependencies: ['auth-setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: path.join(__dirname, 'e2e/.auth/owner.json'),
+      },
+      testMatch: /smoke-.*\.spec\.ts/,
     },
   ],
 
-  /* Run your local dev server before starting the tests */
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    reuseExistingServer: true,
+    timeout: 120_000,
   },
 });

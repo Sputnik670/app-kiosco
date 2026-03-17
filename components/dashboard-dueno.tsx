@@ -1,43 +1,110 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, Suspense } from "react"
+import dynamic from "next/dynamic"
 import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { Card } from "@/components/ui/card"
-import { Calendar as CalendarIcon, QrCode } from "lucide-react"
+import { Calendar as CalendarIcon, QrCode, Loader2 } from "lucide-react"
 import { es } from "date-fns/locale"
 import { format, parseISO } from "date-fns"
 import { toast } from "sonner"
 
-// Componentes existentes
-import CrearProducto from "@/components/crear-producto"
-import GestionProveedores from "@/components/gestion-proveedores"
-import ControlSaldoProveedor from "@/components/control-saldo-proveedor"
-import { InvitarEmpleado } from "@/components/invitar-empleado"
+// Utilidades que se necesitan siempre (ligeras)
 import { generarTicketPDF } from "@/lib/generar-ticket"
-import TeamRanking from "@/components/team-ranking"
-import GestionIncidentes from "@/components/gestion-incidentes"
-import GenerarQRFichaje from "@/components/generar-qr-fichaje"
-import { Reports } from "@/components/reports"
-import ConfiguracionMercadoPago from "@/components/configuracion-mercadopago"
-import ConfiguracionArca from "@/components/configuracion-arca"
-import DiarioDueno from "@/components/diario-dueno"
 
-// Componentes de dashboard refactorizados
+// Componentes de dashboard que se cargan siempre (header, hooks, modales)
 import {
-  TabAlerts,
-  TabInventory,
-  TabSales,
-  TabFinance,
-  TabSupervision,
-  TabHistorial,
   DashboardHeader,
   DashboardModals,
   useDashboardState,
   useDashboardData,
 } from "@/components/dashboard"
+
+// ─── LAZY LOAD: Componentes pesados de cada tab ─────────────────────────────
+// Solo se descargan cuando el usuario navega al tab correspondiente.
+// Esto ahorra ~1MB+ de JS en la carga inicial del dashboard.
+
+const TabLoadingFallback = () => (
+  <div className="flex items-center justify-center py-12">
+    <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+  </div>
+)
+
+// Tab Stock
+const CrearProducto = dynamic(() => import("@/components/crear-producto"), {
+  loading: TabLoadingFallback,
+})
+const TabInventory = dynamic(
+  () => import("@/components/dashboard/tab-inventory").then((m) => ({ default: m.TabInventory })),
+  { loading: TabLoadingFallback }
+)
+
+// Tab Ventas
+const TabSales = dynamic(
+  () => import("@/components/dashboard/tab-sales").then((m) => ({ default: m.TabSales })),
+  { loading: TabLoadingFallback }
+)
+
+// Tab Proveedores
+const GestionProveedores = dynamic(() => import("@/components/gestion-proveedores"), {
+  loading: TabLoadingFallback,
+})
+const ControlSaldoProveedor = dynamic(() => import("@/components/control-saldo-proveedor"), {
+  loading: TabLoadingFallback,
+})
+
+// Tab Equipo
+const TabSupervision = dynamic(
+  () => import("@/components/dashboard/tab-supervision").then((m) => ({ default: m.TabSupervision })),
+  { loading: TabLoadingFallback }
+)
+const TeamRanking = dynamic(() => import("@/components/team-ranking"), {
+  loading: TabLoadingFallback,
+})
+const GestionIncidentes = dynamic(() => import("@/components/gestion-incidentes"), {
+  loading: TabLoadingFallback,
+})
+const InvitarEmpleado = dynamic(
+  () => import("@/components/invitar-empleado").then((m) => ({ default: m.InvitarEmpleado })),
+  { loading: TabLoadingFallback }
+)
+const GenerarQRFichaje = dynamic(() => import("@/components/generar-qr-fichaje"), {
+  loading: TabLoadingFallback,
+})
+
+// Tab Historial
+const DiarioDueno = dynamic(() => import("@/components/diario-dueno"), {
+  loading: TabLoadingFallback,
+})
+const TabHistorial = dynamic(
+  () => import("@/components/dashboard/tab-historial").then((m) => ({ default: m.TabHistorial })),
+  { loading: TabLoadingFallback }
+)
+
+// Tab Análisis
+const TabFinance = dynamic(
+  () => import("@/components/dashboard/tab-finance").then((m) => ({ default: m.TabFinance })),
+  { loading: TabLoadingFallback }
+)
+const TabAlerts = dynamic(
+  () => import("@/components/dashboard/tab-alerts").then((m) => ({ default: m.TabAlerts })),
+  { loading: TabLoadingFallback }
+)
+const Reports = dynamic(
+  () => import("@/components/reports").then((m) => ({ default: m.Reports })),
+  { loading: TabLoadingFallback }
+)
+
+// Tab Ajustes
+const ConfiguracionMercadoPago = dynamic(() => import("@/components/configuracion-mercadopago"), {
+  loading: TabLoadingFallback,
+})
+const ConfiguracionArca = dynamic(() => import("@/components/configuracion-arca"), {
+  loading: TabLoadingFallback,
+})
 
 import type { TurnoAudit } from "@/types/dashboard.types"
 

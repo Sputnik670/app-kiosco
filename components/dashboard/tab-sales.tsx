@@ -1,12 +1,33 @@
 "use client"
 
+import { lazy, Suspense } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Package, Smartphone } from "lucide-react"
-import { BarChart, Bar, XAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { Package, Smartphone, Loader2 } from "lucide-react"
 import type { SalesTabProps } from "@/types/dashboard.types"
+
+// Dynamic import de Recharts (~250KB) — solo se carga cuando se renderiza el tab de ventas
+const RechartsChart = lazy(() =>
+  import("recharts").then((mod) => ({
+    default: ({ chartData }: { chartData: Array<{ fecha: string; total: number }> }) => (
+      <mod.ResponsiveContainer width="100%" height="100%">
+        <mod.BarChart data={chartData}>
+          <mod.CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+          <mod.XAxis
+            dataKey="fecha"
+            axisLine={false}
+            tickLine={false}
+            tick={{ fontSize: 10, fontWeight: "bold" }}
+          />
+          <mod.Tooltip cursor={{ fill: "#f8fafc" }} />
+          <mod.Bar dataKey="total" fill="oklch(0.6 0.2 250)" radius={[4, 4, 0, 0]} />
+        </mod.BarChart>
+      </mod.ResponsiveContainer>
+    ),
+  }))
+)
 
 export function TabSales({
   totalVendido,
@@ -123,19 +144,15 @@ export function TabSales({
       {/* Gráfico de evolución */}
       <Card className="p-5 border-2 shadow-sm">
         <div className="h-[200px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis
-                dataKey="fecha"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 10, fontWeight: "bold" }}
-              />
-              <Tooltip cursor={{ fill: "#f8fafc" }} />
-              <Bar dataKey="total" fill="oklch(0.6 0.2 250)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <Suspense
+            fallback={
+              <div className="h-full flex items-center justify-center text-slate-400">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
+            }
+          >
+            <RechartsChart chartData={chartData} />
+          </Suspense>
         </div>
       </Card>
     </div>
