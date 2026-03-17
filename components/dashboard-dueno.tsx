@@ -30,6 +30,7 @@ import {
   TabSales,
   TabFinance,
   TabSupervision,
+  TabHistorial,
   DashboardHeader,
   DashboardModals,
   useDashboardState,
@@ -270,6 +271,16 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
               <GenerarQRFichaje />
             </Card>
           </div>
+        )}
+
+        {/* HISTORIAL: Registro histórico completo */}
+        {state.activeTab === "historial" && (
+          <TabHistorial
+            sucursalId={currentSucursalId}
+            organizationId={data.organizationId}
+            formatMoney={formatMoney}
+            onRefresh={refetch}
+          />
         )}
 
         {/* AJUSTES: Configuración de integraciones */}

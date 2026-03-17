@@ -4,6 +4,7 @@ export { TabInventory } from './tab-inventory'
 export { TabSales } from './tab-sales'
 export { TabFinance } from './tab-finance'
 export { TabSupervision } from './tab-supervision'
+export { TabHistorial } from './tab-historial'
 
 // Componentes
 export { DashboardHeader } from './dashboard-header'
