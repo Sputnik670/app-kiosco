@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next"
 import { Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
+import { SpeedInsights } from "@vercel/speed-insights/next"
 import "./globals.css"
 import { Toaster } from "@/components/ui/sonner"
 import { PWAProvider, InstallPrompt, UpdatePrompt } from "@/components/pwa"
@@ -68,6 +69,7 @@ export default function RootLayout({
             <UpdatePrompt autoDismissDelay={10000} />
           </PWAProvider>
           <Analytics />
+          <SpeedInsights />
           <Toaster />
         </ThemeProvider>
       </body>
