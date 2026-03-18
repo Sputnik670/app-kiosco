@@ -423,3 +423,83 @@ staging → prod (manual approval)
 4. Claude implementa
 5. Push a main = deploy automático
 
+---
+
+## Decisiones Recientes (Marzo 2026)
+
+### 9. Descarte de Actualización Masiva de Precios
+
+**Cuándo**: 2026-03-17
+**Quién aprobó**: Ram
+**Estado**: DESCARTADO
+
+**Por qué**:
+- El componente `actualizacion-masiva-precios.tsx` existe pero no se continúa desarrollando
+- La funcionalidad no aporta al caso de uso principal del kiosquero
+- Los precios se actualizan producto por producto o durante onboarding
+
+---
+
+### 10. Timeline Unificada como Vista Principal del Dueño
+
+**Cuándo**: 2026-03-17
+**Quién aprobó**: Ram (implementado)
+**Estado**: IMPLEMENTADO
+
+**Por qué**:
+- El dueño necesita ver TODO lo que pasó en un día en un solo lugar
+- Antes: tenía que navegar entre ventas, inventario, equipo por separado
+- Ahora: timeline cronológica con 7 tipos de eventos + resumen diario
+
+**Impacto**: Mejora significativa en la experiencia del dueño. Reduce tiempo de revisión diaria.
+
+---
+
+### 11. Sistema de Incidentes Owner↔Employee
+
+**Cuándo**: 2026-03-17
+**Quién aprobó**: Ram (implementado)
+**Estado**: IMPLEMENTADO
+
+**Por qué**:
+- El dueño necesita reportar problemas (diferencias de caja, pérdidas de stock) al empleado
+- El empleado necesita poder justificarse
+- Trazabilidad: queda registro de incidentes y resoluciones
+- Complementa gamificación: incidentes afectan ranking de equipo
+
+---
+
+### 12. Diario del Dueño (Notas)
+
+**Cuándo**: 2026-03-17
+**Quién aprobó**: Ram (implementado)
+**Estado**: IMPLEMENTADO
+
+**Por qué**:
+- El dueño anotaba cosas en cuaderno o WhatsApp
+- Ahora tiene un sistema integrado con categorías y calendario
+- Las notas aparecen en la timeline → contexto completo del día
+
+---
+
+### 13. Renombre "Panel de Control" → "Torre de Control"
+
+**Cuándo**: 2026-03-16
+**Quién aprobó**: Ram
+**Estado**: IMPLEMENTADO
+
+**Por qué**: Mejor branding. "Torre de Control" transmite visibilidad y autoridad sobre el negocio.
+
+---
+
+### 14. Rate Limiting y Validación Zod Implementados
+
+**Cuándo**: 2026-03-17
+**Quién aprobó**: Claude (implementación técnica, decisión de seguridad)
+**Estado**: IMPLEMENTADO
+
+**Por qué**:
+- Rate limiting: 10 req/min para auth, 60 req/min para API → previene abuso
+- Zod schemas: validación de todos los inputs antes de llegar a la DB → previene inyección
+- Ambos eran pendientes P1 de la auditoría de seguridad de Feb 2025
+

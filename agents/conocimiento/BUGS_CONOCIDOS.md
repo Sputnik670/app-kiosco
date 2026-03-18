@@ -264,4 +264,61 @@ Cuando hagas cambios con DECIMAL o server actions, verifica:
 3. ¿Hay importación de `@/lib/supabase` en `lib/actions/`? → Eliminar, usar `verifyAuth()` en su lugar
 4. ¿Hay `.single()` en un lookup opcional? → Cambiar a `.maybeSingle()`
 5. ¿Hay búsquedas de proveedores por nombre? → Verificar que usen ILIKE correctamente según tipo de servicio
+6. ¿Se duplica la obtención de `orgId` llamando a `get_my_org_id()` cuando `verifyAuth()` ya lo provee? → Usar siempre el `orgId` retornado por `verifyAuth()`
+
+---
+
+## 9. Componentes "use client" con queries directas a Supabase browser client
+
+**Problema**: Algunos componentes (como `tab-historial.tsx`) hacen queries directas usando el browser client de Supabase en vez de server actions. Esto funciona gracias a RLS pero rompe el patrón de seguridad defense-in-depth y dificulta el mantenimiento.
+
+**Dónde se encontró**:
+- `components/dashboard/tab-historial.tsx` — queries a sales, stock_batches, attendance, memberships
+
+**Patrón incorrecto**:
+
+```typescript
+'use client'
+import { supabase } from '@/lib/supabase'
+
+// Query directa desde componente
+const { data } = await supabase.from('sales').select('*').eq('branch_id', branchId)
+```
+
+**Patrón correcto**:
+
+```typescript
+'use client'
+import { getSalesHistory } from '@/lib/actions/ventas.actions'
+
+// Usar server action
+const result = await getSalesHistory(branchId)
+```
+
+**Regla**: Los componentes `"use client"` deberían usar server actions para queries complejas. Solo usar browser client para queries simples y en tiempo real (subscriptions, realtime).
+
+---
+
+## 10. RPC redundante de `get_my_org_id()` en server actions
+
+**Problema**: Algunas funciones obtienen `orgId` de `verifyAuth()` pero luego vuelven a llamar a `supabase.rpc('get_my_org_id')` innecesariamente. Esto es redundante y crea un riesgo de race condition si la sesión expira entre ambas llamadas.
+
+**Dónde se encontró**:
+- `lib/actions/dashboard.actions.ts:228` — `getOwnerStatsAction()`
+
+**Patrón incorrecto**:
+
+```typescript
+const { supabase, orgId } = await verifyAuth()
+// ...más tarde...
+.eq('organization_id', (await supabase.rpc('get_my_org_id')).data || '') // REDUNDANTE
+```
+
+**Patrón correcto**:
+
+```typescript
+const { supabase, orgId } = await verifyAuth()
+// ...más tarde...
+.eq('organization_id', orgId) // Usar el que ya tenemos
+```
 

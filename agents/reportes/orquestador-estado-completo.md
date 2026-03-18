@@ -152,3 +152,60 @@ Ninguno encontrado. La app es funcional para un piloto controlado.
 
 *Reporte generado por el Agente Orquestador - CTO Virtual de App Kiosco*
 *Basado en auditoria de codigo fuente de los 7 agentes especializados*
+
+---
+
+## Actualización 2026-03-18
+
+**Commits revisados**: 14 commits en últimas 48h
+- 74a2192 documentacion
+- 8729f52 para nuevo deploy
+- 74c2d14 cambio hardcodeado en costos
+- 31c9a0b feat: timeline unificada + roadmap actualizado
+- 7a3d8eb chore: excluir .next_old/ y artefactos de build del tracking
+- af60612 fixes ventas
+- bfc307e Fixes varios v10
+- 7b9e595 notas para dueño
+- 3fa8eb3 feat: tab Historial + alertas mejoradas
+- 1ec1b59 fix: allowedOrigins para 403 + saldo visible en servicios virtuales
+- 39b130b fix: usar processVirtualRechargeAction en servicios
+- e74842f fix: agregar toast de error visible en widget servicios virtuales
+- 9022d66 fix: toast de error en SUBE + corregir tabla memberships en API productos
+- d2beb59 fix: seguridad API productos + botón SUBE + comisiones servicios virtuales
+
+**Features nuevas detectadas**:
+1. **Sistema de Timeline Unificada** — `tab-timeline.tsx` + `timeline.actions.ts`: Vista cronológica de TODAS las actividades del negocio (ventas, servicios, compras, movimientos de caja, cambios de precio, incidentes, notas) en un solo lugar con navegación por calendario.
+2. **Diario del Dueño** — `diario-dueno.tsx` + `notes.actions.ts`: Sistema de notas personales con 7 categorías (general, precios, proveedores, empleados, sucursales, finanzas, idea), búsqueda, filtrado y pin.
+3. **Sistema de Incidentes** — `gestion-incidentes.tsx` + `mis-incidentes.tsx` + `incidents.actions.ts`: Flujo completo owner→employee para reportar y resolver incidentes (errores, diferencias de caja, pérdida de stock, asistencia).
+4. **Tab Historial** — `tab-historial.tsx`: Registros históricos con 3 secciones (movimientos + ranking productos, inventario + pérdidas, equipo + métricas empleados).
+5. **Tab Alertas Mejorada** — `tab-alerts.tsx`: Alertas separadas entre "por vencer" y "ya vencidos" + stock bajo.
+6. **Rate Limiting** — `lib/rate-limit.ts` + middleware: 10 req/min para auth, 60 req/min para API.
+7. **Validación Zod Completa** — `lib/validations/index.ts`: Schemas para todos los inputs de server actions.
+
+**Bugs resueltos**:
+- Bug #1 (margen hardcodeado 60%) → RESUELTO en commit 74c2d14
+- H7 (branch.actions.ts sin role check) → RESUELTO (ahora usa verifyOwner)
+- H11 (user.actions.ts importaba browser client) → RESUELTO
+- M6 (sin validación Zod) → RESUELTO con lib/validations/index.ts
+- Rate limiting ausente → RESUELTO con lib/rate-limit.ts
+- Middleware sin protección de rutas → RESUELTO
+- Toast de errores invisible en servicios virtuales → RESUELTO
+- API productos sin validación de membresía → RESUELTO
+- Comisiones de servicios virtuales incorrectas → RESUELTO
+
+**Bugs nuevos detectados**:
+- dashboard.actions.ts:228 llama redundantemente a get_my_org_id() (race condition menor)
+- tab-historial.tsx usa browser client directo en vez de server actions (debería migrarse)
+
+**Roadmap changes**:
+- Dashboard renombrado de "Panel de Control" a "Torre de Control"
+- Nuevas tabs: historial (timeline), ajustes (integraciones MP/ARCA)
+- Actualización masiva de precios DESCARTADA por Ram (2026-03-17)
+- ARCA en desarrollo activo
+
+**Score actualizado**: 8.5/10
+
+**Próximas 3 prioridades**:
+1. Completar integración ARCA → agente desarrollo → Habilitaría facturación parcial para clientes que lo necesiten
+2. Migrar tab-historial.tsx de browser client a server actions → agente seguridad → Consistencia de seguridad y performance
+3. Iniciar planificación PWA/Offline → agente offline → Diferenciador clave para kioscos con WiFi inestable

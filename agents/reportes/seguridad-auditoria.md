@@ -485,3 +485,45 @@ Compiled successfully in ~9s
 ---
 
 *Generado por el agente kiosco-seguridad. Fixes P0 aplicados 2026-02-25. Proxima auditoría: después de implementar P1.*
+
+---
+
+## Revisión 2026-03-18 — Post-commit: documentacion, para nuevo deploy, cambio hardcodeado en costos, feat: timeline unificada, fixes ventas, fixes varios v10
+
+**Archivos revisados**: 21 server action files, 1 API route, middleware.ts, lib/rate-limit.ts, lib/validations/index.ts, 3 nuevos action files (incidents, notes, timeline)
+
+**Nuevas vulnerabilidades**: Ninguna crítica.
+
+**Issues menores detectados (4)**:
+
+| # | Severidad | Archivo | Problema |
+|---|-----------|---------|----------|
+| 1 | MEDIO | `dashboard.actions.ts:228` | `getOwnerStatsAction` llama a `get_my_org_id()` RPC redundantemente cuando ya tiene `orgId` de `verifyAuth()`. Race condition si sesión expira entre ambas llamadas. |
+| 2 | BAJO | `service.actions.ts:241` | `processServiceRechargeAction` busca `cash_registers` solo por ID sin filtro adicional de `organization_id`. Cubierto por RLS pero falta defensa en profundidad. |
+| 3 | BAJO | `lib/validations/index.ts:185` | `createNoteSchema.noteDate` valida formato regex pero no validez real de fecha (acepta `2026-02-30`). |
+| 4 | BAJO | `mercadopago.actions.ts:880` | `getEncryptionKey()` trunca silenciosamente claves >32 bytes en vez de rechazarlas. |
+
+**Pendientes actualizados**:
+
+| # | Pendiente | Estado | Prioridad |
+|---|-----------|--------|-----------|
+| H6 | `reports.actions.ts` - validar branchId contra org | PENDIENTE | P1 |
+| H7 | `branch.actions.ts` - agregar role check | REVISADO: Ahora usa verifyOwner() correctamente | RESUELTO |
+| H11 | `user.actions.ts` - eliminar import browser client | REVISADO: Ya no importa @/lib/supabase | RESUELTO |
+| M2 | Sanitizar query en ventas.actions.ts `.or()` | PENDIENTE (verificar) | P1 |
+| M6 | Implementar Zod schemas | RESUELTO: `lib/validations/index.ts` implementado con schemas completos | RESUELTO |
+| - | Proteccion de rutas en middleware | RESUELTO: Middleware ahora protege /api/* con auth check | RESUELTO |
+| - | Rate limiting en auth endpoints | RESUELTO: `lib/rate-limit.ts` implementado (10 req/min auth, 60 req/min API) | RESUELTO |
+
+**Resumen de mejoras desde última auditoría (2026-02-25)**:
+
+| Métrica | Antes (Feb 25) | Ahora (Mar 18) |
+|---------|----------------|----------------|
+| Server Actions con auth completo | 14/16 (87%) | 69/69 (100%) |
+| Validación Zod implementada | 0/16 archivos | 17/17 archivos |
+| Rate limiting | No existía | Implementado en middleware |
+| Protección de rutas middleware | No existía | Implementado para /api/* |
+| Funciones con org_id del cliente | 0 | 0 |
+| Nuevos action files con auth | N/A | 3/3 (incidents, notes, timeline) |
+
+**Nivel de seguridad actual**: BAJO — Todas las vulnerabilidades P0 y la mayoría de P1 están resueltas. Los 4 issues encontrados son menores y no representan riesgo operacional para el piloto.
