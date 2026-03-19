@@ -527,3 +527,34 @@ Compiled successfully in ~9s
 | Nuevos action files con auth | N/A | 3/3 (incidents, notes, timeline) |
 
 **Nivel de seguridad actual**: BAJO — Todas las vulnerabilidades P0 y la mayoría de P1 están resueltas. Los 4 issues encontrados son menores y no representan riesgo operacional para el piloto.
+
+---
+
+## Revisión 2026-03-19 — Post-commit: docs: guión demo, ventajas competitivas, legales + skill git-sync + fixes auditoría
+
+**Archivos revisados**: Todos los server actions en lib/actions/ (21 archivos), middleware.ts, components/dashboard/tab-historial.tsx, lib/validations/index.ts
+
+**Nuevas vulnerabilidades**: Ninguna
+
+**Verificaciones realizadas**:
+
+| Check | Resultado |
+|-------|-----------|
+| Browser client en server actions | 0 importaciones de @/lib/supabase en lib/actions/ — OK |
+| Nuevas migraciones sin RLS | Ninguna nueva migración — OK |
+| Nuevas API routes sin auth | Ninguna nueva — OK |
+| Nuevos server actions sin verifyAuth | Ninguno — OK |
+
+**Pendientes actualizados**:
+
+| # | Pendiente | Estado | Prioridad |
+|---|-----------|--------|-----------|
+| H6 | `reports.actions.ts` - validar branchId contra org | RESUELTO: Usa `verifyMembership()` + role check (owner/admin) via `verifyReportAccess()` | RESUELTO |
+| M2 | Sanitizar query en ventas.actions.ts `.or()` | PARCIALMENTE MITIGADO: Strips `,()` pero podría ser más robusto con whitelist de caracteres | P1 |
+| Issue #1 | `dashboard.actions.ts:228` RPC redundante | PENDIENTE | P1 |
+| Issue #2 | `service.actions.ts:241` cash_registers sin filtro org_id | PENDIENTE (cubierto por RLS) | BAJO |
+| Issue #3 | `lib/validations/index.ts:185` fecha acepta fechas inválidas | PENDIENTE | BAJO |
+| Issue #4 | `mercadopago.actions.ts:880` trunca claves silenciosamente | PENDIENTE | BAJO |
+| - | `tab-historial.tsx` usa browser client directo | PENDIENTE: Migrar a server actions | P1 |
+
+**Nivel de seguridad actual**: BAJO — Sin cambios de código desde última revisión. La postura de seguridad se mantiene estable. Pendientes son todos P1 o inferiores.
