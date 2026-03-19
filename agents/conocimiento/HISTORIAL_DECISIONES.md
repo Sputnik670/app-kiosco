@@ -503,3 +503,62 @@ staging → prod (manual approval)
 - Zod schemas: validación de todos los inputs antes de llegar a la DB → previene inyección
 - Ambos eran pendientes P1 de la auditoría de seguridad de Feb 2025
 
+---
+
+### 15. Descarte de Actualización Masiva de Precios
+
+**Cuándo**: 2026-03-17
+**Quién aprobó**: Ram
+**Estado**: DESCARTADO
+
+**Por qué**: El dueño decidió no continuar con esta feature. Componente stubbed, 420 líneas de código muerto eliminadas de product.actions.ts.
+
+---
+
+### 16. Fixes de Auditoría de Código (7 correcciones)
+
+**Cuándo**: 2026-03-19
+**Quién aprobó**: Ram
+**Estado**: IMPLEMENTADO
+
+**Fixes aplicados**:
+- Dashboard: margen hardcodeado → lee unit_cost real de sale_items
+- tab-historial: N+1 queries → batch con .in() + Promise.all
+- ventas.actions: filter injection → sanitizado en .or() query
+- reports.actions: branchId sin validar → validateBranchOwnership()
+- user.actions: console.log con emails → eliminados
+- tab-timeline: touch targets chicos → mínimo 36px
+- product.actions: 420 líneas de código muerto → eliminadas
+
+---
+
+### 17. Reorganización del Proyecto
+
+**Cuándo**: 2026-03-19
+**Quién aprobó**: Ram
+**Estado**: IMPLEMENTADO
+
+**Qué se hizo**:
+- Creado `ESTADO_PROYECTO.md` como mapa central del proyecto
+- 7 docs obsoletos de la raíz archivados en `docs/archivo/`
+- 3 docs comerciales organizados en `docs/comercial/`
+- Tests E2E obsoletos (7) archivados, smoke tests (4) conservados
+- Creado skill `git-sync` para sincronización multi-PC
+- Actualizado CLAUDE.md con contexto actual
+- Limpieza de screenshots y credenciales en archivos de test
+
+---
+
+### 18. Documentación Comercial Creada
+
+**Cuándo**: 2026-03-19
+**Quién aprobó**: Ram
+**Estado**: COMPLETADO
+
+**Documentos creados** (en `docs/comercial/`):
+- `guion-demo-completo.docx` — 14 pasos + objeciones + checklist
+- `ventajas-competitivas.docx` — 7 razones con tabla comparativa
+- `documentacion-legal.docx` — Términos, privacidad (Ley 25.326), SLA
+- Todos con placeholders para nombre de marca y CUIT (TBD)
+- Modelo: $199/mes por cadena, primer mes gratis, monotributista
+

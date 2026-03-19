@@ -209,3 +209,26 @@ Ninguno encontrado. La app es funcional para un piloto controlado.
 1. Completar integración ARCA → agente desarrollo → Habilitaría facturación parcial para clientes que lo necesiten
 2. Migrar tab-historial.tsx de browser client a server actions → agente seguridad → Consistencia de seguridad y performance
 3. Iniciar planificación PWA/Offline → agente offline → Diferenciador clave para kioscos con WiFi inestable
+
+---
+
+## Actualización 2026-03-19
+
+**Commits revisados**: 1 commit desde última revisión
+- 0fa42b8 docs: guión demo, ventajas competitivas, legales + skill git-sync + fixes auditoría
+
+**Features nuevas detectadas**: Ninguna (commit es solo documentación)
+
+**Bugs resueltos**:
+- H6 (reports.actions.ts - validar branchId contra org) → RESUELTO: Ya usa `verifyMembership()` + role check owner/admin via `verifyReportAccess()`. No se había verificado correctamente en revisión anterior.
+
+**Bugs nuevos detectados**: Ninguno
+
+**Roadmap changes**: Sin cambios
+
+**Score actualizado**: 8.5/10 (sin cambios — el código está estable, no hubo modificaciones funcionales)
+
+**Próximas 3 prioridades**:
+1. Completar integración ARCA → agente desarrollo → Habilitaría facturación parcial para clientes que lo necesiten
+2. Migrar tab-historial.tsx de browser client a server actions → agente seguridad → Consistencia y defense-in-depth
+3. Resolver RPC redundante en dashboard.actions.ts:228 → agente corrección → Eliminar race condition menor

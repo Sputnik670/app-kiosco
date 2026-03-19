@@ -1,15 +1,20 @@
 # App Kiosco — Instrucciones del Proyecto
 
+> Última actualización: 19 de marzo de 2026
+
 ## Qué es esto
 
 SaaS de gestión para cadenas de kioscos en Argentina. El objetivo es convertir una app de prueba en un producto útil para una industria que se maneja con cuadernos y calculadoras.
 
 **Posicionamiento:** "El sistema de gestión cloud para cadenas de kioscos que integra ventas, servicios virtuales y gestión de equipo en una sola app desde el celular."
 
+**Para el estado completo del proyecto, módulos, pendientes y decisiones, ver `ESTADO_PROYECTO.md`.**
+
 ## El dueño del proyecto
 
 - No es desarrollador. Claude actúa como tech-leader.
 - Trabaja en **VSCode** con terminal **PowerShell** en Windows. Los comandos git deben ser compatibles con PowerShell (no usar `&&`, poner espacio en `git commit -m`).
+- Trabaja desde **dos computadoras** (notebook y desktop). Usar skill `git-sync` al inicio de cada sesión.
 - Revisa y aprueba antes de implementar. No se meten features sin su visto bueno.
 - Ofrece onboarding personalizado a clientes ("te ayudo a cargar el stock y manejar la app").
 
@@ -19,8 +24,10 @@ SaaS de gestión para cadenas de kioscos en Argentina. El objetivo es convertir 
 - **UI:** shadcn/ui + Tailwind + lucide-react + sonner (toasts)
 - **Backend:** Supabase (Auth PKCE + PostgreSQL + RLS)
 - **Deploy:** Vercel (push a main = deploy automático)
+- **Testing:** Vitest (unit) + Playwright (e2e smoke)
 - **Supabase Project ID:** `vrgexonzlrdptrplqpri` (región: sa-east-1)
 - **Vercel Team ID:** `team_sPJMb8vptJoaoXAlJOwFDS7d`
+- **URL producción:** https://app-kiosco-chi.vercel.app
 
 ## Reglas Técnicas Críticas
 
@@ -38,74 +45,110 @@ SaaS de gestión para cadenas de kioscos en Argentina. El objetivo es convertir 
 - Server actions retornan `{ success: boolean, error?: string, ...data }`.
 - UI components: `"use client"`, estados con useState, fetching con useCallback + useEffect.
 - Colores por sección: indigo/violet para comisiones y precios, rojo para eliminación, esmeralda para dinero.
-- Mobile-first: el kiosquero usa celular.
+- Mobile-first: el kiosquero usa celular (360px mínimo).
+- Sanitizar inputs en queries `.or()` de PostgREST con `.replace(/[,()]/g, '')` para evitar filter injection.
+
+### Validaciones de seguridad en server actions
+- Siempre verificar ownership de branchId: si el action recibe un branchId, validar que pertenece a la organización del usuario con `validateBranchOwnership()`.
+- No exponer datos de usuario en console.log (emails, IDs).
 
 ## Módulos Existentes
 
-### Core
+### Core (funcionando)
 - **Punto de Venta** — `caja-ventas.tsx` / `ventas.actions.ts`
 - **Inventario** — `agregar-stock.tsx`, `crear-producto.tsx` / `inventory.actions.ts`, `product.actions.ts`
 - **Proveedores** — `gestion-proveedores.tsx`, `control-saldo-proveedor.tsx` / `provider.actions.ts`
-- **Dashboard Dueño** — `dashboard-dueno.tsx` / `dashboard/use-dashboard-data.ts`
+- **Dashboard Dueño** — `dashboard-dueno.tsx` / `dashboard.actions.ts` (margen real con unit_cost, no hardcodeado)
 - **Reportes** — `reports/` / `reports.actions.ts` + `pdf-generator.ts` + `excel-generator.ts`
-- **Facturación** — `facturacion/` / `invoicing.actions.ts`
+- **Facturación interna** — `facturacion/` / `invoicing.actions.ts` (NO fiscal)
 
-### Servicios Virtuales
+### Servicios Virtuales (funcionando)
 - **SUBE** — `widget-sube.tsx`
 - **Cargas Virtuales** — `widget-servicios.tsx`
 - Server actions en `service.actions.ts`
 - Tabla `service_sales` para tracking de ventas de servicios
 - Comisión configurable por proveedor (`markup_type`: percentage/fixed, `markup_value`)
 
-### Gestión de Equipo
+### Gestión de Equipo (funcionando)
 - **Empleados** — `invitar-empleado.tsx`, `vista-empleado.tsx`
 - **Fichaje QR** — `generar-qr-fichaje.tsx`, `qr-fichaje-scanner.tsx`, `reloj-control.tsx`
 - **Gamificación** — `misiones-empleado.tsx`, `asignar-mision.tsx`, `team-ranking.tsx`, `capital-badges.tsx`
 - **Happy Hour** — `happy-hour.tsx`
 
-### Multi-sucursal
+### Multi-sucursal (funcionando)
 - `gestion-sucursales.tsx`, `seleccionar-sucursal.tsx`
 - `branch.actions.ts`
 
-### Nuevos (en desarrollo)
-- **Mercado Pago QR** — `mercadopago.actions.ts`, `configuracion-mercadopago.tsx`, `mercadopago-qr-dialog.tsx`, `app/api/mercadopago/` (OAuth + webhook implementados)
-- **ARCA** — `configuracion-arca.tsx` / `arca.actions.ts`, `arca.service.ts` (en desarrollo activo)
+### En desarrollo
+- **Mercado Pago QR** — `mercadopago.actions.ts`, `configuracion-mercadopago.tsx`, `mercadopago-qr-dialog.tsx`, `app/api/mercadopago/` (OAuth + webhook implementados, testing en prod pendiente)
+- **ARCA** — `configuracion-arca.tsx` / `arca.actions.ts`, `arca.service.ts`
 
-### Descartado / Suspendido
-- **Actualización masiva de precios** — `actualizacion-masiva-precios.tsx` — DESCARTADO por Ram (2026-03-17). El componente existe en el código pero no se continúa desarrollando.
+### Descartado
+- **Actualización masiva de precios** — DESCARTADO por Ram (2026-03-17). Componente stubbed.
+- **Facturación electrónica AFIP/ARCA** — Si se necesita, integrar con Facturalo Simple/Alegra.
+- Hardware propietario, ERP contable, integración con balanzas.
 
 ## Decisiones de Producto
 
-### Roadmap Aprobado
-1. **Integración Mercado Pago QR** — EN CURSO (OAuth implementado, webhook activo)
-2. **ARCA** — EN CURSO (en desarrollo activo)
-3. **Modo offline / PWA con sync** — PLANIFICAR
+### Roadmap
+1. **Integración Mercado Pago QR** — EN CURSO
+2. **ARCA** — EN CURSO
+3. **Modo offline / PWA con sync** — PLANIFICAR (docs en `.skills/pwa-implementation/`)
 
-### Pospuesto (cubierto por onboarding personalizado)
-- Catálogo precargado de productos
-- Cuentas corrientes de clientes (fiado)
+### Pospuesto
+- Catálogo precargado de productos (cubierto por onboarding personalizado)
+- Cuentas corrientes de clientes / fiado (evaluar post-piloto)
 
-### Descartado por ahora
-- **Facturación electrónica AFIP/ARCA** — La app es herramienta de gestión y visibilidad, no de facturación fiscal. Si se necesita, se integrará con servicios existentes (Facturalo Simple, Alegra), no se construye desde cero.
-- Hardware propietario (impresoras fiscales)
-- ERP contable completo
-- Integración con balanzas
+## Estructura del Proyecto
 
-## Ventajas Competitivas (lo que nadie más tiene)
+```
+App-kiosco-main/
+├── app/                    → Rutas Next.js + API routes
+├── components/             → 74 componentes React
+├── lib/actions/            → 23 server actions (lógica de negocio)
+├── lib/offline/            → Módulo offline (IndexedDB, sync)
+├── hooks/                  → Custom React hooks
+├── agents/                 → 17 agentes especializados
+│   ├── kiosco-*/SKILL.md   → Instrucciones por agente
+│   ├── conocimiento/       → Base de conocimiento (9 archivos)
+│   └── reportes/           → Reportes de auditorías (histórico)
+├── .skills/                → Skills del proyecto
+│   ├── competitive-research/ → Análisis de competidores
+│   ├── git-sync/            → Sincronización multi-PC
+│   └── pwa-implementation/  → Docs para implementar offline
+├── docs/
+│   ├── comercial/          → Guión demo, ventajas, legales (.docx)
+│   └── archivo/            → Docs archivados
+├── e2e/                    → Tests E2E: smoke-01 a smoke-04 (activos)
+├── tests/unit/             → Tests unitarios Vitest (7 tests)
+├── ESTADO_PROYECTO.md      → Mapa completo del proyecto
+├── AUDIT-FINDINGS.md       → Pendientes de seguridad y performance
+└── CLAUDE.md               → ESTE ARCHIVO
+```
 
-1. **Servicios virtuales con comisión integrada** — Ningún competidor argentino integra SUBE/recargas con gestión de stock.
-2. **Gamificación de empleados** — Misiones, ranking, badges. Único en el segmento a nivel mundial.
-3. **Cloud + PWA + Multi-sucursal** — La mayoría de competidores son Windows local.
+## Fixes Aplicados (sesión 19 marzo 2026)
 
-## Competidor más cercano
+- **Dashboard margen hardcodeado** → Ahora lee `unit_cost` real de `sale_items`, fallback a ratio solo si cost=0
+- **N+1 queries en tab-historial** → Batch queries con `.in("user_id", userIds)` + Promise.all
+- **Filter injection en ventas** → Sanitizado de input en `.or()` query
+- **BranchId validation en reports** → `validateBranchOwnership()` en 3 actions de reportes
+- **Console.log con datos de usuario** → Eliminados 2 logs que exponían emails
+- **Código muerto** → 420 líneas de actualización masiva de precios eliminadas
+- **Touch targets mobile** → Botones y textos de tab-timeline ampliados a mínimo 36px
 
-**Sistar Simple** (sistar.com.ar) — También cloud, también multi-sucursal, también argentino. Pero no tiene servicios virtuales ni gamificación. Nos gana en facturación AFIP y cuentas corrientes.
+## Pendientes Prioritarios de Seguridad
 
-Análisis completo en: `.skills/competitive-research/reports/`
+Ver `AUDIT-FINDINGS.md` para la lista completa. Los más importantes:
+- Fix RLS de `incidents` y `owner_notes` (políticas demasiado permisivas)
+- Restringir `mercadopago_credentials` a owner
+- Agregar `SET search_path` a 2 funciones SECURITY DEFINER
 
-## Skills / Agentes
+## Ventajas Competitivas
 
-- `.skills/competitive-research/` — Agente de investigación competitiva. Produce reportes de análisis, no toca código.
+1. **Servicios virtuales con comisión integrada** — Único en Argentina
+2. **Gamificación de empleados** — Único en el segmento a nivel mundial
+3. **Cloud + PWA + Multi-sucursal** — La mayoría de competidores son Windows local
 
-**Cada agente responde a una característica concreta del proyecto, hay de arquitectura, ventas, desarrollo, seguridad, corrección, etc.
-Usarlos de manera congruente que cada uno haga su tarea, y genere actualización y mejora permanente haciendo que su sinergia haga mas facil las mejoras y modificaciones.
+**Competidor principal:** Sistar Simple (sistar.com.ar) — cloud y multi-sucursal, pero sin servicios virtuales ni gamificación. Precio estimado $15k/mes por sucursal vs nuestros $199/mes por toda la cadena.
+
+Análisis completo en `.skills/competitive-research/reports/`

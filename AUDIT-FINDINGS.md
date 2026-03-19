@@ -106,7 +106,14 @@
 - [ ] Diferir queries no-críticas en useDashboardData
 - [ ] Dynamic imports en VistaEmpleado para componentes post-fichaje
 
-### Futuro
-- [ ] Políticas de uso para clientes
-- [ ] Precio sugerido del SaaS
-- [ ] Legales (términos de servicio, privacidad)
+### Completado (sesión 19 marzo 2026)
+- [x] Políticas de uso para clientes → `docs/comercial/documentacion-legal.docx`
+- [x] Precio definido: $199/mes por cadena, primer mes gratis
+- [x] Legales (términos, privacidad, SLA) → `docs/comercial/documentacion-legal.docx`
+- [x] Filter injection en ventas.actions.ts → sanitizado `.replace(/[,()]/g, '')`
+- [x] BranchId validation en reports.actions.ts → `validateBranchOwnership()`
+- [x] Console.log con datos de usuario en user.actions.ts → eliminados
+- [x] Dashboard margen hardcodeado → lee unit_cost real de sale_items
+- [x] N+1 queries en tab-historial.tsx → batch con .in() + Promise.all
+- [x] Touch targets en tab-timeline.tsx → mínimo 36px
+- [x] Código muerto de actualización masiva → 420 líneas eliminadas

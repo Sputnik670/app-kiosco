@@ -1,7 +1,7 @@
 # Estado del Proyecto — App Kiosco
 
 > **Este es tu mapa. Cuando te sientas perdido, vení acá.**
-> Última actualización: 18 de marzo de 2026
+> Última actualización: 19 de marzo de 2026
 
 ---
 
@@ -178,6 +178,10 @@ En `docs/comercial/`:
 | Mar 2026 | Catálogo precargado y fiado = posponer | El onboarding personalizado cubre eso por ahora |
 | Mar 2026 | Precio $199/mes por cadena completa | Competencia cobra $15k/mes por sucursal |
 | Mar 2026 | Primer mes gratis | Reducir barrera de entrada |
+| Mar 19 | Limpieza y reorganización del proyecto | Docs archivados, estructura docs/, ESTADO_PROYECTO.md creado |
+| Mar 19 | Fixes: margen, N+1, injection, branchId, touch targets | Auditoría de código, 7 fixes aplicados |
+| Mar 19 | Docs comerciales creados | Guión demo, ventajas competitivas, legales (.docx) |
+| Mar 19 | Skill git-sync creado | Sincronización automática entre PCs |
 
 ---
 

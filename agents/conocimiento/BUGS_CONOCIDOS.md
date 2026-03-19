@@ -322,3 +322,38 @@ const { supabase, orgId } = await verifyAuth()
 .eq('organization_id', orgId) // Usar el que ya tenemos
 ```
 
+---
+
+## 11. Dashboard margen hardcodeado (CORREGIDO 2026-03-19)
+
+**Problema**: El dashboard calculaba el margen de ganancia usando `DEFAULT_COST_RATIO = 0.55` (55%) para TODOS los productos, ignorando el `unit_cost` real guardado en `sale_items`.
+
+**Dónde se encontró**: `lib/actions/dashboard.actions.ts`
+
+**Fix aplicado**: Ahora lee `unit_cost` de `sale_items`. Si `unit_cost > 0`, usa el costo real. Solo aplica el ratio como fallback cuando `unit_cost === 0`.
+
+**Estado**: CORREGIDO
+
+---
+
+## 12. Filter injection en búsqueda de ventas (CORREGIDO 2026-03-19)
+
+**Problema**: El input de búsqueda en ventas se pasaba directo al filtro `.or()` de PostgREST sin sanitizar. Un usuario malicioso podía inyectar caracteres como `,()` para manipular la query.
+
+**Dónde se encontró**: `lib/actions/ventas.actions.ts:153`
+
+**Fix aplicado**: `.replace(/[,()]/g, '').trim()` antes de usar en el filtro.
+
+**Regla**: Siempre sanitizar inputs antes de usar en `.or()`, `.filter()` o cualquier query PostgREST que acepte operadores.
+
+**Estado**: CORREGIDO
+
+---
+
+## 13. N+1 queries en historial de empleados (CORREGIDO 2026-03-19)
+
+**Problema**: `tab-historial.tsx` hacía 3 queries por empleado dentro de un loop (3N+1 queries totales). Con 10 empleados = 31 queries.
+
+**Fix aplicado**: Batch queries con `.in("user_id", userIds)` + `Promise.all` + agregación en memoria. Ahora: 3 queries totales sin importar cantidad de empleados.
+
+**Estado**: CORREGIDO
