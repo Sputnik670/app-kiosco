@@ -1,112 +1,37 @@
-# Agentes de Optimización - App Kiosco
+# Agentes — App Kiosco
 
-Sistema de 17 agentes especializados para llevar la app de prueba a producto SaaS listo para escalar a +10 cadenas de kioscos.
+> Actualizado: 19 de marzo de 2026
 
-## Mapa de agentes
+## Estructura actual: 4 agentes activos
 
-### Coordinación
-| # | Agente | Carpeta | Responsabilidad |
-|---|--------|---------|-----------------|
-| 1 | **Orquestador** | `kiosco-orquestador/` | CTO virtual. Coordina a todos, decide prioridades, delega al agente correcto |
+Los 17 agentes originales fueron consolidados en 4 agentes prácticos que se usan en momentos concretos del flujo de trabajo.
 
-### Capa de personas (quién usa el producto)
-| # | Agente | Carpeta | Responsabilidad |
-|---|--------|---------|-----------------|
-| 2 | **Persona Dueño** | `kiosco-persona-dueno/` | Piensa como Beto, 48 años, dueño de 5 kioscos. Valida que cada feature le resuelva un problema real |
-| 3 | **Persona Empleado** | `kiosco-persona-empleado/` | Piensa como Lucía, 26 años, kiosquera 8hs/día. Valida que todo sea rápido y sin fricciones |
+| Agente | Carpeta | Cuándo se usa |
+|--------|---------|---------------|
+| **Inicio de Sesión** | `inicio-sesion/` | SIEMPRE al abrir el proyecto. Sync git, estado, pendientes |
+| **Revisión de Código** | `revision-codigo/` | ANTES de escribir o modificar código |
+| **Pre-Deploy** | `pre-deploy/` | ANTES de pushear a main (deploy automático) |
+| **Comercial** | `comercial/` | Al preparar demos, hablar con clientes, decisiones de producto |
 
-### Capa técnica (cómo se construye)
-| # | Agente | Carpeta | Responsabilidad |
-|---|--------|---------|-----------------|
-| 4 | **Arquitectura** | `kiosco-arquitectura/` | Patrones, deuda técnica, separación de responsabilidades |
-| 5 | **Base de Datos** | `kiosco-database/` | Schema, índices, queries, migraciones |
-| 6 | **Testing** | `kiosco-testing/` | Unit tests (Vitest), E2E (Playwright), cobertura |
-| 7 | **Performance** | `kiosco-performance/` | Bundle, rendering, carga en dispositivos económicos |
-| 8 | **Seguridad** | `kiosco-seguridad/` | RLS, auth, aislamiento multi-tenant |
-| 9 | **Offline/PWA** | `kiosco-offline/` | IndexedDB, Service Worker, sync, modo sin conexión |
-| 10 | **DevOps** | `kiosco-devops/` | Vercel, CI/CD, Sentry, migraciones en producción |
+## Base de conocimiento compartida
 
-### Capa de producto (qué se construye)
-| # | Agente | Carpeta | Responsabilidad |
-|---|--------|---------|-----------------|
-| 11 | **UX/Estética** | `kiosco-ux/` | Interfaz, accesibilidad, consistencia visual |
-| 12 | **Analytics** | `kiosco-analytics/` | KPIs, dashboards, gráficos con Recharts |
-| 13 | **Reportes** | `kiosco-reportes/` | PDF (tickets, cierres), Excel (exports de datos) |
-| 14 | **Onboarding** | `kiosco-onboarding/` | Setup de nuevos clientes, multi-tenant, planes |
+En `conocimiento/` hay 9 archivos (8 docs + README) que los 4 agentes consultan:
 
-### Capa de dominio (conocimiento del negocio)
-| # | Agente | Carpeta | Responsabilidad |
-|---|--------|---------|-----------------|
-| 15 | **Inventario** | `kiosco-inventario/` | FIFO, lotes, vencimientos, proveedores |
-| 16 | **Facturación** | `kiosco-facturacion/` | ARCA/AFIP, CAE, tipos de factura (fase 2) |
-| 17 | **Gamificación** | `kiosco-gamificacion/` | Misiones, XP, rankings, engagement |
+- `BUGS_CONOCIDOS.md` — Errores documentados y cómo evitarlos
+- `CHECKLIST_PRE_DEPLOY.md` — Checklist detallado antes de deploy
+- `COMPETENCIA.md` — Estrategia vs Sistar, FODA
+- `HISTORIAL_DECISIONES.md` — Registro cronológico de decisiones
+- `INTEGRACIONES.md` — Estado de Mercado Pago, ARCA, etc.
+- `METRICAS_NEGOCIO.md` — KPIs y proyecciones
+- `ONBOARDING_CLIENTE.md` — Proceso paso a paso
+- `PATRONES_CODIGO.md` — Patrones de código aprobados
 
-## Cómo usar
+## Reportes históricos
 
-### En Claude Code (terminal)
+En `reportes/` hay 16 reportes de auditorías realizadas entre febrero y marzo 2026.
 
-Siempre empezá por el Orquestador si no sabés por dónde arrancar:
+## Agentes archivados
 
-```
-Lee agents/kiosco-orquestador/SKILL.md y decime qué priorizar hoy
-```
+En `archivo/` están los 17 agentes originales (orquestador, arquitectura, database, seguridad, etc.). Su contenido útil fue absorbido por los 4 agentes activos y la base de conocimiento.
 
-Para tareas específicas, invocá al agente directamente:
-
-```
-Lee agents/kiosco-seguridad/SKILL.md y hacé una auditoría completa de RLS
-```
-
-```
-Lee agents/kiosco-persona-empleado/SKILL.md y evaluá el flujo de venta
-```
-
-```
-Lee agents/kiosco-inventario/SKILL.md y auditá el sistema FIFO
-```
-
-### Trabajo conjunto entre agentes
-
-Cada agente tiene una sección "Áreas de trabajo conjunto" que define con qué otros agentes se coordina. Para tareas complejas, el Orquestador define el orden:
-
-```
-Ejemplo: "Implementar transferencia de stock entre sucursales"
-
-1. Persona Dueño     → ¿Beto lo necesita?
-2. Inventario        → Diseñar la lógica FIFO
-3. Database          → Schema + índices
-4. Seguridad         → RLS en las nuevas tablas
-5. Arquitectura      → Actions + repositorios
-6. Persona Empleado  → ¿Lucía lo puede usar rápido?
-7. UX                → Interfaz
-8. Offline           → ¿Funciona sin internet?
-9. Testing           → Tests del flujo
-```
-
-### Orden recomendado para solidificar la base
-
-```
-Fase 1 — Blindar (semana 1-2):
-  Seguridad → Database → Arquitectura → Testing
-
-Fase 2 — Optimizar (semana 3-4):
-  Performance → Offline/PWA → DevOps
-
-Fase 3 — Pulir producto (mes 2):
-  Persona Empleado + UX → Persona Dueño + Analytics → Reportes
-
-Fase 4 — Escalar (mes 2-3):
-  Onboarding → Inventario → Gamificación
-
-Fase 5 — Facturación (cuando haya clientes):
-  Facturación ARCA
-```
-
-## Convenciones
-
-- Cada agente tiene "Lo que NO hacer" — límites claros para no pisar trabajo de otros
-- Cada agente genera reportes con formato estandarizado
-- Los agentes no ejecutan cambios destructivos sin confirmación
-- Los cambios de DB generan scripts SQL, no se aplican automáticamente
-- Las personas (Dueño/Empleado) validan ANTES de que los técnicos implementen
-- El Orquestador coordina cuando hay duda sobre quién debe actuar
+Las carpetas `kiosco-*/` en este directorio contienen un stub que redirige a la nueva estructura.

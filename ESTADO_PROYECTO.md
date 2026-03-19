@@ -73,7 +73,7 @@ App-kiosco-main/
 │   ├── offline/            → IndexedDB, sync, cache (módulo offline)
 │   └── repositories/       → Acceso a datos (browser client)
 ├── hooks/                  → Custom React hooks
-├── agents/                 → 17 agentes especializados (ver abajo)
+├── agents/                 → 4 agentes activos + conocimiento + archivo
 ├── .skills/                → Skills del proyecto (ver abajo)
 ├── docs/
 │   ├── comercial/          → Guión demo, ventajas, legales (.docx)
@@ -88,33 +88,22 @@ App-kiosco-main/
 
 ---
 
-## Agentes: Para Qué Sirve Cada Uno
+## Agentes: 4 Activos + Base de Conocimiento
 
-Los agentes están en `agents/` y son instrucciones especializadas que Claude usa según la tarea.
+Los agentes están en `agents/` y son instrucciones que Claude sigue en momentos específicos del flujo de trabajo.
 
 | Agente | Para qué | Cuándo se usa |
 |--------|----------|---------------|
-| **orquestador** | Coordina a todos los demás, da el estado general | Al inicio de sesiones, auditorías |
-| **arquitectura** | Decisiones técnicas, estructura de código | Cuando se agrega algo nuevo al código |
-| **database** | Schema, índices, migraciones, queries | Cambios en base de datos |
-| **seguridad** | RLS, auth, multi-tenant, vulnerabilidades | Auditorías, antes de deploy |
-| **performance** | Velocidad, bundle size, optimización | Cuando algo anda lento |
-| **testing** | Estrategia de tests, cobertura | Cuando se escriben tests |
-| **devops** | Deploy, CI/CD, Vercel, Supabase | Configuración de infraestructura |
-| **ux** | Interfaz, accesibilidad, mobile-first | Cambios visuales, nuevo componente |
-| **inventario** | Lógica FIFO, lotes, vencimientos | Cambios en stock/inventario |
-| **facturacion** | ARCA/AFIP, comprobantes | Módulo de facturación |
-| **gamificacion** | Misiones, XP, ranking, badges | Cambios en gamificación |
-| **reportes** | PDF, Excel, exportaciones | Cambios en reportes |
-| **analytics** | KPIs, métricas de negocio | Dashboard, métricas |
-| **onboarding** | Proceso de alta de clientes | Cuando se sube un nuevo cliente |
-| **offline** | Service Worker, IndexedDB, sync | Módulo offline/PWA |
-| **persona-dueno** | Simula a "Beto" (dueño tipo) | Validar que las features sirven |
-| **persona-empleado** | Simula a "Lucía" (empleada tipo) | Validar la UX del empleado |
+| **inicio-sesion** | Sync git, reportar estado, pendientes | SIEMPRE al abrir el proyecto |
+| **revision-codigo** | Patrones, reglas de seguridad, bugs conocidos | ANTES de escribir o modificar código |
+| **pre-deploy** | Checklist de seguridad, tests, compilación | ANTES de pushear a main |
+| **comercial** | Competencia, onboarding, demos, precios | Al preparar demos o hablar con clientes |
 
-**Base de conocimiento** (`agents/conocimiento/`): 9 archivos con bugs conocidos, decisiones tomadas, patrones de código, proceso de onboarding, métricas, competencia e integraciones.
+**Base de conocimiento** (`agents/conocimiento/`): 9 archivos con bugs conocidos, decisiones tomadas, patrones de código, proceso de onboarding, métricas, competencia e integraciones. Es la memoria del proyecto que los 4 agentes consultan.
 
-**Reportes** (`agents/reportes/`): 16 reportes históricos de auditorías (feb-marzo 2026).
+**Reportes históricos** (`agents/reportes/`): 16 reportes de auditorías previas (feb-marzo 2026).
+
+**Agentes archivados** (`agents/archivo/`): Los 17 agentes originales (orquestador, arquitectura, database, seguridad, etc.) están archivados. Su contenido útil se absorbió en los 4 agentes activos y la base de conocimiento.
 
 ---
 

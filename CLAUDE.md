@@ -108,10 +108,14 @@ App-kiosco-main/
 ├── lib/actions/            → 23 server actions (lógica de negocio)
 ├── lib/offline/            → Módulo offline (IndexedDB, sync)
 ├── hooks/                  → Custom React hooks
-├── agents/                 → 17 agentes especializados
-│   ├── kiosco-*/SKILL.md   → Instrucciones por agente
+├── agents/                 → Agentes de Claude (4 activos)
+│   ├── inicio-sesion/      → Sync + estado al abrir sesión
+│   ├── revision-codigo/    → Reglas antes de tocar código
+│   ├── pre-deploy/         → Checklist antes de push a main
+│   ├── comercial/          → Competencia, onboarding, demos
 │   ├── conocimiento/       → Base de conocimiento (9 archivos)
-│   └── reportes/           → Reportes de auditorías (histórico)
+│   ├── reportes/           → Reportes de auditorías (histórico)
+│   └── archivo/            → 17 agentes viejos (archivados)
 ├── .skills/                → Skills del proyecto
 │   ├── competitive-research/ → Análisis de competidores
 │   ├── git-sync/            → Sincronización multi-PC
