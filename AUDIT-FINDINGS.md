@@ -5,7 +5,7 @@
 ### Estado general: BUENO
 - 27 tablas, TODAS con RLS activado
 - 0 tablas con RLS activado sin políticas (no hay tablas "bloqueadas")
-- Todas las funciones SECURITY DEFINER tienen `SET search_path TO 'public'` (excepto 2, ver abajo)
+- Todas las funciones SECURITY DEFINER tienen `SET search_path TO 'public'` ✅
 
 ### Hallazgos de seguridad
 
@@ -87,22 +87,23 @@
 
 ---
 
-## PLAN DE ACCIÓN PARA PRÓXIMA SESIÓN
+## PLAN DE ACCIÓN
 
-### Prioridad 1 — Seguridad DB (hacer primero)
-- [ ] Fix RLS de `incidents`: separar políticas por operación
-- [ ] Fix RLS de `owner_notes`: restringir a owner
-- [ ] Fix RLS de `mercadopago_credentials`: restringir escritura a owner
-- [ ] Agregar DELETE/UPDATE false a `service_sales`
-- [ ] Agregar `SET search_path` a `expire_pending_mp_orders` y `process_sale`
+### Prioridad 1 — Seguridad DB ✅ COMPLETADO
+- [x] Fix RLS de `incidents`: separar políticas por operación → migración 00007
+- [x] Fix RLS de `owner_notes`: restringir a owner → migración 00007
+- [x] Fix RLS de `mercadopago_credentials`: restringir escritura a owner → migración 00007
+- [x] Agregar DELETE/UPDATE false a `service_sales` → migración 00008
+- [x] Agregar `SET search_path` a `expire_pending_mp_orders` y `process_sale` → migración 00008
+- [x] Fix bug OR sin paréntesis en verificación de migración 00007
 
-### Prioridad 2 — Performance (quick wins)
-- [ ] Dynamic import de Reports, ConfiguracionMercadoPago, ConfiguracionArca
-- [ ] Dynamic import de Recharts en TabSales
-- [ ] Memoizar formatMoney con useCallback
+### Prioridad 2 — Performance (quick wins) ✅ COMPLETADO
+- [x] Dynamic import de Reports, ConfiguracionMercadoPago, ConfiguracionArca → `dashboard-dueno.tsx`
+- [x] Dynamic import de Recharts en TabSales → `tab-sales.tsx`
+- [x] Memoizar formatMoney con useCallback → extraído fuera del componente
 
-### Prioridad 3 — Performance (medio plazo)
-- [ ] Lazy-load todos los tab components con next/dynamic
+### Prioridad 3 — Performance (medio plazo) — PARCIAL
+- [x] Lazy-load todos los tab components con next/dynamic → `dashboard-dueno.tsx`
 - [ ] Diferir queries no-críticas en useDashboardData
 - [ ] Dynamic imports en VistaEmpleado para componentes post-fichaje
 

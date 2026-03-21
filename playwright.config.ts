@@ -66,6 +66,12 @@ export default defineConfig({
       },
       testMatch: /smoke-.*\.spec\.ts/,
     },
+    // Teardown: limpia datos de prueba (Test-PW-*, Proveedor-PW-*)
+    {
+      name: 'teardown',
+      dependencies: ['smoke-mobile', 'smoke-desktop'],
+      testMatch: /teardown\.ts/,
+    },
   ],
 
   webServer: {

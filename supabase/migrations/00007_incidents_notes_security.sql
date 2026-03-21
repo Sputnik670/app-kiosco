@@ -236,7 +236,7 @@ BEGIN
     SELECT 1 FROM pg_policies
     WHERE tablename = 'mercadopago_credentials'
       AND policyname = 'mp_creds_insert'
-      AND qual LIKE '%is_owner%' OR with_check LIKE '%is_owner%'
+      AND (qual LIKE '%is_owner%' OR with_check LIKE '%is_owner%')
   ) INTO v_mp_fix;
 
   RAISE NOTICE '';
