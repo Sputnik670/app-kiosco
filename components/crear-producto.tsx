@@ -15,24 +15,30 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 // html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
 
-// --- SCANNER FULL-SCREEN OVERLAY ---
-// Renderizado fuera de Dialog/Modal para evitar que CSS transforms
-// (translate-x/y-50%) distorsionen getBoundingClientRect() de html5-qrcode
+// --- SCANNER FULL-SCREEN OVERLAY (con debug temporal) ---
 function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [debug, setDebug] = useState({ frames: 0, status: "init", videoSize: "", qrbox: "", nativeApi: false })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null)
   const onResultRef = useRef(onResult)
+  const frameCountRef = useRef(0)
   const scannerId = "reader-catalogo-v2"
 
-  // Mantener ref actualizada sin disparar re-init del scanner
   useEffect(() => { onResultRef.current = onResult }, [onResult])
 
-  // Bloquear scroll del body mientras el scanner está abierto
   useEffect(() => {
     document.body.style.overflow = "hidden"
     return () => { document.body.style.overflow = "" }
+  }, [])
+
+  // Debug: actualizar contador en pantalla cada segundo
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDebug(prev => ({ ...prev, frames: frameCountRef.current }))
+    }, 1000)
+    return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
@@ -42,54 +48,69 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
       try {
         if (cancelled) return
         const container = document.getElementById(scannerId)
-        if (!container) return
+        if (!container) {
+          setDebug(prev => ({ ...prev, status: "ERROR: no container DOM" }))
+          return
+        }
 
+        setDebug(prev => ({ ...prev, status: "importando lib..." }))
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
         if (cancelled) return
+
+        // Detectar si BarcodeDetector nativo existe
+        const hasNative = typeof (window as any).BarcodeDetector !== "undefined"
+        setDebug(prev => ({ ...prev, status: "creando scanner...", nativeApi: hasNative }))
 
         const html5QrCode = new Html5Qrcode(scannerId)
         scannerRef.current = html5QrCode
 
-        // qrbox responsivo basado en viewport real (no container con transforms)
         const vw = window.innerWidth
         const qrboxWidth = Math.min(Math.floor(vw * 0.75), 300)
         const qrboxHeight = Math.floor(qrboxWidth * 0.55)
 
+        // SIN experimentalFeatures — forzar ZXing JS decoder
+        // SIN formatsToSupport — dejar que detecte TODOS los formatos
         const config = {
           fps: 10,
           qrbox: { width: qrboxWidth, height: qrboxHeight },
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.QR_CODE
-          ],
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true
-          }
         }
 
+        setDebug(prev => ({ ...prev, status: "iniciando cámara...", qrbox: `${qrboxWidth}x${qrboxHeight}` }))
         if (cancelled) return
 
         await html5QrCode.start(
           { facingMode: "environment" },
           config,
-          (decodedText) => {
+          (decodedText: string) => {
             if (navigator.vibrate) navigator.vibrate(100)
+            setDebug(prev => ({ ...prev, status: `DECODIFICADO: ${decodedText}` }))
             onResultRef.current(decodedText)
           },
-          () => {}
+          () => {
+            // Cada frame que falla decodificar
+            frameCountRef.current++
+          }
         )
-        if (!cancelled) setLoading(false)
+
+        if (!cancelled) {
+          // Leer dimensiones del video para debug
+          const videoEl = container.querySelector("video")
+          const vSize = videoEl
+            ? `${videoEl.videoWidth}x${videoEl.videoHeight} (render: ${videoEl.clientWidth}x${videoEl.clientHeight})`
+            : "no video element"
+          setDebug(prev => ({ ...prev, status: "ESCANEANDO", videoSize: vSize }))
+          setLoading(false)
+        }
       } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
         console.error("Error iniciando scanner:", err)
         if (!cancelled) {
-          setError("No se pudo acceder a la cámara. Verifica los permisos.")
+          setDebug(prev => ({ ...prev, status: `ERROR: ${msg}` }))
+          setError(msg)
           setLoading(false)
         }
       }
-    }, 300)
+    }, 400)
 
     return () => {
       cancelled = true
@@ -113,7 +134,7 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
   }
 
   return (
-    <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black">
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-black">
       {loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50 text-white gap-3">
           <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
@@ -121,7 +142,15 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
         </div>
       )}
       <div id={scannerId} className="w-full flex-1" />
-      <div className="absolute bottom-10 z-50">
+      {/* DEBUG OVERLAY — remover después de diagnosticar */}
+      <div className="absolute top-2 left-2 right-2 z-[10000] bg-black/80 text-green-400 font-mono text-[9px] p-2 rounded space-y-0.5">
+        <p>Estado: {debug.status}</p>
+        <p>Frames: {debug.frames}</p>
+        <p>Video: {debug.videoSize || "..."}</p>
+        <p>QRBox: {debug.qrbox || "..."}</p>
+        <p>NativeAPI: {debug.nativeApi ? "SÍ" : "NO"}</p>
+      </div>
+      <div className="absolute bottom-10 left-0 right-0 flex justify-center z-50">
         <Button variant="destructive" className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]" onClick={onClose}>
           <X className="mr-2 h-4 w-4" /> Cancelar
         </Button>
