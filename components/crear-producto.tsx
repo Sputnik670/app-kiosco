@@ -16,52 +16,20 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 // html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
 
-// --- SCANNER v5: API nativa BarcodeDetector → fallback WASM polyfill ---
-// Chrome Android 83+ soporta BarcodeDetector nativo (sin WASM, instantáneo).
-// Si no está disponible (iOS Safari), carga barcode-detector/pure como polyfill.
-// Se evita el error "Importing a module script failed" que ocurría con import directo.
+// --- SCANNER v6: html5-qrcode en fullscreen portal ---
+// barcode-detector WASM no decodifica consistentemente en móviles.
+// html5-qrcode ya funciona en el POS (barcode-scanner.tsx).
+// Se renderiza en portal fullscreen para evitar el bug de Radix Dialog
+// (CSS transforms distorsionan getBoundingClientRect).
 
-const BARCODE_FORMATS = ["ean_13", "ean_8", "code_128", "upc_a", "upc_e", "qr_code"] as const
-
-/** Obtener BarcodeDetector: nativo si existe, polyfill WASM si no */
-async function getBarcodeDetector(): Promise<{ detector: unknown; source: string }> {
-  // 1. Intentar API nativa del navegador (Chrome Android 83+, Edge, Opera)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const g = globalThis as any
-  if (g.BarcodeDetector) {
-    try {
-      const supported = await g.BarcodeDetector.getSupportedFormats()
-      // Verificar que soporte al menos EAN-13 (el más común en productos)
-      if (supported.includes("ean_13")) {
-        const detector = new g.BarcodeDetector({ formats: [...BARCODE_FORMATS] })
-        return { detector, source: "nativo" }
-      }
-    } catch {
-      // Fallo silencioso, probar polyfill
-    }
-  }
-
-  // 2. Fallback: polyfill WASM (ZXing C++ compilado a WebAssembly)
-  try {
-    const { BarcodeDetector: BarcodeDetectorClass } = await import("barcode-detector/pure")
-    if (!BarcodeDetectorClass) throw new Error("No se pudo cargar el decoder")
-    const detector = new BarcodeDetectorClass({ formats: [...BARCODE_FORMATS] })
-    return { detector, source: "wasm" }
-  } catch (wasmErr) {
-    console.warn("Polyfill WASM falló:", wasmErr)
-  }
-
-  // 3. Último recurso: no hay detector disponible
-  throw new Error("Tu navegador no soporta lectura de códigos de barras. Usa Chrome actualizado.")
-}
+const SCANNER_CONTAINER_ID = "crear-producto-scanner"
 
 function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [debug, setDebug] = useState("")
-  const videoRef = useRef<HTMLVideoElement>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scannerRef = useRef<any>(null)
   const onResultRef = useRef(onResult)
-  const foundRef = useRef(false)
 
   useEffect(() => { onResultRef.current = onResult }, [onResult])
 
@@ -72,117 +40,75 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
 
   useEffect(() => {
     let cancelled = false
-    let stream: MediaStream | null = null
-    let scanTimer: ReturnType<typeof setInterval>
 
-    async function init() {
+    // Pequeño delay para que el DOM del portal se renderice
+    const timer = setTimeout(async () => {
       try {
-        setDebug("Iniciando cámara...")
+        const container = document.getElementById(SCANNER_CONTAINER_ID)
+        if (!container || cancelled) return
 
-        // 1. Obtener cámara con resolución HD
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "environment",
-            width: { ideal: 1280, min: 640 },
-            height: { ideal: 720, min: 480 },
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
+        if (cancelled) return
+
+        const formats = [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.QR_CODE,
+        ]
+
+        const scanner = new Html5Qrcode(SCANNER_CONTAINER_ID, { formatsToSupport: formats, verbose: false })
+        scannerRef.current = scanner
+
+        // qrbox responsivo al ancho del contenedor
+        const cw = container.clientWidth || 320
+        const qrboxWidth = Math.min(Math.floor(cw * 0.85), 350)
+        const qrboxHeight = Math.floor(qrboxWidth * 0.55)
+
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: qrboxWidth, height: qrboxHeight }, disableFlip: true },
+          (decodedText) => {
+            if (navigator.vibrate) navigator.vibrate(100)
+            onResultRef.current(decodedText)
           },
-          audio: false,
-        })
+          () => {} // scan miss — normal, seguir intentando
+        )
 
-        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
-
-        const video = videoRef.current
-        if (!video) return
-
-        video.srcObject = stream
-        video.setAttribute("playsinline", "true")
-        await video.play()
-
-        await new Promise<void>((resolve) => {
-          if (video.videoWidth > 0) return resolve()
-          video.onloadedmetadata = () => resolve()
-        })
-
-        const vw = video.videoWidth
-        const vh = video.videoHeight
-        setDebug(`Cámara: ${vw}x${vh}. Cargando decoder...`)
-
-        if (cancelled) return
-
-        // 2. Obtener detector (nativo o polyfill)
-        const { detector, source } = await getBarcodeDetector()
-
-        if (cancelled) return
-
-        setDebug(`Cámara: ${vw}x${vh}. Decoder ${source} listo`)
-        setLoading(false)
-
-        // Canvas offscreen para capturar frames — detect(video) no funciona
-        // en muchos navegadores móviles (iOS Safari, algunos Chrome Android).
-        // Dibujar en canvas y pasar ImageData es universalmente compatible.
-        const canvas = document.createElement("canvas")
-        canvas.width = vw
-        canvas.height = vh
-        const ctx = canvas.getContext("2d", { willReadFrequently: true })
-
-        let frameCount = 0
-        let scanning = false
-
-        // 3. Scan loop: capturar frame en canvas → detectar
-        scanTimer = setInterval(async () => {
-          if (cancelled || foundRef.current || scanning) return
-          if (!video.videoWidth || video.readyState < 2 || !ctx) return
-
-          scanning = true
-          frameCount++
-
-          try {
-            // Dibujar frame actual del video en canvas
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const barcodes = await (detector as any).detect(canvas)
-
-            if (barcodes.length > 0 && !cancelled && !foundRef.current) {
-              const code = barcodes[0].rawValue
-              if (code) {
-                foundRef.current = true
-                if (navigator.vibrate) navigator.vibrate(100)
-                setDebug(`ENCONTRADO: ${code}`)
-                onResultRef.current(code)
-                return
-              }
+        // Upgradear resolución a HD si el navegador lo permite
+        try {
+          const videoEl = container.querySelector("video")
+          if (videoEl?.srcObject && videoEl.srcObject instanceof MediaStream) {
+            const track = videoEl.srcObject.getVideoTracks()[0]
+            if (track) {
+              await track.applyConstraints({ width: { ideal: 1280 }, height: { ideal: 720 } })
             }
-          } catch {
-            // Frame no decodificable — normal, seguir
-          } finally {
-            scanning = false
           }
+        } catch {
+          // HD upgrade opcional, no crítico
+        }
 
-          if (frameCount % 5 === 0) {
-            setDebug(`Escaneando... ${frameCount} frames (${vw}x${vh}) [${source}]`)
-          }
-        }, 200) // 5 fps
-
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
+        if (!cancelled) setLoading(false)
+      } catch (err) {
         console.error("Scanner init error:", err)
         if (!cancelled) {
-          setDebug(`ERROR: ${msg}`)
-          setError(msg)
+          setError(err instanceof Error ? err.message : "No se pudo iniciar la cámara. Verifica los permisos.")
           setLoading(false)
         }
       }
-    }
-
-    init()
+    }, 400)
 
     return () => {
       cancelled = true
-      if (scanTimer) clearInterval(scanTimer)
-      if (stream) stream.getTracks().forEach(t => t.stop())
+      clearTimeout(timer)
+      const s = scannerRef.current
+      if (s?.isScanning) {
+        s.stop().then(() => s.clear()).catch(console.error)
+      }
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   const overlay = (
     <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "#000" }}>
@@ -200,28 +126,8 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
           <Button onClick={onClose} variant="destructive" className="w-full max-w-xs">Cerrar</Button>
         </div>
       ) : (
-        <>
-          <video
-            ref={videoRef}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            playsInline
-            muted
-          />
-          {/* Guías visuales de escaneo */}
-          <div style={{
-            position: "absolute", top: "50%", left: "50%",
-            transform: "translate(-50%, -50%)",
-            width: "80%", maxWidth: 320, aspectRatio: "1.6",
-            border: "3px solid rgba(255,255,255,0.7)",
-            borderRadius: 12,
-            boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)",
-          }} />
-        </>
+        <div id={SCANNER_CONTAINER_ID} style={{ width: "100%", height: "100%" }} />
       )}
-      {/* Debug info */}
-      <div style={{ position: "absolute", top: 8, left: 8, right: 8, zIndex: 100000, background: "rgba(0,0,0,0.85)", color: "#4ade80", fontFamily: "monospace", fontSize: 10, padding: 6, borderRadius: 4 }}>
-        {debug}
-      </div>
       <div style={{ position: "absolute", bottom: 40, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 100000 }}>
         <Button variant="destructive" className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]" onClick={onClose}>
           <X className="mr-2 h-4 w-4" /> Cancelar
