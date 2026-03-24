@@ -40,17 +40,25 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
         const html5QrCode = new Html5Qrcode(scannerId)
         scannerRef.current = html5QrCode
 
+        // qrbox responsivo: 80% del ancho del contenedor, aspect ratio 1.5 para barcodes
+        const container = document.getElementById(scannerId)
+        const containerWidth = container?.clientWidth || 300
+        const qrboxWidth = Math.min(Math.floor(containerWidth * 0.8), 280)
+        const qrboxHeight = Math.floor(qrboxWidth * 0.6)
+
         const config = {
-          fps: 20,
-          qrbox: { width: 260, height: 180 },
-          aspectRatio: 1.0,
+          fps: 10,
+          qrbox: { width: qrboxWidth, height: qrboxHeight },
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13,
             Html5QrcodeSupportedFormats.EAN_8,
             Html5QrcodeSupportedFormats.CODE_128,
             Html5QrcodeSupportedFormats.UPC_A,
             Html5QrcodeSupportedFormats.QR_CODE
-          ]
+          ],
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true
+          }
         }
 
         if (cancelled) return
