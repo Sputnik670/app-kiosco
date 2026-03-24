@@ -16,17 +16,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 // html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
 
-// --- SCANNER v3: cámara manual + decodificación con scanFile ---
-// html5-qrcode.start() tiene un bug donde su pipeline interno de captura
-// de frames no funciona en ciertos browsers/dispositivos (canvas orientation).
-// Solución: manejar la cámara nosotros con getUserMedia y usar scanFile()
-// de html5-qrcode para decodificar frames estáticos capturados manualmente.
+// --- SCANNER v4: cámara manual + barcode-detector (ZXing C++ WASM) ---
+// html5-qrcode usa un ZXing JS puro sin mantenimiento que no decodifica barcodes 1D.
+// barcode-detector usa ZXing C++ compilado a WebAssembly — mucho más confiable.
+// Se carga desde CDN para evitar npm install.
 function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [debug, setDebug] = useState("")
   const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const onResultRef = useRef(onResult)
   const foundRef = useRef(false)
 
@@ -46,7 +44,7 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
       try {
         setDebug("Pidiendo cámara HD...")
 
-        // 1. Obtener cámara con resolución HD directamente
+        // 1. Obtener cámara con resolución HD
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: "environment",
@@ -62,10 +60,9 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
         if (!video) return
 
         video.srcObject = stream
-        video.setAttribute("playsinline", "true") // Requerido para iOS
+        video.setAttribute("playsinline", "true")
         await video.play()
 
-        // Esperar a que el video tenga dimensiones reales
         await new Promise<void>((resolve) => {
           if (video.videoWidth > 0) return resolve()
           video.onloadedmetadata = () => resolve()
@@ -73,29 +70,49 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
 
         const vw = video.videoWidth
         const vh = video.videoHeight
-        setDebug(`Cámara OK: ${vw}x${vh}. Importando decoder...`)
+        setDebug(`Cámara: ${vw}x${vh}. Cargando decoder WASM...`)
 
         if (cancelled) return
 
-        // 2. Importar html5-qrcode solo para decodificar imágenes estáticas
-        const { Html5Qrcode } = await import("html5-qrcode")
-        if (cancelled) return
+        // 2. Cargar barcode-detector desde CDN (ZXing C++ WASM)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let BarcodeDetectorClass: any
 
-        // scanFile necesita un container DOM (no lo muestra, solo lo usa internamente)
-        let decoderDiv = document.getElementById("scanner-decoder-hidden")
-        if (!decoderDiv) {
-          decoderDiv = document.createElement("div")
-          decoderDiv.id = "scanner-decoder-hidden"
-          decoderDiv.style.display = "none"
-          document.body.appendChild(decoderDiv)
+        // Primero intentar el nativo del browser
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (typeof (window as any).BarcodeDetector !== "undefined") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          BarcodeDetectorClass = (window as any).BarcodeDetector
+          setDebug(`Cámara: ${vw}x${vh}. Usando BarcodeDetector nativo`)
+        } else {
+          // Cargar polyfill desde CDN
+          // Cargar desde CDN — @ts-expect-error porque TS no conoce URLs como módulos
+          const cdnUrl = "https://fastly.jsdelivr.net/npm/barcode-detector@2/dist/es/pure.min.js"
+          const fallbackUrl = "https://cdn.jsdelivr.net/npm/barcode-detector@2/dist/es/pure.min.js"
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const module = await (Function('url', 'return import(url)') as any)(cdnUrl)
+            BarcodeDetectorClass = module.default || module.BarcodeDetector
+            setDebug(`Cámara: ${vw}x${vh}. WASM decoder cargado`)
+          } catch {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const module2 = await (Function('url', 'return import(url)') as any)(fallbackUrl)
+            BarcodeDetectorClass = module2.default || module2.BarcodeDetector
+            setDebug(`Cámara: ${vw}x${vh}. WASM decoder cargado (fallback)`)
+          }
         }
-        const decoder = new Html5Qrcode("scanner-decoder-hidden")
+
+        if (cancelled || !BarcodeDetectorClass) return
+
+        const detector = new BarcodeDetectorClass({
+          formats: ["ean_13", "ean_8", "code_128", "upc_a", "upc_e", "qr_code"],
+        })
 
         setLoading(false)
         let frameCount = 0
         let scanning = false
 
-        // 3. Scan loop: capturar frame del video → canvas → blob → scanFile
+        // 3. Scan loop: detectar directamente del video element
         scanTimer = setInterval(async () => {
           if (cancelled || foundRef.current || scanning) return
           if (!video.videoWidth || video.readyState < 2) return
@@ -104,36 +121,22 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
           frameCount++
 
           try {
-            const canvas = canvasRef.current
-            if (!canvas) { scanning = false; return }
+            // BarcodeDetector.detect() acepta VideoElement directamente
+            // No necesita canvas, blob, ni file — mucho más eficiente
+            const barcodes = await detector.detect(video)
 
-            canvas.width = video.videoWidth
-            canvas.height = video.videoHeight
-            const ctx = canvas.getContext("2d")
-            if (!ctx) { scanning = false; return }
-
-            ctx.drawImage(video, 0, 0)
-
-            // Canvas → Blob → File
-            const blob = await new Promise<Blob | null>(resolve =>
-              canvas.toBlob(resolve, "image/jpeg", 0.85)
-            )
-            if (!blob || cancelled || foundRef.current) { scanning = false; return }
-
-            const file = new File([blob], "frame.jpg", { type: "image/jpeg" })
-
-            // Decodificar con ZXing via html5-qrcode
-            const result = await decoder.scanFile(file, /* showImage */ false)
-
-            if (result && !cancelled && !foundRef.current) {
-              foundRef.current = true
-              if (navigator.vibrate) navigator.vibrate(100)
-              setDebug(`ENCONTRADO: ${result}`)
-              onResultRef.current(result)
-              return
+            if (barcodes.length > 0 && !cancelled && !foundRef.current) {
+              const code = barcodes[0].rawValue
+              if (code) {
+                foundRef.current = true
+                if (navigator.vibrate) navigator.vibrate(100)
+                setDebug(`ENCONTRADO: ${code}`)
+                onResultRef.current(code)
+                return
+              }
             }
           } catch {
-            // No se encontró barcode en este frame — normal, seguir
+            // Frame no decodificable — normal, seguir
           } finally {
             scanning = false
           }
@@ -141,7 +144,7 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
           if (frameCount % 5 === 0) {
             setDebug(`Escaneando... ${frameCount} frames (${vw}x${vh})`)
           }
-        }, 250) // ~4 fps
+        }, 200) // 5 fps
 
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -160,9 +163,6 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
       cancelled = true
       if (scanTimer) clearInterval(scanTimer)
       if (stream) stream.getTracks().forEach(t => t.stop())
-      // Limpiar div oculto del decoder
-      const decoderDiv = document.getElementById("scanner-decoder-hidden")
-      if (decoderDiv) decoderDiv.remove()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -183,7 +183,6 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
         </div>
       ) : (
         <>
-          {/* Video de la cámara — controlado por nosotros, no por html5-qrcode */}
           <video
             ref={videoRef}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
@@ -201,9 +200,7 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
           }} />
         </>
       )}
-      {/* Canvas oculto para capturar frames */}
-      <canvas ref={canvasRef} style={{ display: "none" }} />
-      {/* Debug */}
+      {/* Debug — remover cuando funcione */}
       <div style={{ position: "absolute", top: 8, left: 8, right: 8, zIndex: 100000, background: "rgba(0,0,0,0.85)", color: "#4ade80", fontFamily: "monospace", fontSize: 10, padding: 6, borderRadius: 4 }}>
         {debug}
       </div>
