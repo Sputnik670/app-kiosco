@@ -14,22 +14,21 @@ import { Loader2, Package, Plus, DollarSign, ScanBarcode, X, AlertCircle } from 
 import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
-// html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
 
-// --- SCANNER v6: html5-qrcode en fullscreen portal ---
-// barcode-detector WASM no decodifica consistentemente en móviles.
-// html5-qrcode ya funciona en el POS (barcode-scanner.tsx).
-// Se renderiza en portal fullscreen para evitar el bug de Radix Dialog
-// (CSS transforms distorsionan getBoundingClientRect).
-
-const SCANNER_CONTAINER_ID = "crear-producto-scanner"
+// --- SCANNER v7: Quagga2 (puro JS, diseñado para barcodes 1D) ---
+// Diagnóstico iPhone Safari reveló:
+//   - BarcodeDetector nativo: NO disponible en iOS
+//   - barcode-detector WASM: "service unavailable" en iOS Safari
+//   - html5-qrcode (ZXing-js): no decodifica barcodes 1D confiablemente
+// Quagga2 usa image processing propio optimizado para barcodes lineales.
+// Funciona en iOS Safari + Android Chrome sin WASM.
 
 function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const scannerRef = useRef<any>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const onResultRef = useRef(onResult)
+  const foundRef = useRef(false)
 
   useEffect(() => { onResultRef.current = onResult }, [onResult])
 
@@ -41,74 +40,84 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
   useEffect(() => {
     let cancelled = false
 
-    // Pequeño delay para que el DOM del portal se renderice
+    // Delay para que el portal se monte en el DOM
     const timer = setTimeout(async () => {
-      try {
-        const container = document.getElementById(SCANNER_CONTAINER_ID)
-        if (!container || cancelled) return
+      if (cancelled || !containerRef.current) return
 
-        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
+      try {
+        // Import dinámico para evitar SSR y reducir bundle
+        const Quagga = (await import("@ericblade/quagga2")).default
+
         if (cancelled) return
 
-        const formats = [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.QR_CODE,
-        ]
-
-        const scanner = new Html5Qrcode(SCANNER_CONTAINER_ID, { formatsToSupport: formats, verbose: false })
-        scannerRef.current = scanner
-
-        // qrbox responsivo al ancho del contenedor
-        const cw = container.clientWidth || 320
-        const qrboxWidth = Math.min(Math.floor(cw * 0.85), 350)
-        const qrboxHeight = Math.floor(qrboxWidth * 0.55)
-
-        await scanner.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: qrboxWidth, height: qrboxHeight }, disableFlip: true },
-          (decodedText) => {
-            if (navigator.vibrate) navigator.vibrate(100)
-            onResultRef.current(decodedText)
+        Quagga.init(
+          {
+            inputStream: {
+              type: "LiveStream",
+              constraints: {
+                facingMode: "environment",
+                width: { ideal: 1280, min: 640 },
+                height: { ideal: 720, min: 480 },
+              },
+              target: containerRef.current,
+            },
+            decoder: {
+              readers: [
+                "ean_reader",       // EAN-13
+                "ean_8_reader",     // EAN-8
+                "code_128_reader",  // Code 128
+                "upc_reader",       // UPC-A
+                "upc_e_reader",     // UPC-E
+              ],
+            },
+            locator: {
+              patchSize: "medium",
+              halfSample: true,
+            },
+            frequency: 10,
+            locate: true,
           },
-          () => {} // scan miss — normal, seguir intentando
+          (err: unknown) => {
+            if (cancelled) return
+            if (err) {
+              console.error("Quagga init error:", err)
+              setError(err instanceof Error ? err.message : "No se pudo iniciar la cámara. Verifica los permisos.")
+              setLoading(false)
+              return
+            }
+
+            Quagga.start()
+            setLoading(false)
+          }
         )
 
-        // Upgradear resolución a HD si el navegador lo permite
-        try {
-          const videoEl = container.querySelector("video")
-          if (videoEl?.srcObject && videoEl.srcObject instanceof MediaStream) {
-            const track = videoEl.srcObject.getVideoTracks()[0]
-            if (track) {
-              await track.applyConstraints({ width: { ideal: 1280 }, height: { ideal: 720 } })
-            }
-          }
-        } catch {
-          // HD upgrade opcional, no crítico
-        }
+        Quagga.onDetected((result) => {
+          if (cancelled || foundRef.current) return
+          const code = result?.codeResult?.code
+          if (!code) return
 
-        if (!cancelled) setLoading(false)
+          foundRef.current = true
+          if (navigator.vibrate) navigator.vibrate(100)
+          Quagga.stop()
+          onResultRef.current(code)
+        })
+
       } catch (err) {
-        console.error("Scanner init error:", err)
+        console.error("Scanner load error:", err)
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "No se pudo iniciar la cámara. Verifica los permisos.")
+          setError(err instanceof Error ? err.message : "Error cargando el lector de códigos.")
           setLoading(false)
         }
       }
-    }, 400)
+    }, 300)
 
     return () => {
       cancelled = true
       clearTimeout(timer)
-      const s = scannerRef.current
-      if (s?.isScanning) {
-        s.stop().then(() => s.clear()).catch(console.error)
-      }
+      // Quagga.stop() es seguro llamar aunque no haya iniciado
+      import("@ericblade/quagga2").then(m => m.default.stop()).catch(() => {})
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const overlay = (
     <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "#000" }}>
@@ -126,7 +135,27 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
           <Button onClick={onClose} variant="destructive" className="w-full max-w-xs">Cerrar</Button>
         </div>
       ) : (
-        <div id={SCANNER_CONTAINER_ID} style={{ width: "100%", height: "100%" }} />
+        <div
+          ref={containerRef}
+          style={{
+            width: "100%",
+            height: "100%",
+            position: "relative",
+            overflow: "hidden",
+          }}
+        />
+      )}
+      {/* Guía visual central */}
+      {!error && !loading && (
+        <div style={{
+          position: "absolute", top: "50%", left: "50%",
+          transform: "translate(-50%, -50%)",
+          width: "80%", maxWidth: 320, height: 120,
+          border: "3px solid rgba(255,255,255,0.7)",
+          borderRadius: 12,
+          boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
+          pointerEvents: "none", zIndex: 10,
+        }} />
       )}
       <div style={{ position: "absolute", bottom: 40, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 100000 }}>
         <Button variant="destructive" className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]" onClick={onClose}>

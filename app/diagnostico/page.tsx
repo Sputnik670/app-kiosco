@@ -197,24 +197,82 @@ export default function DiagnosticoPage() {
         log(`barcode-detector/pure error: ${e}`, "error")
       }
 
-      // 6. Scan continuo (5 intentos con delay)
-      log("=== SCAN CONTINUO (5 frames, 1 seg entre cada uno) ===")
+      // 5d. Quagga2 (puro JS, optimizado para barcodes 1D)
+      log("=== TEST QUAGGA2 ===")
+      log("Probando Quagga2 decodeSingle con imagen del canvas...")
+      try {
+        const Quagga = (await import("@ericblade/quagga2")).default
+        log("Quagga2 importado OK", "ok")
+
+        // Convertir canvas a data URL para decodeSingle
+        const dataUrl = canvas.toDataURL("image/png")
+
+        const quaggaResult = await new Promise<string | null>((resolve) => {
+          const timeout = setTimeout(() => resolve(null), 5000)
+          Quagga.decodeSingle(
+            {
+              src: dataUrl,
+              numOfWorkers: 0, // inline (sin web workers) para diagnóstico
+              decoder: {
+                readers: ["ean_reader", "ean_8_reader", "code_128_reader", "upc_reader", "upc_e_reader"],
+              },
+              locate: true,
+              locator: { patchSize: "medium", halfSample: true },
+            },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (result: any) => {
+              clearTimeout(timeout)
+              if (result?.codeResult?.code) {
+                resolve(result.codeResult.code)
+              } else {
+                resolve(null)
+              }
+            }
+          )
+        })
+
+        if (quaggaResult) {
+          log(`QUAGGA2 DETECTÓ: ${quaggaResult}`, "ok")
+        } else {
+          log("Quagga2 decodeSingle: no detectó en frame actual", "warn")
+        }
+      } catch (e) {
+        log(`Quagga2 error: ${e}`, "error")
+      }
+
+      // 6. Scan continuo con Quagga2 (5 frames)
+      log("=== SCAN CONTINUO QUAGGA2 (5 frames, 1.5s entre cada uno) ===")
       log("Apuntá el barcode a la cámara y esperá...")
       for (let i = 0; i < 5; i++) {
-        await new Promise(r => setTimeout(r, 1000))
+        await new Promise(r => setTimeout(r, 1500))
         ctx.drawImage(video, 0, 0)
+        const dataUrl = canvas.toDataURL("image/png")
 
-        // Probar html5-qrcode scanFile
         try {
-          const blob = await new Promise<Blob>((resolve) => canvas.toBlob(b => resolve(b!), "image/png"))
-          const file = new File([blob], `frame${i}.png`, { type: "image/png" })
-          const { Html5Qrcode } = await import("html5-qrcode")
-          const sc = new Html5Qrcode(`diag-cont-${i}`, { verbose: false })
-          const result = await sc.scanFile(file, false)
-          log(`Frame ${i + 1}: ENCONTRADO → ${result}`, "ok")
-          break // Salir si encontramos algo
+          const Quagga = (await import("@ericblade/quagga2")).default
+          const result = await new Promise<string | null>((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 3000)
+            Quagga.decodeSingle(
+              {
+                src: dataUrl,
+                numOfWorkers: 0,
+                decoder: { readers: ["ean_reader", "ean_8_reader", "code_128_reader", "upc_reader", "upc_e_reader"] },
+                locate: true,
+                locator: { patchSize: "medium", halfSample: true },
+              },
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (r: any) => { clearTimeout(timeout); resolve(r?.codeResult?.code || null) }
+            )
+          })
+
+          if (result) {
+            log(`Frame ${i + 1}: ENCONTRADO → ${result}`, "ok")
+            break
+          } else {
+            log(`Frame ${i + 1}: no detectado`, "warn")
+          }
         } catch {
-          log(`Frame ${i + 1}: no detectado`, "warn")
+          log(`Frame ${i + 1}: error`, "error")
         }
       }
 
