@@ -55,14 +55,8 @@ export function BarcodeScanner({
 
         if (cancelled) return
 
-        // Pedir resolución HD — sin esto defaultea a VGA (640x480)
-        // y ZXing no tiene suficientes pixels para decodificar
         await html5QrCode.start(
-          {
-            facingMode: { ideal: "environment" },
-            width: { min: 640, ideal: 1280 },
-            height: { min: 480, ideal: 720 },
-          },
+          { facingMode: "environment" },
           config,
           (decodedText) => {
             if (navigator.vibrate) navigator.vibrate(100)
@@ -70,6 +64,24 @@ export function BarcodeScanner({
           },
           () => {}
         )
+
+        // Upgradear resolución del video track a HD después de arrancar
+        try {
+          const containerEl = document.getElementById(scannerId)
+          const videoEl = containerEl?.querySelector("video")
+          if (videoEl?.srcObject && videoEl.srcObject instanceof MediaStream) {
+            const track = videoEl.srcObject.getVideoTracks()[0]
+            if (track) {
+              await track.applyConstraints({
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              })
+            }
+          }
+        } catch (hdErr) {
+          console.warn("No se pudo upgradear a HD:", hdErr)
+        }
+
         if (!cancelled) setLoading(false)
       } catch (err) {
         console.error("Error iniciando scanner:", err)

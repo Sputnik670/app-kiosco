@@ -77,18 +77,12 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
         const qrboxWidth = Math.min(Math.floor(vw * 0.85), 350)
         const qrboxHeight = Math.floor(qrboxWidth * 0.6)
 
-        setDebug(prev => ({ ...prev, status: "cámara HD...", qrbox: `${qrboxWidth}x${qrboxHeight} vp:${vw}x${vh}` }))
+        setDebug(prev => ({ ...prev, status: "cámara...", qrbox: `${qrboxWidth}x${qrboxHeight} vp:${vw}x${vh}` }))
         if (cancelled) return
 
-        // Pedir resolución HD explícitamente — sin esto la cámara
-        // defaultea a 640x480 (VGA) que no tiene suficientes pixels
-        // para que ZXing decodifique barcodes (necesita ~2.5px/módulo)
+        // Paso 1: arrancar con facingMode (html5-qrcode solo acepta 1 key)
         await html5QrCode.start(
-          {
-            facingMode: { ideal: "environment" },
-            width: { min: 640, ideal: 1280 },
-            height: { min: 480, ideal: 720 },
-          },
+          { facingMode: "environment" },
           { fps: 10, qrbox: { width: qrboxWidth, height: qrboxHeight }, disableFlip: true },
           (decodedText: string) => {
             if (navigator.vibrate) navigator.vibrate(100)
@@ -98,9 +92,31 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
           () => { frameCountRef.current++ }
         )
 
+        // Paso 2: upgradear resolución del video track a HD
+        // Sin esto la cámara defaultea a VGA (640x480) y ZXing
+        // no tiene suficientes pixels para decodificar (~1.8px/módulo vs 2.5 necesarios)
+        try {
+          const videoEl = container.querySelector("video")
+          if (videoEl?.srcObject && videoEl.srcObject instanceof MediaStream) {
+            const track = videoEl.srcObject.getVideoTracks()[0]
+            if (track) {
+              await track.applyConstraints({
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              })
+              setDebug(prev => ({ ...prev, status: "ESCANEANDO (HD)" }))
+            }
+          }
+        } catch (hdErr) {
+          // Si falla el upgrade a HD, seguir con VGA — mejor algo que nada
+          console.warn("No se pudo upgradear a HD:", hdErr)
+        }
+
         if (!cancelled) {
-          setDebug(prev => ({ ...prev, status: "ESCANEANDO" }))
           setLoading(false)
+          if (!debug.status.includes("HD")) {
+            setDebug(prev => ({ ...prev, status: "ESCANEANDO (VGA)" }))
+          }
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
