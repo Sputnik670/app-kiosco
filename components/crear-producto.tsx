@@ -73,15 +73,23 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
 
         const vw = window.innerWidth
         const vh = window.innerHeight
-        const qrboxWidth = Math.min(Math.floor(vw * 0.7), 300)
-        const qrboxHeight = Math.floor(qrboxWidth * 0.5)
+        // QRBox más generoso para que el barcode tenga más pixels
+        const qrboxWidth = Math.min(Math.floor(vw * 0.85), 350)
+        const qrboxHeight = Math.floor(qrboxWidth * 0.6)
 
-        setDebug(prev => ({ ...prev, status: "cámara...", qrbox: `${qrboxWidth}x${qrboxHeight} vp:${vw}x${vh}` }))
+        setDebug(prev => ({ ...prev, status: "cámara HD...", qrbox: `${qrboxWidth}x${qrboxHeight} vp:${vw}x${vh}` }))
         if (cancelled) return
 
+        // Pedir resolución HD explícitamente — sin esto la cámara
+        // defaultea a 640x480 (VGA) que no tiene suficientes pixels
+        // para que ZXing decodifique barcodes (necesita ~2.5px/módulo)
         await html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: qrboxWidth, height: qrboxHeight } },
+          {
+            facingMode: { ideal: "environment" },
+            width: { min: 640, ideal: 1280 },
+            height: { min: 480, ideal: 720 },
+          },
+          { fps: 10, qrbox: { width: qrboxWidth, height: qrboxHeight }, disableFlip: true },
           (decodedText: string) => {
             if (navigator.vibrate) navigator.vibrate(100)
             setDebug(prev => ({ ...prev, status: `OK: ${decodedText}` }))

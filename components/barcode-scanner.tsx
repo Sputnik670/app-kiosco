@@ -35,38 +35,34 @@ export function BarcodeScanner({
           throw new Error("El contenedor de video no está listo.")
         }
 
-        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
+        const { Html5Qrcode } = await import("html5-qrcode")
         if (cancelled) return
 
         const html5QrCode = new Html5Qrcode(scannerId)
         scannerRef.current = html5QrCode
 
-        // qrbox responsivo: 80% del ancho del contenedor, aspect ratio 1.5 para barcodes
+        // qrbox responsivo: 85% del ancho del contenedor
         const container = document.getElementById(scannerId)
         const containerWidth = container?.clientWidth || 300
-        const qrboxWidth = Math.min(Math.floor(containerWidth * 0.8), 280)
+        const qrboxWidth = Math.min(Math.floor(containerWidth * 0.85), 350)
         const qrboxHeight = Math.floor(qrboxWidth * 0.6)
 
         const config = {
           fps: 10,
           qrbox: { width: qrboxWidth, height: qrboxHeight },
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.QR_CODE,
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E,
-          ],
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true
-          }
+          disableFlip: true,
         }
 
         if (cancelled) return
 
+        // Pedir resolución HD — sin esto defaultea a VGA (640x480)
+        // y ZXing no tiene suficientes pixels para decodificar
         await html5QrCode.start(
-          { facingMode: "environment" },
+          {
+            facingMode: { ideal: "environment" },
+            width: { min: 640, ideal: 1280 },
+            height: { min: 480, ideal: 720 },
+          },
           config,
           (decodedText) => {
             if (navigator.vibrate) navigator.vibrate(100)
