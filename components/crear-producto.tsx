@@ -16,10 +16,45 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 // html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
 
-// --- SCANNER v4: cámara manual + barcode-detector (ZXing C++ WASM) ---
-// html5-qrcode usa un ZXing JS puro sin mantenimiento que no decodifica barcodes 1D.
-// barcode-detector usa ZXing C++ compilado a WebAssembly — mucho más confiable.
-// Se carga desde CDN para evitar npm install.
+// --- SCANNER v5: API nativa BarcodeDetector → fallback WASM polyfill ---
+// Chrome Android 83+ soporta BarcodeDetector nativo (sin WASM, instantáneo).
+// Si no está disponible (iOS Safari), carga barcode-detector/pure como polyfill.
+// Se evita el error "Importing a module script failed" que ocurría con import directo.
+
+const BARCODE_FORMATS = ["ean_13", "ean_8", "code_128", "upc_a", "upc_e", "qr_code"] as const
+
+/** Obtener BarcodeDetector: nativo si existe, polyfill WASM si no */
+async function getBarcodeDetector(): Promise<{ detector: unknown; source: string }> {
+  // 1. Intentar API nativa del navegador (Chrome Android 83+, Edge, Opera)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const g = globalThis as any
+  if (g.BarcodeDetector) {
+    try {
+      const supported = await g.BarcodeDetector.getSupportedFormats()
+      // Verificar que soporte al menos EAN-13 (el más común en productos)
+      if (supported.includes("ean_13")) {
+        const detector = new g.BarcodeDetector({ formats: [...BARCODE_FORMATS] })
+        return { detector, source: "nativo" }
+      }
+    } catch {
+      // Fallo silencioso, probar polyfill
+    }
+  }
+
+  // 2. Fallback: polyfill WASM (ZXing C++ compilado a WebAssembly)
+  try {
+    const { BarcodeDetector: BarcodeDetectorClass } = await import("barcode-detector/pure")
+    if (!BarcodeDetectorClass) throw new Error("No se pudo cargar el decoder")
+    const detector = new BarcodeDetectorClass({ formats: [...BARCODE_FORMATS] })
+    return { detector, source: "wasm" }
+  } catch (wasmErr) {
+    console.warn("Polyfill WASM falló:", wasmErr)
+  }
+
+  // 3. Último recurso: no hay detector disponible
+  throw new Error("Tu navegador no soporta lectura de códigos de barras. Usa Chrome actualizado.")
+}
+
 function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -42,7 +77,7 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
 
     async function init() {
       try {
-        setDebug("Pidiendo cámara HD...")
+        setDebug("Iniciando cámara...")
 
         // 1. Obtener cámara con resolución HD
         stream = await navigator.mediaDevices.getUserMedia({
@@ -70,45 +105,18 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
 
         const vw = video.videoWidth
         const vh = video.videoHeight
-        setDebug(`Cámara: ${vw}x${vh}. Cargando decoder WASM...`)
+        setDebug(`Cámara: ${vw}x${vh}. Cargando decoder...`)
 
         if (cancelled) return
 
-        // 2. Cargar barcode-detector desde CDN (ZXing C++ WASM)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let BarcodeDetectorClass: any
+        // 2. Obtener detector (nativo o polyfill)
+        const { detector, source } = await getBarcodeDetector()
 
-        // Primero intentar el nativo del browser
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (typeof (window as any).BarcodeDetector !== "undefined") {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          BarcodeDetectorClass = (window as any).BarcodeDetector
-          setDebug(`Cámara: ${vw}x${vh}. Usando BarcodeDetector nativo`)
-        } else {
-          // Cargar polyfill desde CDN
-          // Cargar desde CDN — @ts-expect-error porque TS no conoce URLs como módulos
-          const cdnUrl = "https://fastly.jsdelivr.net/npm/barcode-detector@2/dist/es/pure.min.js"
-          const fallbackUrl = "https://cdn.jsdelivr.net/npm/barcode-detector@2/dist/es/pure.min.js"
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const module = await (Function('url', 'return import(url)') as any)(cdnUrl)
-            BarcodeDetectorClass = module.default || module.BarcodeDetector
-            setDebug(`Cámara: ${vw}x${vh}. WASM decoder cargado`)
-          } catch {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const module2 = await (Function('url', 'return import(url)') as any)(fallbackUrl)
-            BarcodeDetectorClass = module2.default || module2.BarcodeDetector
-            setDebug(`Cámara: ${vw}x${vh}. WASM decoder cargado (fallback)`)
-          }
-        }
+        if (cancelled) return
 
-        if (cancelled || !BarcodeDetectorClass) return
-
-        const detector = new BarcodeDetectorClass({
-          formats: ["ean_13", "ean_8", "code_128", "upc_a", "upc_e", "qr_code"],
-        })
-
+        setDebug(`Cámara: ${vw}x${vh}. Decoder ${source} listo`)
         setLoading(false)
+
         let frameCount = 0
         let scanning = false
 
@@ -122,8 +130,8 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
 
           try {
             // BarcodeDetector.detect() acepta VideoElement directamente
-            // No necesita canvas, blob, ni file — mucho más eficiente
-            const barcodes = await detector.detect(video)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const barcodes = await (detector as any).detect(video)
 
             if (barcodes.length > 0 && !cancelled && !foundRef.current) {
               const code = barcodes[0].rawValue
@@ -142,7 +150,7 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
           }
 
           if (frameCount % 5 === 0) {
-            setDebug(`Escaneando... ${frameCount} frames (${vw}x${vh})`)
+            setDebug(`Escaneando... ${frameCount} frames (${vw}x${vh}) [${source}]`)
           }
         }, 200) // 5 fps
 
@@ -200,7 +208,7 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
           }} />
         </>
       )}
-      {/* Debug — remover cuando funcione */}
+      {/* Debug info */}
       <div style={{ position: "absolute", top: 8, left: 8, right: 8, zIndex: 100000, background: "rgba(0,0,0,0.85)", color: "#4ade80", fontFamily: "monospace", fontSize: 10, padding: 6, borderRadius: 4 }}>
         {debug}
       </div>
