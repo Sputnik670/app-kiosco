@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Loader2, X, AlertCircle } from "lucide-react"
 // html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
@@ -20,15 +20,24 @@ export function BarcodeScanner({
   const [loading, setLoading] = useState(true)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null)
+  const onResultRef = useRef(onResult)
+
+  // Mantener ref actualizada sin disparar re-init del scanner
+  useEffect(() => { onResultRef.current = onResult }, [onResult])
 
   useEffect(() => {
+    let cancelled = false
+
     const initTimer = setTimeout(async () => {
       try {
+        if (cancelled) return
         if (!document.getElementById(scannerId)) {
           throw new Error("El contenedor de video no está listo.")
         }
 
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
+        if (cancelled) return
+
         const html5QrCode = new Html5Qrcode(scannerId)
         scannerRef.current = html5QrCode
 
@@ -46,31 +55,36 @@ export function BarcodeScanner({
           ],
         }
 
+        if (cancelled) return
+
         await html5QrCode.start(
           { facingMode: "environment" },
           config,
           (decodedText) => {
             if (navigator.vibrate) navigator.vibrate(100)
-            onResult(decodedText)
+            onResultRef.current(decodedText)
           },
           () => {}
         )
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       } catch (err) {
         console.error("Error iniciando scanner:", err)
-        setError("No se pudo iniciar la cámara. Verifica los permisos.")
-        setLoading(false)
+        if (!cancelled) {
+          setError("No se pudo iniciar la cámara. Verifica los permisos.")
+          setLoading(false)
+        }
       }
     }, 500)
 
     return () => {
+      cancelled = true
       clearTimeout(initTimer)
-      if (scannerRef.current?.isScanning) {
-        scannerRef.current.stop().catch(console.error)
-        scannerRef.current.clear()
+      const scanner = scannerRef.current
+      if (scanner?.isScanning) {
+        scanner.stop().then(() => scanner.clear()).catch(console.error)
       }
     }
-  }, [onResult, scannerId])
+  }, [scannerId])
 
   if (error) {
     return (

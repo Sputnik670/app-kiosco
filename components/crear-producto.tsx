@@ -2,7 +2,7 @@
 
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,15 +19,24 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
   const [loading, setLoading] = useState(true)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null)
+  const onResultRef = useRef(onResult)
   const scannerId = "reader-catalogo-v2"
 
+  // Mantener ref actualizada sin disparar re-init del scanner
+  useEffect(() => { onResultRef.current = onResult }, [onResult])
+
   useEffect(() => {
+    let cancelled = false
+
     // Retraso de seguridad para asegurar que el DOM de Vercel/Móvil esté listo
     const initTimer = setTimeout(async () => {
       try {
+        if (cancelled) return
         if (!document.getElementById(scannerId)) return
 
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
+        if (cancelled) return
+
         const html5QrCode = new Html5Qrcode(scannerId)
         scannerRef.current = html5QrCode
 
@@ -44,30 +53,36 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
           ]
         }
 
+        if (cancelled) return
+
         await html5QrCode.start(
           { facingMode: "environment" },
           config,
           (decodedText) => {
             if (navigator.vibrate) navigator.vibrate(100)
-            onResult(decodedText)
+            onResultRef.current(decodedText)
           },
           () => {}
         )
-        setLoading(false)
-      } catch (err: any) {
-        setError("No se pudo acceder a la cámara. Verifica los permisos.")
-        setLoading(false)
+        if (!cancelled) setLoading(false)
+      } catch (err: unknown) {
+        console.error("Error iniciando scanner:", err)
+        if (!cancelled) {
+          setError("No se pudo acceder a la cámara. Verifica los permisos.")
+          setLoading(false)
+        }
       }
     }, 500)
 
     return () => {
+      cancelled = true
       clearTimeout(initTimer)
-      if (scannerRef.current?.isScanning) {
-        scannerRef.current.stop().catch(console.error)
-        scannerRef.current.clear()
+      const scanner = scannerRef.current
+      if (scanner?.isScanning) {
+        scanner.stop().then(() => scanner.clear()).catch(console.error)
       }
     }
-  }, [onResult])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) {
     return (
