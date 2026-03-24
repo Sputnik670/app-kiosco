@@ -1,5 +1,5 @@
 // app/diagnostico/page.tsx
-// Página temporal de diagnóstico para testear barcode scanning en dispositivo real.
+// Diagnóstico v2: foco en verificar imagen capturada + Quagga2 LiveStream real
 // BORRAR después de resolver el problema del scanner.
 
 "use client"
@@ -18,261 +18,130 @@ function ts() {
 
 export default function DiagnosticoPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
-  const [phase, setPhase] = useState<"idle" | "running" | "done">("idle")
+  const [phase, setPhase] = useState<"idle" | "capture" | "quagga-live" | "done">("idle")
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const quaggaContainerRef = useRef<HTMLDivElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
   function log(msg: string, type: LogEntry["type"] = "info") {
     setLogs(prev => [...prev, { time: ts(), msg, type }])
   }
 
-  async function runDiagnostico() {
+  // === TEST 1: Capturar imagen y mostrarla ===
+  async function testCaptura() {
     setLogs([])
-    setPhase("running")
+    setCapturedImage(null)
+    setPhase("capture")
 
-    // 1. Device Info
-    log("=== DEVICE INFO ===")
-    log(`UserAgent: ${navigator.userAgent}`)
-    log(`Platform: ${navigator.platform}`)
-    log(`Screen: ${screen.width}x${screen.height} @${devicePixelRatio}x`)
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-    log(`iOS detectado: ${isIOS}`, isIOS ? "warn" : "info")
+    log("=== TEST CAPTURA DE IMAGEN ===")
+    log(`UA: ${navigator.userAgent.slice(0, 80)}...`)
 
-    // 2. API Availability
-    log("=== APIS DISPONIBLES ===")
-    log(`navigator.mediaDevices: ${!!navigator.mediaDevices}`, navigator.mediaDevices ? "ok" : "error")
-    const hasGUM = typeof navigator.mediaDevices?.getUserMedia === "function"
-    log(`getUserMedia: ${hasGUM}`, hasGUM ? "ok" : "error")
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const g = globalThis as any
-    log(`BarcodeDetector nativo: ${!!g.BarcodeDetector}`, g.BarcodeDetector ? "ok" : "warn")
-
-    if (g.BarcodeDetector) {
-      try {
-        const formats = await g.BarcodeDetector.getSupportedFormats()
-        log(`  Formatos soportados: ${formats.join(", ")}`, "ok")
-      } catch (e) {
-        log(`  getSupportedFormats error: ${e}`, "error")
-      }
-    }
-
-    // 3. Camera Test
-    log("=== TEST CÁMARA ===")
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       })
       streamRef.current = stream
-      log("Cámara obtenida OK", "ok")
+      log("Cámara OK", "ok")
 
       const track = stream.getVideoTracks()[0]
       const settings = track.getSettings()
-      log(`Resolución real: ${settings.width}x${settings.height}`, "ok")
-      log(`FacingMode: ${settings.facingMode || "no reportado"}`)
-      log(`FrameRate: ${settings.frameRate}`)
+      log(`Resolución: ${settings.width}x${settings.height}, ${settings.frameRate}fps`, "ok")
 
       const video = videoRef.current!
       video.srcObject = stream
       video.setAttribute("playsinline", "true")
       await video.play()
 
-      // Esperar que el video tenga dimensiones
       await new Promise<void>((resolve) => {
         if (video.videoWidth > 0) return resolve()
         video.onloadedmetadata = () => resolve()
       })
-      log(`Video element: ${video.videoWidth}x${video.videoHeight}`, "ok")
 
-      // 4. Canvas capture test
-      log("=== TEST CANVAS CAPTURE ===")
+      log(`Video element: ${video.videoWidth}x${video.videoHeight}`)
+
+      // Esperar 2 seg para que la cámara enfoque
+      log("Esperando 2s para que la cámara enfoque...")
+      await new Promise(r => setTimeout(r, 2000))
+
+      // Capturar frame
       const canvas = canvasRef.current!
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       const ctx = canvas.getContext("2d")!
       ctx.drawImage(video, 0, 0)
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const nonZeroPixels = imageData.data.filter((_, i) => i % 4 === 0 && imageData.data[i] > 0).length
-      log(`Canvas capturado: ${canvas.width}x${canvas.height}`, "ok")
-      log(`Pixeles no-negro: ${nonZeroPixels}/${canvas.width * canvas.height} (${((nonZeroPixels / (canvas.width * canvas.height)) * 100).toFixed(1)}%)`, nonZeroPixels > 1000 ? "ok" : "error")
 
-      // 5. Test decoders
-      log("=== TEST DECODERS ===")
+      // Mostrar la imagen capturada
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.8)
+      setCapturedImage(dataUrl)
+      log(`Imagen capturada: ${canvas.width}x${canvas.height}`, "ok")
+      log("↓ Verificá abajo que el barcode sea visible en la imagen ↓", "warn")
 
-      // 5a. Nativo
-      if (g.BarcodeDetector) {
-        log("Probando BarcodeDetector nativo con canvas...")
+      // Test rápido de Quagga2 decodeSingle con diferentes configuraciones
+      log("=== QUAGGA2 decodeSingle (3 configuraciones) ===")
+      const Quagga = (await import("@ericblade/quagga2")).default
+      log("Quagga2 importado OK", "ok")
+
+      const configs = [
+        { name: "medium+halfSample", patchSize: "medium" as const, halfSample: true },
+        { name: "large+fullRes", patchSize: "large" as const, halfSample: false },
+        { name: "x-large+fullRes", patchSize: "x-large" as const, halfSample: false },
+      ]
+
+      for (const cfg of configs) {
         try {
-          const detector = new g.BarcodeDetector({ formats: ["ean_13", "ean_8", "code_128", "upc_a", "upc_e"] })
-          const t0 = performance.now()
-          const results = await detector.detect(canvas)
-          const dt = (performance.now() - t0).toFixed(0)
-          if (results.length > 0) {
-            log(`NATIVO DETECTÓ: ${results[0].rawValue} (${results[0].format}) en ${dt}ms`, "ok")
-          } else {
-            log(`Nativo: 0 resultados (${dt}ms) — no detectó barcode en este frame`, "warn")
-          }
-        } catch (e) {
-          log(`Nativo error: ${e}`, "error")
-        }
-      }
-
-      // 5b. html5-qrcode (scanFile con imagen del canvas)
-      log("Probando html5-qrcode con imagen del canvas...")
-      try {
-        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
-        log("html5-qrcode importado OK", "ok")
-
-        // Convertir canvas a File para scanFile
-        const blob = await new Promise<Blob>((resolve) => canvas.toBlob(b => resolve(b!), "image/png"))
-        const file = new File([blob], "frame.png", { type: "image/png" })
-        log(`Imagen generada: ${(file.size / 1024).toFixed(1)}KB`)
-
-        const formats = [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.QR_CODE,
-        ]
-        log(`Formatos: EAN_13=${Html5QrcodeSupportedFormats.EAN_13}, EAN_8=${Html5QrcodeSupportedFormats.EAN_8}, CODE_128=${Html5QrcodeSupportedFormats.CODE_128}, UPC_A=${Html5QrcodeSupportedFormats.UPC_A}, UPC_E=${Html5QrcodeSupportedFormats.UPC_E}`)
-
-        const scanner = new Html5Qrcode("diag-scanner-temp", { formatsToSupport: formats, verbose: false })
-
-        try {
-          const t0 = performance.now()
-          const result = await scanner.scanFile(file, false)
-          const dt = (performance.now() - t0).toFixed(0)
-          log(`HTML5-QRCODE DETECTÓ: ${result} en ${dt}ms`, "ok")
-        } catch (scanErr) {
-          log(`html5-qrcode scanFile: no detectó barcode (${scanErr})`, "warn")
-        }
-
-        // Probar sin formatos restrictivos
-        log("Probando html5-qrcode SIN filtro de formatos...")
-        const scanner2 = new Html5Qrcode("diag-scanner-temp2", { verbose: false })
-        try {
-          const t0 = performance.now()
-          const result = await scanner2.scanFile(file, false)
-          const dt = (performance.now() - t0).toFixed(0)
-          log(`HTML5-QRCODE (sin filtro) DETECTÓ: ${result} en ${dt}ms`, "ok")
-        } catch (scanErr) {
-          log(`html5-qrcode sin filtro: no detectó (${scanErr})`, "warn")
-        }
-      } catch (e) {
-        log(`html5-qrcode import error: ${e}`, "error")
-      }
-
-      // 5c. barcode-detector polyfill
-      log("Probando barcode-detector/pure (WASM polyfill)...")
-      try {
-        const { BarcodeDetector: BD } = await import("barcode-detector/pure")
-        log("barcode-detector/pure importado OK", "ok")
-        const detector = new BD({ formats: ["ean_13", "ean_8", "code_128", "upc_a", "upc_e"] })
-
-        // Test con canvas
-        const t0 = performance.now()
-        const results = await detector.detect(canvas)
-        const dt = (performance.now() - t0).toFixed(0)
-        if (results.length > 0) {
-          log(`WASM DETECTÓ (canvas): ${results[0].rawValue} (${results[0].format}) en ${dt}ms`, "ok")
-        } else {
-          log(`WASM con canvas: 0 resultados (${dt}ms)`, "warn")
-        }
-
-        // Test con ImageData
-        log("Probando WASM con ImageData directo...")
-        const t1 = performance.now()
-        const results2 = await detector.detect(imageData)
-        const dt1 = (performance.now() - t1).toFixed(0)
-        if (results2.length > 0) {
-          log(`WASM DETECTÓ (ImageData): ${results2[0].rawValue} en ${dt1}ms`, "ok")
-        } else {
-          log(`WASM con ImageData: 0 resultados (${dt1}ms)`, "warn")
-        }
-      } catch (e) {
-        log(`barcode-detector/pure error: ${e}`, "error")
-      }
-
-      // 5d. Quagga2 (puro JS, optimizado para barcodes 1D)
-      log("=== TEST QUAGGA2 ===")
-      log("Probando Quagga2 decodeSingle con imagen del canvas...")
-      try {
-        const Quagga = (await import("@ericblade/quagga2")).default
-        log("Quagga2 importado OK", "ok")
-
-        // Convertir canvas a data URL para decodeSingle
-        const dataUrl = canvas.toDataURL("image/png")
-
-        const quaggaResult = await new Promise<string | null>((resolve) => {
-          const timeout = setTimeout(() => resolve(null), 5000)
-          Quagga.decodeSingle(
-            {
-              src: dataUrl,
-              numOfWorkers: 0, // inline (sin web workers) para diagnóstico
-              decoder: {
-                readers: ["ean_reader", "ean_8_reader", "code_128_reader", "upc_reader", "upc_e_reader"],
-              },
-              locate: true,
-              locator: { patchSize: "medium", halfSample: true },
-            },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (result: any) => {
-              clearTimeout(timeout)
-              if (result?.codeResult?.code) {
-                resolve(result.codeResult.code)
-              } else {
-                resolve(null)
-              }
-            }
-          )
-        })
-
-        if (quaggaResult) {
-          log(`QUAGGA2 DETECTÓ: ${quaggaResult}`, "ok")
-        } else {
-          log("Quagga2 decodeSingle: no detectó en frame actual", "warn")
-        }
-      } catch (e) {
-        log(`Quagga2 error: ${e}`, "error")
-      }
-
-      // 6. Scan continuo con Quagga2 (5 frames)
-      log("=== SCAN CONTINUO QUAGGA2 (5 frames, 1.5s entre cada uno) ===")
-      log("Apuntá el barcode a la cámara y esperá...")
-      for (let i = 0; i < 5; i++) {
-        await new Promise(r => setTimeout(r, 1500))
-        ctx.drawImage(video, 0, 0)
-        const dataUrl = canvas.toDataURL("image/png")
-
-        try {
-          const Quagga = (await import("@ericblade/quagga2")).default
           const result = await new Promise<string | null>((resolve) => {
-            const timeout = setTimeout(() => resolve(null), 3000)
+            const timeout = setTimeout(() => resolve(null), 5000)
             Quagga.decodeSingle(
               {
                 src: dataUrl,
                 numOfWorkers: 0,
                 decoder: { readers: ["ean_reader", "ean_8_reader", "code_128_reader", "upc_reader", "upc_e_reader"] },
                 locate: true,
-                locator: { patchSize: "medium", halfSample: true },
+                locator: { patchSize: cfg.patchSize, halfSample: cfg.halfSample },
               },
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               (r: any) => { clearTimeout(timeout); resolve(r?.codeResult?.code || null) }
             )
           })
-
           if (result) {
-            log(`Frame ${i + 1}: ENCONTRADO → ${result}`, "ok")
-            break
+            log(`${cfg.name}: DETECTÓ → ${result}`, "ok")
           } else {
-            log(`Frame ${i + 1}: no detectado`, "warn")
+            log(`${cfg.name}: no detectó`, "warn")
           }
-        } catch {
-          log(`Frame ${i + 1}: error`, "error")
+        } catch (e) {
+          log(`${cfg.name}: error (${e})`, "error")
+        }
+      }
+
+      // Capturar 3 frames más con delay
+      log("=== 3 FRAMES ADICIONALES ===")
+      for (let i = 0; i < 3; i++) {
+        await new Promise(r => setTimeout(r, 1500))
+        ctx.drawImage(video, 0, 0)
+        const frameUrl = canvas.toDataURL("image/jpeg", 0.9)
+
+        const result = await new Promise<string | null>((resolve) => {
+          const timeout = setTimeout(() => resolve(null), 5000)
+          Quagga.decodeSingle(
+            {
+              src: frameUrl,
+              numOfWorkers: 0,
+              decoder: { readers: ["ean_reader", "ean_8_reader", "code_128_reader", "upc_reader", "upc_e_reader"] },
+              locate: true,
+              locator: { patchSize: "large", halfSample: false },
+            },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (r: any) => { clearTimeout(timeout); resolve(r?.codeResult?.code || null) }
+          )
+        })
+        if (result) {
+          log(`Frame ${i + 1}: DETECTÓ → ${result}`, "ok")
+          break
+        } else {
+          log(`Frame ${i + 1}: no detectó`, "warn")
         }
       }
 
@@ -280,11 +149,100 @@ export default function DiagnosticoPage() {
       stream.getTracks().forEach(t => t.stop())
       streamRef.current = null
 
-    } catch (camErr) {
-      log(`Error de cámara: ${camErr}`, "error")
+    } catch (e) {
+      log(`Error: ${e}`, "error")
     }
 
-    log("=== DIAGNÓSTICO COMPLETO ===")
+    log("=== CAPTURA COMPLETA ===")
+    setPhase("done")
+  }
+
+  // === TEST 2: Quagga2 LiveStream (modo real como en el scanner) ===
+  async function testQuaggaLive() {
+    setLogs([])
+    setCapturedImage(null)
+    setPhase("quagga-live")
+
+    log("=== QUAGGA2 LIVESTREAM TEST ===")
+    log("Iniciando cámara con Quagga2 LiveStream...")
+    log("Tenés 15 segundos para apuntar al barcode.")
+
+    try {
+      const Quagga = (await import("@ericblade/quagga2")).default
+      log("Quagga2 importado OK", "ok")
+
+      const container = quaggaContainerRef.current
+      if (!container) { log("Container no encontrado", "error"); setPhase("done"); return }
+
+      let detected = false
+
+      await new Promise<void>((resolve, reject) => {
+        Quagga.init(
+          {
+            inputStream: {
+              type: "LiveStream",
+              constraints: {
+                facingMode: "environment",
+                width: { ideal: 1280, min: 640 },
+                height: { ideal: 720, min: 480 },
+              },
+              target: container,
+            },
+            decoder: {
+              readers: ["ean_reader", "ean_8_reader", "code_128_reader", "upc_reader", "upc_e_reader"],
+            },
+            locator: { patchSize: "large", halfSample: false },
+            frequency: 10,
+            locate: true,
+          },
+          (err: unknown) => {
+            if (err) {
+              log(`Init error: ${err}`, "error")
+              reject(err)
+              return
+            }
+            log("Quagga2 LiveStream inicializado OK", "ok")
+            Quagga.start()
+            log("Escaneando... apuntá el barcode a la cámara", "info")
+            resolve()
+          }
+        )
+      })
+
+      // onProcessed: log cada 20 frames
+      let processedCount = 0
+      Quagga.onProcessed(() => {
+        processedCount++
+        if (processedCount % 20 === 0) {
+          log(`Procesados: ${processedCount} frames...`, "info")
+        }
+      })
+
+      // onDetected
+      Quagga.onDetected((result) => {
+        if (detected) return
+        const code = result?.codeResult?.code
+        if (!code) return
+        detected = true
+        log(`LIVESTREAM DETECTÓ: ${code} (format: ${result?.codeResult?.format})`, "ok")
+      })
+
+      // Esperar 15 seg
+      await new Promise(r => setTimeout(r, 15000))
+      log(`Total frames procesados: ${processedCount}`)
+
+      if (!detected) {
+        log("LiveStream NO detectó ningún barcode en 15 segundos", "error")
+      }
+
+      Quagga.stop()
+      log("Quagga2 detenido", "info")
+
+    } catch (e) {
+      log(`Error LiveStream: ${e}`, "error")
+    }
+
+    log("=== LIVESTREAM TEST COMPLETO ===")
     setPhase("done")
   }
 
@@ -294,6 +252,7 @@ export default function DiagnosticoPage() {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
       }
+      import("@ericblade/quagga2").then(m => m.default.stop()).catch(() => {})
     }
   }, [])
 
@@ -301,49 +260,86 @@ export default function DiagnosticoPage() {
 
   return (
     <div style={{ background: "#0f172a", color: "white", minHeight: "100vh", padding: 16, fontFamily: "monospace" }}>
-      <h1 style={{ fontSize: 16, fontWeight: "bold", marginBottom: 8 }}>DIAGNÓSTICO BARCODE SCANNER</h1>
+      <h1 style={{ fontSize: 16, fontWeight: "bold", marginBottom: 4 }}>DIAGNÓSTICO v2</h1>
       <p style={{ fontSize: 11, color: "#64748b", marginBottom: 16 }}>
-        Abrí esta página desde el celular donde falla el scanner.
+        Dos tests: captura de imagen + Quagga2 en modo LiveStream real.
       </p>
 
       {phase === "idle" && (
-        <button
-          onClick={runDiagnostico}
-          style={{ background: "#3b82f6", color: "white", border: "none", borderRadius: 8, padding: "12px 24px", fontSize: 14, fontWeight: "bold", width: "100%" }}
-        >
-          INICIAR DIAGNÓSTICO
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <button
+            onClick={testCaptura}
+            style={{ background: "#3b82f6", color: "white", border: "none", borderRadius: 8, padding: "12px 24px", fontSize: 14, fontWeight: "bold" }}
+          >
+            TEST 1: CAPTURA + DECODE
+          </button>
+          <button
+            onClick={testQuaggaLive}
+            style={{ background: "#8b5cf6", color: "white", border: "none", borderRadius: 8, padding: "12px 24px", fontSize: 14, fontWeight: "bold" }}
+          >
+            TEST 2: QUAGGA2 LIVESTREAM (15s)
+          </button>
+        </div>
       )}
 
-      {/* Video preview (pequeño) */}
-      <video ref={videoRef} playsInline muted style={{ width: "100%", maxHeight: 200, objectFit: "cover", borderRadius: 8, marginTop: 12, background: "#1e293b" }} />
+      {/* Video para test de captura */}
+      <video
+        ref={videoRef}
+        playsInline muted
+        style={{
+          width: "100%", maxHeight: 180, objectFit: "cover",
+          borderRadius: 8, marginTop: 12, background: "#1e293b",
+          display: phase === "capture" ? "block" : "none",
+        }}
+      />
       <canvas ref={canvasRef} style={{ display: "none" }} />
 
-      {/* Contenedores invisibles para html5-qrcode scanFile */}
-      <div id="diag-scanner-temp" style={{ display: "none" }} />
-      <div id="diag-scanner-temp2" style={{ display: "none" }} />
-      {[0,1,2,3,4].map(i => <div key={i} id={`diag-cont-${i}`} style={{ display: "none" }} />)}
+      {/* Container para Quagga2 LiveStream */}
+      <div
+        ref={quaggaContainerRef}
+        style={{
+          width: "100%", height: 300, borderRadius: 8, marginTop: 12,
+          background: "#1e293b", overflow: "hidden", position: "relative",
+          display: phase === "quagga-live" ? "block" : "none",
+        }}
+      />
+
+      {/* Imagen capturada */}
+      {capturedImage && (
+        <div style={{ marginTop: 12 }}>
+          <p style={{ fontSize: 11, color: "#fbbf24", marginBottom: 4 }}>IMAGEN CAPTURADA (¿se ve el barcode?):</p>
+          <img src={capturedImage} alt="Frame capturado" style={{ width: "100%", borderRadius: 8, border: "2px solid #fbbf24" }} />
+        </div>
+      )}
 
       {/* Log output */}
-      <div style={{ marginTop: 12, fontSize: 11, lineHeight: 1.6, maxHeight: "60vh", overflowY: "auto", background: "#020617", borderRadius: 8, padding: 8 }}>
+      <div style={{ marginTop: 12, fontSize: 11, lineHeight: 1.6, maxHeight: "40vh", overflowY: "auto", background: "#020617", borderRadius: 8, padding: 8 }}>
         {logs.map((l, i) => (
           <div key={i} style={{ color: colorMap[l.type] }}>
             <span style={{ color: "#475569" }}>{l.time}</span> {l.msg}
           </div>
         ))}
-        {phase === "running" && <div style={{ color: "#3b82f6", animation: "pulse 1s infinite" }}>▊</div>}
+        {(phase === "capture" || phase === "quagga-live") && <div style={{ color: "#3b82f6" }}>▊ ejecutando...</div>}
       </div>
 
       {phase === "done" && (
-        <button
-          onClick={() => {
-            const text = logs.map(l => `[${l.type.toUpperCase()}] ${l.time} ${l.msg}`).join("\n")
-            navigator.clipboard.writeText(text).then(() => alert("Copiado al portapapeles"))
-          }}
-          style={{ marginTop: 12, background: "#059669", color: "white", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 12, fontWeight: "bold", width: "100%" }}
-        >
-          COPIAR RESULTADOS
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+          <button
+            onClick={() => {
+              const text = logs.map(l => `[${l.type.toUpperCase()}] ${l.time} ${l.msg}`).join("\n")
+              navigator.clipboard.writeText(text).then(() => alert("Copiado al portapapeles"))
+            }}
+            style={{ background: "#059669", color: "white", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 12, fontWeight: "bold" }}
+          >
+            COPIAR RESULTADOS
+          </button>
+          <button
+            onClick={() => { setPhase("idle"); setLogs([]); setCapturedImage(null) }}
+            style={{ background: "#475569", color: "white", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 12, fontWeight: "bold" }}
+          >
+            VOLVER A EMPEZAR
+          </button>
+        </div>
       )}
     </div>
   )

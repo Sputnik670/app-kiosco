@@ -49,6 +49,8 @@ declare module "@ericblade/quagga2" {
     onDetected(callback: (result: QuaggaResult) => void): void
     offDetected(callback: (result: QuaggaResult) => void): void
     decodeSingle(config: QuaggaConfig, callback: (result: QuaggaResult) => void): void
+    onProcessed(callback: (result: QuaggaResult | null) => void): void
+    offProcessed(callback: (result: QuaggaResult | null) => void): void
   }
 
   const Quagga: QuaggaStatic
