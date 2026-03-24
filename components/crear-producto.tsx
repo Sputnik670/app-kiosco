@@ -16,16 +16,19 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 // html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
 
-// --- SCANNER VIA PORTAL (renderiza en document.body para escapar CSS containment) ---
+// --- SCANNER v3: cámara manual + decodificación con scanFile ---
+// html5-qrcode.start() tiene un bug donde su pipeline interno de captura
+// de frames no funciona en ciertos browsers/dispositivos (canvas orientation).
+// Solución: manejar la cámara nosotros con getUserMedia y usar scanFile()
+// de html5-qrcode para decodificar frames estáticos capturados manualmente.
 function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [debug, setDebug] = useState({ frames: 0, status: "init", videoSize: "", qrbox: "" })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const scannerRef = useRef<any>(null)
+  const [debug, setDebug] = useState("")
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   const onResultRef = useRef(onResult)
-  const frameCountRef = useRef(0)
-  const scannerId = "reader-catalogo-v2"
+  const foundRef = useRef(false)
 
   useEffect(() => { onResultRef.current = onResult }, [onResult])
 
@@ -34,113 +37,137 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
     return () => { document.body.style.overflow = "" }
   }, [])
 
-  // Debug: actualizar contador cada segundo
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDebug(prev => ({ ...prev, frames: frameCountRef.current }))
-
-      // Releer dimensiones del video por si cargaron después
-      const container = document.getElementById(scannerId)
-      const videoEl = container?.querySelector("video")
-      if (videoEl && videoEl.videoWidth > 0) {
-        setDebug(prev => ({
-          ...prev,
-          videoSize: `${videoEl.videoWidth}x${videoEl.videoHeight} (render: ${videoEl.clientWidth}x${videoEl.clientHeight})`
-        }))
-      }
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [])
-
   useEffect(() => {
     let cancelled = false
+    let stream: MediaStream | null = null
+    let scanTimer: ReturnType<typeof setInterval>
 
-    const initTimer = setTimeout(async () => {
+    async function init() {
       try {
-        if (cancelled) return
-        const container = document.getElementById(scannerId)
-        if (!container) {
-          setDebug(prev => ({ ...prev, status: "ERROR: no container" }))
-          return
-        }
+        setDebug("Pidiendo cámara HD...")
 
-        setDebug(prev => ({ ...prev, status: "importando..." }))
+        // 1. Obtener cámara con resolución HD directamente
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 },
+          },
+          audio: false,
+        })
+
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
+
+        const video = videoRef.current
+        if (!video) return
+
+        video.srcObject = stream
+        video.setAttribute("playsinline", "true") // Requerido para iOS
+        await video.play()
+
+        // Esperar a que el video tenga dimensiones reales
+        await new Promise<void>((resolve) => {
+          if (video.videoWidth > 0) return resolve()
+          video.onloadedmetadata = () => resolve()
+        })
+
+        const vw = video.videoWidth
+        const vh = video.videoHeight
+        setDebug(`Cámara OK: ${vw}x${vh}. Importando decoder...`)
+
+        if (cancelled) return
+
+        // 2. Importar html5-qrcode solo para decodificar imágenes estáticas
         const { Html5Qrcode } = await import("html5-qrcode")
         if (cancelled) return
 
-        const html5QrCode = new Html5Qrcode(scannerId)
-        scannerRef.current = html5QrCode
+        // scanFile necesita un container DOM (no lo muestra, solo lo usa internamente)
+        let decoderDiv = document.getElementById("scanner-decoder-hidden")
+        if (!decoderDiv) {
+          decoderDiv = document.createElement("div")
+          decoderDiv.id = "scanner-decoder-hidden"
+          decoderDiv.style.display = "none"
+          document.body.appendChild(decoderDiv)
+        }
+        const decoder = new Html5Qrcode("scanner-decoder-hidden")
 
-        const vw = window.innerWidth
-        const vh = window.innerHeight
-        // QRBox más generoso para que el barcode tenga más pixels
-        const qrboxWidth = Math.min(Math.floor(vw * 0.85), 350)
-        const qrboxHeight = Math.floor(qrboxWidth * 0.6)
+        setLoading(false)
+        let frameCount = 0
+        let scanning = false
 
-        setDebug(prev => ({ ...prev, status: "cámara...", qrbox: `${qrboxWidth}x${qrboxHeight} vp:${vw}x${vh}` }))
-        if (cancelled) return
+        // 3. Scan loop: capturar frame del video → canvas → blob → scanFile
+        scanTimer = setInterval(async () => {
+          if (cancelled || foundRef.current || scanning) return
+          if (!video.videoWidth || video.readyState < 2) return
 
-        // Paso 1: arrancar con facingMode (html5-qrcode solo acepta 1 key)
-        await html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: qrboxWidth, height: qrboxHeight }, disableFlip: true },
-          (decodedText: string) => {
-            if (navigator.vibrate) navigator.vibrate(100)
-            setDebug(prev => ({ ...prev, status: `OK: ${decodedText}` }))
-            onResultRef.current(decodedText)
-          },
-          () => { frameCountRef.current++ }
-        )
+          scanning = true
+          frameCount++
 
-        // Paso 2: upgradear resolución del video track a HD
-        // Sin esto la cámara defaultea a VGA (640x480) y ZXing
-        // no tiene suficientes pixels para decodificar (~1.8px/módulo vs 2.5 necesarios)
-        try {
-          const videoEl = container.querySelector("video")
-          if (videoEl?.srcObject && videoEl.srcObject instanceof MediaStream) {
-            const track = videoEl.srcObject.getVideoTracks()[0]
-            if (track) {
-              await track.applyConstraints({
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-              })
-              setDebug(prev => ({ ...prev, status: "ESCANEANDO (HD)" }))
+          try {
+            const canvas = canvasRef.current
+            if (!canvas) { scanning = false; return }
+
+            canvas.width = video.videoWidth
+            canvas.height = video.videoHeight
+            const ctx = canvas.getContext("2d")
+            if (!ctx) { scanning = false; return }
+
+            ctx.drawImage(video, 0, 0)
+
+            // Canvas → Blob → File
+            const blob = await new Promise<Blob | null>(resolve =>
+              canvas.toBlob(resolve, "image/jpeg", 0.85)
+            )
+            if (!blob || cancelled || foundRef.current) { scanning = false; return }
+
+            const file = new File([blob], "frame.jpg", { type: "image/jpeg" })
+
+            // Decodificar con ZXing via html5-qrcode
+            const result = await decoder.scanFile(file, /* showImage */ false)
+
+            if (result && !cancelled && !foundRef.current) {
+              foundRef.current = true
+              if (navigator.vibrate) navigator.vibrate(100)
+              setDebug(`ENCONTRADO: ${result}`)
+              onResultRef.current(result)
+              return
             }
+          } catch {
+            // No se encontró barcode en este frame — normal, seguir
+          } finally {
+            scanning = false
           }
-        } catch (hdErr) {
-          // Si falla el upgrade a HD, seguir con VGA — mejor algo que nada
-          console.warn("No se pudo upgradear a HD:", hdErr)
-        }
 
-        if (!cancelled) {
-          setLoading(false)
-          if (!debug.status.includes("HD")) {
-            setDebug(prev => ({ ...prev, status: "ESCANEANDO (VGA)" }))
+          if (frameCount % 5 === 0) {
+            setDebug(`Escaneando... ${frameCount} frames (${vw}x${vh})`)
           }
-        }
+        }, 250) // ~4 fps
+
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error("Scanner error:", err)
+        console.error("Scanner init error:", err)
         if (!cancelled) {
-          setDebug(prev => ({ ...prev, status: `ERR: ${msg}` }))
+          setDebug(`ERROR: ${msg}`)
           setError(msg)
           setLoading(false)
         }
       }
-    }, 400)
+    }
+
+    init()
 
     return () => {
       cancelled = true
-      clearTimeout(initTimer)
-      const scanner = scannerRef.current
-      if (scanner?.isScanning) {
-        scanner.stop().then(() => scanner.clear()).catch(console.error)
-      }
+      if (scanTimer) clearInterval(scanTimer)
+      if (stream) stream.getTracks().forEach(t => t.stop())
+      // Limpiar div oculto del decoder
+      const decoderDiv = document.getElementById("scanner-decoder-hidden")
+      if (decoderDiv) decoderDiv.remove()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const overlay = (
-    <div style={{ position: "fixed", inset: 0, zIndex: 99999, display: "flex", flexDirection: "column", background: "#000" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "#000" }}>
       {loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50 text-white gap-3">
           <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
@@ -148,21 +175,37 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
         </div>
       )}
       {error ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-white text-center space-y-4">
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-white text-center space-y-4">
           <AlertCircle className="h-12 w-12 text-red-500" />
           <p className="font-bold uppercase text-sm">Error de Cámara</p>
           <p className="text-xs text-slate-400">{error}</p>
           <Button onClick={onClose} variant="destructive" className="w-full max-w-xs">Cerrar</Button>
         </div>
       ) : (
-        <div id={scannerId} style={{ width: "100%", flex: 1, minHeight: 0 }} />
+        <>
+          {/* Video de la cámara — controlado por nosotros, no por html5-qrcode */}
+          <video
+            ref={videoRef}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            playsInline
+            muted
+          />
+          {/* Guías visuales de escaneo */}
+          <div style={{
+            position: "absolute", top: "50%", left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "80%", maxWidth: 320, aspectRatio: "1.6",
+            border: "3px solid rgba(255,255,255,0.7)",
+            borderRadius: 12,
+            boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)",
+          }} />
+        </>
       )}
-      {/* DEBUG — remover después */}
-      <div style={{ position: "absolute", top: 8, left: 8, right: 8, zIndex: 100000, background: "rgba(0,0,0,0.85)", color: "#4ade80", fontFamily: "monospace", fontSize: 9, padding: 6, borderRadius: 4 }}>
-        <div>Estado: {debug.status}</div>
-        <div>Frames: {debug.frames}</div>
-        <div>Video: {debug.videoSize || "cargando..."}</div>
-        <div>QRBox: {debug.qrbox || "..."}</div>
+      {/* Canvas oculto para capturar frames */}
+      <canvas ref={canvasRef} style={{ display: "none" }} />
+      {/* Debug */}
+      <div style={{ position: "absolute", top: 8, left: 8, right: 8, zIndex: 100000, background: "rgba(0,0,0,0.85)", color: "#4ade80", fontFamily: "monospace", fontSize: 10, padding: 6, borderRadius: 4 }}>
+        {debug}
       </div>
       <div style={{ position: "absolute", bottom: 40, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 100000 }}>
         <Button variant="destructive" className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]" onClick={onClose}>
@@ -172,8 +215,6 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
     </div>
   )
 
-  // createPortal renderiza directamente en document.body,
-  // escapando cualquier CSS containment/transform de padres
   return createPortal(overlay, document.body)
 }
 
