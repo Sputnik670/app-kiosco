@@ -117,21 +117,31 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
         setDebug(`Cámara: ${vw}x${vh}. Decoder ${source} listo`)
         setLoading(false)
 
+        // Canvas offscreen para capturar frames — detect(video) no funciona
+        // en muchos navegadores móviles (iOS Safari, algunos Chrome Android).
+        // Dibujar en canvas y pasar ImageData es universalmente compatible.
+        const canvas = document.createElement("canvas")
+        canvas.width = vw
+        canvas.height = vh
+        const ctx = canvas.getContext("2d", { willReadFrequently: true })
+
         let frameCount = 0
         let scanning = false
 
-        // 3. Scan loop: detectar directamente del video element
+        // 3. Scan loop: capturar frame en canvas → detectar
         scanTimer = setInterval(async () => {
           if (cancelled || foundRef.current || scanning) return
-          if (!video.videoWidth || video.readyState < 2) return
+          if (!video.videoWidth || video.readyState < 2 || !ctx) return
 
           scanning = true
           frameCount++
 
           try {
-            // BarcodeDetector.detect() acepta VideoElement directamente
+            // Dibujar frame actual del video en canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const barcodes = await (detector as any).detect(video)
+            const barcodes = await (detector as any).detect(canvas)
 
             if (barcodes.length > 0 && !cancelled && !foundRef.current) {
               const code = barcodes[0].rawValue
