@@ -6,14 +6,18 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+// Dialog removido: html5-qrcode no funciona dentro de Radix Dialog
+// porque las CSS transforms (translate-x/y-50%) distorsionan getBoundingClientRect()
+// Ver: https://github.com/mebjas/html5-qrcode/issues/476
 import { Loader2, Package, Plus, DollarSign, ScanBarcode, X, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 // html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
 
-// --- CONFIGURACIÓN DE ESCANER ROBUSTO ---
+// --- SCANNER FULL-SCREEN OVERLAY ---
+// Renderizado fuera de Dialog/Modal para evitar que CSS transforms
+// (translate-x/y-50%) distorsionen getBoundingClientRect() de html5-qrcode
 function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -25,14 +29,20 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
   // Mantener ref actualizada sin disparar re-init del scanner
   useEffect(() => { onResultRef.current = onResult }, [onResult])
 
+  // Bloquear scroll del body mientras el scanner está abierto
+  useEffect(() => {
+    document.body.style.overflow = "hidden"
+    return () => { document.body.style.overflow = "" }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
 
-    // Retraso de seguridad para asegurar que el DOM de Vercel/Móvil esté listo
     const initTimer = setTimeout(async () => {
       try {
         if (cancelled) return
-        if (!document.getElementById(scannerId)) return
+        const container = document.getElementById(scannerId)
+        if (!container) return
 
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
         if (cancelled) return
@@ -40,11 +50,10 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
         const html5QrCode = new Html5Qrcode(scannerId)
         scannerRef.current = html5QrCode
 
-        // qrbox responsivo: 80% del ancho del contenedor, aspect ratio 1.5 para barcodes
-        const container = document.getElementById(scannerId)
-        const containerWidth = container?.clientWidth || 300
-        const qrboxWidth = Math.min(Math.floor(containerWidth * 0.8), 280)
-        const qrboxHeight = Math.floor(qrboxWidth * 0.6)
+        // qrbox responsivo basado en viewport real (no container con transforms)
+        const vw = window.innerWidth
+        const qrboxWidth = Math.min(Math.floor(vw * 0.75), 300)
+        const qrboxHeight = Math.floor(qrboxWidth * 0.55)
 
         const config = {
           fps: 10,
@@ -80,7 +89,7 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
           setLoading(false)
         }
       }
-    }, 500)
+    }, 300)
 
     return () => {
       cancelled = true
@@ -94,25 +103,25 @@ function BarcodeScanner({ onResult, onClose }: { onResult: (code: string) => voi
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center bg-black min-h-[400px] p-8 text-white text-center space-y-4">
+      <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black p-8 text-white text-center space-y-4">
         <AlertCircle className="h-12 w-12 text-red-500" />
         <p className="font-bold uppercase text-sm">Error de Cámara</p>
         <p className="text-xs text-slate-400">{error}</p>
-        <Button onClick={onClose} variant="destructive" className="w-full">Cerrar</Button>
+        <Button onClick={onClose} variant="destructive" className="w-full max-w-xs">Cerrar</Button>
       </div>
     )
   }
 
   return (
-    <div className="relative flex flex-col items-center justify-center bg-black w-full min-h-[400px]">
+    <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black">
       {loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50 text-white gap-3">
           <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
           <p className="text-[10px] font-bold uppercase">Iniciando Lector...</p>
         </div>
       )}
-      <div id={scannerId} className="w-full h-full" />
-      <div className="absolute bottom-6 flex flex-col gap-2 z-50">
+      <div id={scannerId} className="w-full flex-1" />
+      <div className="absolute bottom-10 z-50">
         <Button variant="destructive" className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]" onClick={onClose}>
           <X className="mr-2 h-4 w-4" /> Cancelar
         </Button>
@@ -290,7 +299,12 @@ export default function CrearProducto({ onProductCreated, sucursalId }: CrearPro
         </form>
         </Card>
 
-        <Dialog open={showScanner} onOpenChange={setShowScanner}><DialogContent className="sm:max-w-md p-0 overflow-hidden bg-black border-none text-white shadow-2xl rounded-3xl">{showScanner && (<BarcodeScanner onResult={handleBarcodeDetected} onClose={() => setShowScanner(false)} />)}</DialogContent></Dialog>
+        {showScanner && (
+          <BarcodeScanner
+            onResult={handleBarcodeDetected}
+            onClose={() => setShowScanner(false)}
+          />
+        )}
     </>
   )
 }
