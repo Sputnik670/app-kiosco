@@ -15,20 +15,20 @@ import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 
-// --- SCANNER v7: Quagga2 (puro JS, diseñado para barcodes 1D) ---
-// Diagnóstico iPhone Safari reveló:
-//   - BarcodeDetector nativo: NO disponible en iOS
-//   - barcode-detector WASM: "service unavailable" en iOS Safari
-//   - html5-qrcode (ZXing-js): no decodifica barcodes 1D confiablemente
-// Quagga2 usa image processing propio optimizado para barcodes lineales.
-// Funciona en iOS Safari + Android Chrome sin WASM.
+// --- SCANNER v8: BarcodeDetector nativo + Quagga2 fallback ---
+// Safari 17.2+ (iOS 17.2+, dic 2023) y Chrome Android soportan BarcodeDetector nativo.
+// Es MUCHO más rápido y confiable que Quagga2 puro JS.
+// Quagga2 se mantiene como fallback para browsers viejos, con settings mejorados.
 
 function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [scanMethod, setScanMethod] = useState<string>("")
+  const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const onResultRef = useRef(onResult)
   const foundRef = useRef(false)
+  const streamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => { onResultRef.current = onResult }, [onResult])
 
@@ -39,73 +39,167 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
 
   useEffect(() => {
     let cancelled = false
+    let animFrameId: number | null = null
 
-    // Delay para que el portal se monte en el DOM
-    const timer = setTimeout(async () => {
-      if (cancelled || !containerRef.current) return
+    async function startNativeDetector(stream: MediaStream) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const BarcodeDetectorClass = (window as any).BarcodeDetector
+      if (!BarcodeDetectorClass) return false
 
       try {
-        // Import dinámico para evitar SSR y reducir bundle
-        const Quagga = (await import("@ericblade/quagga2")).default
+        // Verificar que soporte los formatos que necesitamos
+        const formats = await BarcodeDetectorClass.getSupportedFormats()
+        const needed = ["ean_13", "ean_8", "code_128", "upc_a", "upc_e"]
+        const hasFormats = needed.some((f: string) => formats.includes(f))
+        if (!hasFormats) return false
 
-        if (cancelled) return
+        const detector = new BarcodeDetectorClass({
+          formats: needed.filter((f: string) => formats.includes(f)),
+        })
 
-        Quagga.init(
-          {
-            inputStream: {
-              type: "LiveStream",
-              constraints: {
-                facingMode: "environment",
-                width: { ideal: 1280, min: 640 },
-                height: { ideal: 720, min: 480 },
-              },
-              target: containerRef.current,
-            },
-            decoder: {
-              readers: [
-                "ean_reader",       // EAN-13
-                "ean_8_reader",     // EAN-8
-                "code_128_reader",  // Code 128
-                "upc_reader",       // UPC-A
-                "upc_e_reader",     // UPC-E
-              ],
-            },
-            locator: {
-              patchSize: "medium",
-              halfSample: true,
-            },
-            frequency: 10,
-            locate: true,
-          },
-          (err: unknown) => {
-            if (cancelled) return
-            if (err) {
-              console.error("Quagga init error:", err)
-              setError(err instanceof Error ? err.message : "No se pudo iniciar la cámara. Verifica los permisos.")
-              setLoading(false)
-              return
-            }
+        const video = videoRef.current!
+        video.srcObject = stream
+        video.setAttribute("playsinline", "true")
+        await video.play()
 
-            Quagga.start()
-            setLoading(false)
-          }
-        )
+        setScanMethod("nativo")
+        setLoading(false)
 
-        Quagga.onDetected((result) => {
+        // Loop de detección con requestAnimationFrame
+        async function detectLoop() {
           if (cancelled || foundRef.current) return
-          const code = result?.codeResult?.code
-          if (!code) return
+          try {
+            if (video.readyState >= 2) {
+              const barcodes = await detector.detect(video)
+              if (barcodes.length > 0 && !foundRef.current) {
+                const code = barcodes[0].rawValue
+                if (code) {
+                  foundRef.current = true
+                  if (navigator.vibrate) navigator.vibrate(100)
+                  stream.getTracks().forEach(t => t.stop())
+                  onResultRef.current(code)
+                  return
+                }
+              }
+            }
+          } catch {
+            // detect() puede fallar en algunos frames, ignorar
+          }
+          animFrameId = requestAnimationFrame(detectLoop)
+        }
+        detectLoop()
+        return true
+      } catch {
+        return false
+      }
+    }
 
+    async function startQuaggaFallback() {
+      if (cancelled || !containerRef.current) return
+
+      const Quagga = (await import("@ericblade/quagga2")).default
+      if (cancelled) return
+
+      Quagga.init(
+        {
+          inputStream: {
+            type: "LiveStream",
+            constraints: {
+              facingMode: "environment",
+              width: { ideal: 1280, min: 640 },
+              height: { ideal: 720, min: 480 },
+            },
+            target: containerRef.current,
+          },
+          decoder: {
+            readers: [
+              "ean_reader",
+              "ean_8_reader",
+              "code_128_reader",
+              "upc_reader",
+              "upc_e_reader",
+            ],
+          },
+          locator: {
+            patchSize: "large",
+            halfSample: false,
+          },
+          frequency: 15,
+          locate: true,
+        },
+        (err: unknown) => {
+          if (cancelled) return
+          if (err) {
+            console.error("Quagga init error:", err)
+            setError(err instanceof Error ? err.message : "No se pudo iniciar la cámara. Verifica los permisos.")
+            setLoading(false)
+            return
+          }
+
+          Quagga.start()
+          setScanMethod("quagga")
+          setLoading(false)
+        }
+      )
+
+      // Filtro de confianza: solo aceptar si el código se detecta 2 veces seguidas
+      let lastCode = ""
+      let confirmCount = 0
+
+      Quagga.onDetected((result) => {
+        if (cancelled || foundRef.current) return
+        const code = result?.codeResult?.code
+        if (!code) return
+
+        // Validar confianza: necesitamos 2 lecturas iguales consecutivas
+        if (code === lastCode) {
+          confirmCount++
+        } else {
+          lastCode = code
+          confirmCount = 1
+        }
+
+        if (confirmCount >= 2) {
           foundRef.current = true
           if (navigator.vibrate) navigator.vibrate(100)
           Quagga.stop()
           onResultRef.current(code)
+        }
+      })
+    }
+
+    const timer = setTimeout(async () => {
+      if (cancelled) return
+
+      try {
+        // Intentar BarcodeDetector nativo primero
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 },
+          },
+          audio: false,
         })
 
+        if (cancelled) {
+          stream.getTracks().forEach(t => t.stop())
+          return
+        }
+
+        streamRef.current = stream
+        const nativeWorked = await startNativeDetector(stream)
+
+        if (!nativeWorked) {
+          // Nativo no disponible, parar stream y usar Quagga2
+          stream.getTracks().forEach(t => t.stop())
+          streamRef.current = null
+          await startQuaggaFallback()
+        }
       } catch (err) {
-        console.error("Scanner load error:", err)
+        console.error("Scanner error:", err)
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Error cargando el lector de códigos.")
+          setError(err instanceof Error ? err.message : "No se pudo iniciar la cámara. Verifica los permisos.")
           setLoading(false)
         }
       }
@@ -114,7 +208,10 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
     return () => {
       cancelled = true
       clearTimeout(timer)
-      // Quagga.stop() es seguro llamar aunque no haya iniciado
+      if (animFrameId) cancelAnimationFrame(animFrameId)
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop())
+      }
       import("@ericblade/quagga2").then(m => m.default.stop()).catch(() => {})
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -130,32 +227,64 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
       {error ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-white text-center space-y-4">
           <AlertCircle className="h-12 w-12 text-red-500" />
-          <p className="font-bold uppercase text-sm">Error de Cámara</p>
+          <p className="font-bold uppercase text-sm">Error de C&aacute;mara</p>
           <p className="text-xs text-slate-400">{error}</p>
           <Button onClick={onClose} variant="destructive" className="w-full max-w-xs">Cerrar</Button>
         </div>
       ) : (
-        <div
-          ref={containerRef}
-          style={{
-            width: "100%",
-            height: "100%",
-            position: "relative",
-            overflow: "hidden",
-          }}
-        />
+        <>
+          {/* Video element para BarcodeDetector nativo */}
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: scanMethod === "nativo" ? "block" : "none",
+            }}
+          />
+          {/* Container para Quagga2 fallback */}
+          <div
+            ref={containerRef}
+            style={{
+              width: "100%",
+              height: "100%",
+              position: "relative",
+              overflow: "hidden",
+              display: scanMethod === "quagga" || scanMethod === "" ? "block" : "none",
+            }}
+          />
+        </>
       )}
       {/* Guía visual central */}
       {!error && !loading && (
-        <div style={{
-          position: "absolute", top: "50%", left: "50%",
-          transform: "translate(-50%, -50%)",
-          width: "80%", maxWidth: 320, height: 120,
-          border: "3px solid rgba(255,255,255,0.7)",
-          borderRadius: 12,
-          boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
-          pointerEvents: "none", zIndex: 10,
-        }} />
+        <>
+          <div style={{
+            position: "absolute", top: "50%", left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "80%", maxWidth: 320, height: 120,
+            border: "3px solid rgba(255,255,255,0.7)",
+            borderRadius: 12,
+            boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
+            pointerEvents: "none", zIndex: 10,
+          }} />
+          {/* Indicador de método */}
+          <div style={{
+            position: "absolute", top: 60, left: 0, right: 0,
+            display: "flex", justifyContent: "center", zIndex: 11,
+          }}>
+            <span style={{
+              background: scanMethod === "nativo" ? "rgba(16,185,129,0.8)" : "rgba(139,92,246,0.8)",
+              color: "white", fontSize: 9, fontWeight: 800,
+              padding: "4px 12px", borderRadius: 20, textTransform: "uppercase",
+              letterSpacing: 1,
+            }}>
+              {scanMethod === "nativo" ? "Detección nativa" : "Quagga2"}
+            </span>
+          </div>
+        </>
       )}
       <div style={{ position: "absolute", bottom: 40, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 100000 }}>
         <Button variant="destructive" className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]" onClick={onClose}>
