@@ -15,23 +15,20 @@ import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 
-// --- SCANNER v9: 3 estrategias de detección ---
-// 1. BarcodeDetector nativo (Safari 17.2+, Chrome Android)
-// 2. barcode-detector polyfill WASM (ZXing C++ compilado a WASM) — funciona en todos los browsers
-// 3. Quagga2 como último fallback con area constraint
-//
-// El polyfill WASM es la clave: usa ZXing C++ (el mismo motor de Google Lens)
-// compilado a WebAssembly. Mucho más preciso que Quagga2 puro JS.
+// --- SCANNER v10: html5-qrcode (ZXing JS) ---
+// Después de probar Quagga2, BarcodeDetector nativo y WASM polyfill sin éxito,
+// volvemos a html5-qrcode que es la librería más probada del ecosistema.
+// Clave: desactivar useBarCodeDetectorIfSupported para forzar ZXing JS puro
+// y especificar formatsToSupport solo con barcodes 1D.
+
+const SCANNER_CONTAINER_ID = "barcode-scanner-crear-producto"
 
 function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [scanMethod, setScanMethod] = useState<string>("")
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
   const onResultRef = useRef(onResult)
-  const foundRef = useRef(false)
-  const streamRef = useRef<MediaStream | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scannerRef = useRef<any>(null)
 
   useEffect(() => { onResultRef.current = onResult }, [onResult])
 
@@ -42,228 +39,85 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
 
   useEffect(() => {
     let cancelled = false
-    let animFrameId: number | null = null
-    let scanInterval: ReturnType<typeof setInterval> | null = null
-
-    // Estrategia genérica para cualquier BarcodeDetector (nativo o polyfill)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async function startDetectorLoop(detector: any, video: HTMLVideoElement, stream: MediaStream, method: string) {
-      setScanMethod(method)
-      setLoading(false)
-
-      // Loop de detección — usamos setInterval en vez de rAF para control de frecuencia
-      // rAF puede ser throttled en background tabs
-      scanInterval = setInterval(async () => {
-        if (cancelled || foundRef.current) {
-          if (scanInterval) clearInterval(scanInterval)
-          return
-        }
-        try {
-          if (video.readyState >= 2) {
-            const barcodes = await detector.detect(video)
-            if (barcodes.length > 0 && !foundRef.current) {
-              const code = barcodes[0].rawValue
-              if (code) {
-                foundRef.current = true
-                if (scanInterval) clearInterval(scanInterval)
-                if (navigator.vibrate) navigator.vibrate(100)
-                stream.getTracks().forEach(t => t.stop())
-                onResultRef.current(code)
-              }
-            }
-          }
-        } catch {
-          // detect() puede fallar en algunos frames, ignorar
-        }
-      }, 100) // ~10fps, suficiente para barcode scanning
-    }
-
-    async function tryNativeDetector(stream: MediaStream, video: HTMLVideoElement): Promise<boolean> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const BarcodeDetectorClass = (window as any).BarcodeDetector
-      if (!BarcodeDetectorClass) return false
-
-      try {
-        const formats = await BarcodeDetectorClass.getSupportedFormats()
-        const needed = ["ean_13", "ean_8", "code_128", "upc_a", "upc_e"]
-        const available = needed.filter((f: string) => formats.includes(f))
-        if (available.length === 0) return false
-
-        const detector = new BarcodeDetectorClass({ formats: available })
-        await startDetectorLoop(detector, video, stream, "nativo")
-        return true
-      } catch {
-        return false
-      }
-    }
-
-    async function tryWasmPolyfill(stream: MediaStream, video: HTMLVideoElement): Promise<boolean> {
-      try {
-        // Import PURO WASM (ZXing C++ → WASM), sin tocar window.BarcodeDetector
-        // "barcode-detector/pure" = ponyfill que NO usa la API nativa (que puede estar rota en iOS)
-        const { BarcodeDetector: WasmDetector } = await import("barcode-detector/pure")
-
-        const formats = await WasmDetector.getSupportedFormats()
-        const needed = ["ean_13", "ean_8", "code_128", "upc_a", "upc_e"] as const
-        const available = needed.filter(f => formats.includes(f))
-        if (available.length === 0) return false
-
-        const detector = new WasmDetector({ formats: [...available] })
-
-        // Test rápido: intentar detectar un frame para verificar que WASM funcione
-        if (video.readyState >= 2) {
-          await detector.detect(video) // Si falla, el catch lo maneja
-        }
-
-        await startDetectorLoop(detector, video, stream, "wasm")
-        return true
-      } catch (err) {
-        console.warn("WASM polyfill failed:", err)
-        return false
-      }
-    }
-
-    async function startQuaggaFallback() {
-      if (cancelled || !containerRef.current) return
-
-      const Quagga = (await import("@ericblade/quagga2")).default
-      if (cancelled) return
-
-      Quagga.init(
-        {
-          inputStream: {
-            type: "LiveStream",
-            constraints: {
-              facingMode: "environment",
-              width: { ideal: 1280, min: 640 },
-              height: { ideal: 720, min: 480 },
-            },
-            target: containerRef.current,
-            // Solo analizar la zona central (donde está la guía visual)
-            area: {
-              top: "30%",
-              right: "10%",
-              left: "10%",
-              bottom: "30%",
-            },
-          },
-          decoder: {
-            readers: [
-              "ean_reader",
-              "ean_8_reader",
-              "code_128_reader",
-              "upc_reader",
-              "upc_e_reader",
-            ],
-          },
-          locator: {
-            patchSize: "x-large",
-            halfSample: false,
-          },
-          frequency: 15,
-          locate: true,
-        },
-        (err: unknown) => {
-          if (cancelled) return
-          if (err) {
-            console.error("Quagga init error:", err)
-            setError(err instanceof Error ? err.message : "No se pudo iniciar la cámara. Verifica los permisos.")
-            setLoading(false)
-            return
-          }
-
-          Quagga.start()
-          setScanMethod("quagga")
-          setLoading(false)
-        }
-      )
-
-      // Filtro de confianza: solo aceptar si el código se detecta 2 veces seguidas
-      let lastCode = ""
-      let confirmCount = 0
-
-      Quagga.onDetected((result) => {
-        if (cancelled || foundRef.current) return
-        const code = result?.codeResult?.code
-        if (!code) return
-
-        if (code === lastCode) {
-          confirmCount++
-        } else {
-          lastCode = code
-          confirmCount = 1
-        }
-
-        if (confirmCount >= 2) {
-          foundRef.current = true
-          if (navigator.vibrate) navigator.vibrate(100)
-          Quagga.stop()
-          onResultRef.current(code)
-        }
-      })
-    }
 
     const timer = setTimeout(async () => {
       if (cancelled) return
+      const container = document.getElementById(SCANNER_CONTAINER_ID)
+      if (!container) return
 
       try {
-        // Paso 1: Obtener stream de cámara
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "environment",
-            width: { ideal: 1280, min: 640 },
-            height: { ideal: 720, min: 480 },
-          },
-          audio: false,
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
+        if (cancelled) return
+
+        const scanner = new Html5Qrcode(SCANNER_CONTAINER_ID, {
+          // CLAVE: NO usar BarcodeDetector nativo (está roto en iOS Safari < 17.2)
+          useBarCodeDetectorIfSupported: false,
+          // Solo formatos 1D de kiosco
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+          ],
+          verbose: false,
         })
+        scannerRef.current = scanner
 
-        if (cancelled) {
-          stream.getTracks().forEach(t => t.stop())
-          return
-        }
+        // QR box responsivo
+        const containerWidth = container.clientWidth || 320
+        const qrboxWidth = Math.min(Math.floor(containerWidth * 0.85), 350)
+        const qrboxHeight = Math.floor(qrboxWidth * 0.45) // más bajo para barcodes lineales
 
-        streamRef.current = stream
+        await scanner.start(
+          { facingMode: "environment" },
+          {
+            fps: 10,
+            qrbox: { width: qrboxWidth, height: qrboxHeight },
+            aspectRatio: 1.7778, // 16:9
+            disableFlip: true,
+          },
+          (decodedText) => {
+            if (cancelled) return
+            if (navigator.vibrate) navigator.vibrate(100)
+            scanner.stop().then(() => scanner.clear()).catch(() => {})
+            onResultRef.current(decodedText)
+          },
+          () => {} // onScanFailure — ignorar (es normal que falle en la mayoría de frames)
+        )
 
-        // Preparar video element
-        const video = videoRef.current!
-        video.srcObject = stream
-        video.setAttribute("playsinline", "true")
-        await video.play()
+        // Intentar upgradear a HD
+        try {
+          const videoEl = container.querySelector("video")
+          if (videoEl?.srcObject && videoEl.srcObject instanceof MediaStream) {
+            const track = videoEl.srcObject.getVideoTracks()[0]
+            if (track) {
+              await track.applyConstraints({ width: { ideal: 1280 }, height: { ideal: 720 } })
+            }
+          }
+        } catch { /* HD upgrade es opcional */ }
 
-        // Paso 2: Intentar estrategias en orden de prioridad
-        // 2a. BarcodeDetector nativo
-        const nativeOk = await tryNativeDetector(stream, video)
-        if (nativeOk) return
-
-        // 2b. Polyfill WASM (ZXing C++)
-        const wasmOk = await tryWasmPolyfill(stream, video)
-        if (wasmOk) return
-
-        // 2c. Quagga2 como último recurso
-        // Parar el stream actual, Quagga maneja su propio stream
-        stream.getTracks().forEach(t => t.stop())
-        streamRef.current = null
-        video.srcObject = null
-        await startQuaggaFallback()
+        if (!cancelled) setLoading(false)
 
       } catch (err) {
-        console.error("Scanner error:", err)
+        console.error("Scanner init error:", err)
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "No se pudo iniciar la cámara. Verifica los permisos.")
           setLoading(false)
         }
       }
-    }, 300)
+    }, 400) // Delay para que el portal se monte
 
     return () => {
       cancelled = true
       clearTimeout(timer)
-      if (animFrameId) cancelAnimationFrame(animFrameId)
-      if (scanInterval) clearInterval(scanInterval)
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop())
+      const scanner = scannerRef.current
+      if (scanner) {
+        const isScanning = scanner.isScanning || scanner.getState?.() === 2
+        if (isScanning) {
+          scanner.stop().then(() => scanner.clear()).catch(() => {})
+        }
       }
-      import("@ericblade/quagga2").then(m => m.default.stop()).catch(() => {})
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -278,68 +132,12 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
       {error ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-white text-center space-y-4">
           <AlertCircle className="h-12 w-12 text-red-500" />
-          <p className="font-bold uppercase text-sm">Error de C&aacute;mara</p>
+          <p className="font-bold uppercase text-sm">Error de Cámara</p>
           <p className="text-xs text-slate-400">{error}</p>
           <Button onClick={onClose} variant="destructive" className="w-full max-w-xs">Cerrar</Button>
         </div>
       ) : (
-        <>
-          {/* Video element para BarcodeDetector nativo */}
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              display: scanMethod === "nativo" ? "block" : "none",
-            }}
-          />
-          {/* Container para Quagga2 fallback */}
-          <div
-            ref={containerRef}
-            style={{
-              width: "100%",
-              height: "100%",
-              position: "relative",
-              overflow: "hidden",
-              display: scanMethod === "quagga" || scanMethod === "" ? "block" : "none",
-            }}
-          />
-        </>
-      )}
-      {/* Guía visual central */}
-      {!error && !loading && (
-        <>
-          <div style={{
-            position: "absolute", top: "50%", left: "50%",
-            transform: "translate(-50%, -50%)",
-            width: "80%", maxWidth: 320, height: 120,
-            border: "3px solid rgba(255,255,255,0.7)",
-            borderRadius: 12,
-            boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
-            pointerEvents: "none", zIndex: 10,
-          }} />
-          {/* Indicador de método */}
-          <div style={{
-            position: "absolute", top: 60, left: 0, right: 0,
-            display: "flex", justifyContent: "center", zIndex: 11,
-          }}>
-            <span style={{
-              background: scanMethod === "nativo" ? "rgba(16,185,129,0.8)"
-                : scanMethod === "wasm" ? "rgba(59,130,246,0.8)"
-                : "rgba(139,92,246,0.8)",
-              color: "white", fontSize: 9, fontWeight: 800,
-              padding: "4px 12px", borderRadius: 20, textTransform: "uppercase",
-              letterSpacing: 1,
-            }}>
-              {scanMethod === "nativo" ? "Detección nativa"
-                : scanMethod === "wasm" ? "ZXing WASM"
-                : "Quagga2"}
-            </span>
-          </div>
-        </>
+        <div id={SCANNER_CONTAINER_ID} style={{ width: "100%", height: "100%" }} />
       )}
       <div style={{ position: "absolute", bottom: 40, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 100000 }}>
         <Button variant="destructive" className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]" onClick={onClose}>

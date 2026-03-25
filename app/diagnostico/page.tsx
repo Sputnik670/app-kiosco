@@ -18,12 +18,15 @@ function ts() {
 
 export default function DiagnosticoPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
-  const [phase, setPhase] = useState<"idle" | "capture" | "quagga-live" | "native-live" | "wasm-live" | "done">("idle")
+  const [phase, setPhase] = useState<"idle" | "capture" | "quagga-live" | "native-live" | "wasm-live" | "html5qr-live" | "done">("idle")
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const quaggaContainerRef = useRef<HTMLDivElement>(null)
+  const html5qrContainerRef = useRef<HTMLDivElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const html5ScannerRef = useRef<any>(null)
 
   function log(msg: string, type: LogEntry["type"] = "info") {
     setLogs(prev => [...prev, { time: ts(), msg, type }])
@@ -431,11 +434,98 @@ export default function DiagnosticoPage() {
     setPhase("done")
   }
 
+  // === TEST 5: html5-qrcode (ZXing JS puro, sin BarcodeDetector nativo) ===
+  async function testHtml5Qr() {
+    setLogs([])
+    setCapturedImage(null)
+    setPhase("html5qr-live")
+
+    log("=== HTML5-QRCODE (ZXing JS) TEST ===")
+    log("Importando html5-qrcode...")
+
+    try {
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
+      log("html5-qrcode importado OK", "ok")
+
+      const containerId = "diag-html5qr"
+      const container = document.getElementById(containerId)
+      if (!container) { log("Container no encontrado", "error"); setPhase("done"); return }
+
+      const scanner = new Html5Qrcode(containerId, {
+        useBarCodeDetectorIfSupported: false, // FORZAR ZXing JS puro
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+        ],
+        verbose: false,
+      })
+      html5ScannerRef.current = scanner
+      log("Scanner creado (ZXing JS, sin API nativa)", "ok")
+
+      let detected = false
+      const startTime = Date.now()
+
+      await scanner.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 100 },
+          aspectRatio: 1.7778,
+          disableFlip: true,
+        },
+        (decodedText, result) => {
+          if (detected) return
+          detected = true
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+          log(`HTML5-QRCODE DETECTÓ: ${decodedText} (format: ${result?.result?.format?.formatName || "?"}) en ${elapsed}s`, "ok")
+        },
+        () => {} // ignorar failures normales
+      )
+
+      log("Scanner iniciado, escaneando 20 segundos...", "info")
+
+      // Esperar hasta detección o timeout
+      const checkInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000)
+        if (elapsed % 5 === 0 && elapsed > 0 && !detected) {
+          log(`${elapsed}s transcurridos...`, "info")
+        }
+      }, 1000)
+
+      await new Promise(r => setTimeout(r, 20000))
+      clearInterval(checkInterval)
+
+      if (!detected) {
+        log("html5-qrcode NO detectó ningún barcode en 20 segundos", "error")
+      }
+
+      try {
+        if (scanner.isScanning) {
+          await scanner.stop()
+          scanner.clear()
+        }
+      } catch { /* ok */ }
+      html5ScannerRef.current = null
+
+    } catch (e) {
+      log(`Error: ${e}`, "error")
+    }
+
+    log("=== HTML5-QRCODE TEST COMPLETO ===")
+    setPhase("done")
+  }
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
+      }
+      if (html5ScannerRef.current?.isScanning) {
+        html5ScannerRef.current.stop().catch(() => {})
       }
       import("@ericblade/quagga2").then(m => m.default.stop()).catch(() => {})
     }
@@ -447,7 +537,7 @@ export default function DiagnosticoPage() {
     <div style={{ background: "#0f172a", color: "white", minHeight: "100vh", padding: 16, fontFamily: "monospace" }}>
       <h1 style={{ fontSize: 16, fontWeight: "bold", marginBottom: 4 }}>DIAGNÓSTICO v3</h1>
       <p style={{ fontSize: 11, color: "#64748b", marginBottom: 16 }}>
-        4 tests: captura, Quagga2, BarcodeDetector nativo, WASM polyfill.
+        5 tests. Corré primero el TEST 5 (html5-qrcode).
       </p>
 
       {phase === "idle" && (
@@ -476,6 +566,12 @@ export default function DiagnosticoPage() {
           >
             TEST 4: WASM POLYFILL ZXing (15s)
           </button>
+          <button
+            onClick={testHtml5Qr}
+            style={{ background: "#f59e0b", color: "black", border: "none", borderRadius: 8, padding: "14px 24px", fontSize: 15, fontWeight: "bold" }}
+          >
+            ★ TEST 5: HTML5-QRCODE ZXing JS (20s)
+          </button>
         </div>
       )}
 
@@ -501,6 +597,16 @@ export default function DiagnosticoPage() {
         }}
       />
 
+      {/* Container para html5-qrcode */}
+      <div
+        id="diag-html5qr"
+        style={{
+          width: "100%", height: 300, borderRadius: 8, marginTop: 12,
+          background: "#1e293b", overflow: "hidden", position: "relative",
+          display: phase === "html5qr-live" ? "block" : "none",
+        }}
+      />
+
       {/* Imagen capturada */}
       {capturedImage && (
         <div style={{ marginTop: 12 }}>
@@ -516,7 +622,7 @@ export default function DiagnosticoPage() {
             <span style={{ color: "#475569" }}>{l.time}</span> {l.msg}
           </div>
         ))}
-        {(phase === "capture" || phase === "quagga-live") && <div style={{ color: "#3b82f6" }}>▊ ejecutando...</div>}
+        {(phase !== "idle" && phase !== "done") && <div style={{ color: "#3b82f6" }}>▊ ejecutando...</div>}
       </div>
 
       {phase === "done" && (
