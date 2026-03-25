@@ -10,25 +10,53 @@ import { Input } from "@/components/ui/input"
 // Dialog removido: html5-qrcode no funciona dentro de Radix Dialog
 // porque las CSS transforms (translate-x/y-50%) distorsionan getBoundingClientRect()
 // Ver: https://github.com/mebjas/html5-qrcode/issues/476
-import { Loader2, Package, Plus, DollarSign, ScanBarcode, X, AlertCircle } from "lucide-react"
+import { Loader2, Package, Plus, DollarSign, ScanBarcode, X, AlertCircle, Camera } from "lucide-react"
 import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 
-// --- SCANNER v10: html5-qrcode (ZXing JS) ---
-// Después de probar Quagga2, BarcodeDetector nativo y WASM polyfill sin éxito,
-// volvemos a html5-qrcode que es la librería más probada del ecosistema.
-// Clave: desactivar useBarCodeDetectorIfSupported para forzar ZXing JS puro
-// y especificar formatsToSupport solo con barcodes 1D.
+// --- SCANNER v11: Foto nativa + html5-qrcode live como bonus ---
+// El video stream de getUserMedia en muchos celulares NO activa autofocus,
+// y por eso Quagga2, BarcodeDetector, WASM y html5-qrcode fallan todos.
+// Solución: usar <input type="file" capture="environment"> que abre la
+// cámara NATIVA del celular (con autofocus real) y luego decodificar la foto.
+// El scan en vivo queda como intento adicional pero no como único camino.
+
+// Decodifica un barcode desde un File/Blob de imagen usando html5-qrcode
+async function decodeFromImage(file: File): Promise<string | null> {
+  try {
+    const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
+
+    const scanner = new Html5Qrcode("decode-temp-container", {
+      useBarCodeDetectorIfSupported: false,
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+      ],
+      verbose: false,
+    })
+
+    const result = await scanner.scanFileV2(file, /* showImage */ false)
+    scanner.clear()
+    return result.decodedText
+  } catch {
+    return null
+  }
+}
 
 const SCANNER_CONTAINER_ID = "barcode-scanner-crear-producto"
 
 function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [decodingPhoto, setDecodingPhoto] = useState(false)
   const onResultRef = useRef(onResult)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { onResultRef.current = onResult }, [onResult])
 
@@ -37,6 +65,37 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
     return () => { document.body.style.overflow = "" }
   }, [])
 
+  // Manejar foto tomada con cámara nativa
+  const handlePhotoCapture = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setDecodingPhoto(true)
+    try {
+      const code = await decodeFromImage(file)
+      if (code) {
+        if (navigator.vibrate) navigator.vibrate(100)
+        // Parar scanner live si estaba corriendo
+        const scanner = scannerRef.current
+        if (scanner?.isScanning) {
+          scanner.stop().catch(() => {})
+        }
+        onResultRef.current(code)
+      } else {
+        toast.error("No se detectó código de barras en la foto", {
+          description: "Intentá sacar la foto más de cerca y con buena luz."
+        })
+      }
+    } catch {
+      toast.error("Error procesando la foto")
+    } finally {
+      setDecodingPhoto(false)
+      // Reset input para poder seleccionar la misma foto
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }, [])
+
+  // Intentar scan en vivo como bonus (puede no funcionar en todos los dispositivos)
   useEffect(() => {
     let cancelled = false
 
@@ -50,9 +109,7 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
         if (cancelled) return
 
         const scanner = new Html5Qrcode(SCANNER_CONTAINER_ID, {
-          // CLAVE: NO usar BarcodeDetector nativo (está roto en iOS Safari < 17.2)
           useBarCodeDetectorIfSupported: false,
-          // Solo formatos 1D de kiosco
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13,
             Html5QrcodeSupportedFormats.EAN_8,
@@ -64,17 +121,16 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
         })
         scannerRef.current = scanner
 
-        // QR box responsivo
         const containerWidth = container.clientWidth || 320
         const qrboxWidth = Math.min(Math.floor(containerWidth * 0.85), 350)
-        const qrboxHeight = Math.floor(qrboxWidth * 0.45) // más bajo para barcodes lineales
+        const qrboxHeight = Math.floor(qrboxWidth * 0.45)
 
         await scanner.start(
           { facingMode: "environment" },
           {
             fps: 10,
             qrbox: { width: qrboxWidth, height: qrboxHeight },
-            aspectRatio: 1.7778, // 16:9
+            aspectRatio: 1.7778,
             disableFlip: true,
           },
           (decodedText) => {
@@ -83,30 +139,39 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
             scanner.stop().then(() => scanner.clear()).catch(() => {})
             onResultRef.current(decodedText)
           },
-          () => {} // onScanFailure — ignorar (es normal que falle en la mayoría de frames)
+          () => {}
         )
 
-        // Intentar upgradear a HD
+        // Pedir autofocus continuo al track de video
         try {
           const videoEl = container.querySelector("video")
           if (videoEl?.srcObject && videoEl.srcObject instanceof MediaStream) {
             const track = videoEl.srcObject.getVideoTracks()[0]
             if (track) {
-              await track.applyConstraints({ width: { ideal: 1280 }, height: { ideal: 720 } })
+              // HD + autofocus
+              const constraints: MediaTrackConstraints = {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              }
+              // focusMode puede no estar en los types estándar pero funciona en runtime
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const capabilities = track.getCapabilities?.() as any
+              if (capabilities?.focusMode?.includes?.("continuous")) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ;(constraints as any).focusMode = "continuous"
+              }
+              await track.applyConstraints(constraints)
             }
           }
-        } catch { /* HD upgrade es opcional */ }
+        } catch { /* upgrade es opcional */ }
 
         if (!cancelled) setLoading(false)
-
       } catch (err) {
-        console.error("Scanner init error:", err)
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "No se pudo iniciar la cámara. Verifica los permisos.")
-          setLoading(false)
-        }
+        console.error("Scanner live init error:", err)
+        // No mostrar error — el usuario tiene el botón de foto como alternativa
+        if (!cancelled) setLoading(false)
       }
-    }, 400) // Delay para que el portal se monte
+    }, 400)
 
     return () => {
       cancelled = true
@@ -123,12 +188,23 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
 
   const overlay = (
     <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "#000" }}>
+      {/* Container oculto para decodeSingle */}
+      <div id="decode-temp-container" style={{ display: "none" }} />
+
       {loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50 text-white gap-3">
           <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
           <p className="text-[10px] font-bold uppercase">Iniciando Lector...</p>
         </div>
       )}
+
+      {decodingPhoto && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-[100001] text-white gap-3">
+          <Loader2 className="h-10 w-10 animate-spin text-green-500" />
+          <p className="text-[10px] font-bold uppercase">Leyendo código...</p>
+        </div>
+      )}
+
       {error ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-white text-center space-y-4">
           <AlertCircle className="h-12 w-12 text-red-500" />
@@ -139,8 +215,38 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
       ) : (
         <div id={SCANNER_CONTAINER_ID} style={{ width: "100%", height: "100%" }} />
       )}
-      <div style={{ position: "absolute", bottom: 40, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 100000 }}>
-        <Button variant="destructive" className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]" onClick={onClose}>
+
+      {/* Input oculto para captura de foto nativa */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handlePhotoCapture}
+        style={{ display: "none" }}
+      />
+
+      {/* Botones inferiores */}
+      <div style={{
+        position: "absolute", bottom: 24, left: 0, right: 0,
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 10,
+        zIndex: 100000, padding: "0 20px",
+      }}>
+        {/* Botón principal: sacar foto */}
+        <Button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full max-w-xs h-14 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black uppercase text-xs shadow-2xl gap-2"
+          disabled={decodingPhoto}
+        >
+          <Camera className="h-5 w-5" />
+          Sacar Foto del Código
+        </Button>
+        <Button
+          variant="destructive"
+          className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]"
+          onClick={onClose}
+        >
           <X className="mr-2 h-4 w-4" /> Cancelar
         </Button>
       </div>
