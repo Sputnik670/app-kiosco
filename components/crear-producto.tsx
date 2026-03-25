@@ -202,36 +202,51 @@ function mapCategory(categories: string | undefined, categoriesTags: string[] | 
 }
 
 async function fetchProductFromApi(barcode: string) {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 8000) // 8s timeout para mobile
+  // Intentar primero world, luego ar (regional Argentina)
+  const urls = [
+    `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,product_name_es,brands,categories,categories_tags`,
+    `https://ar.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,product_name_es,brands,categories,categories_tags`,
+  ]
 
-    const response = await fetch(
-      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
-      { signal: controller.signal }
-    )
-    clearTimeout(timeout)
+  for (const url of urls) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 8000)
 
-    if (!response.ok) {
-      console.warn(`[OpenFoodFacts] HTTP ${response.status} para barcode ${barcode}`)
-      return { found: false }
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "AppKiosco/1.0 (entornomincyt@gmail.com)",
+        },
+      })
+      clearTimeout(timeout)
+
+      if (!response.ok) {
+        console.warn(`[OpenFoodFacts] HTTP ${response.status} en ${url}`)
+        continue
+      }
+
+      const data = await response.json()
+      console.warn(`[OpenFoodFacts] barcode=${barcode} status=${data.status} url=${url}`)
+
+      if (data.status === 1 && data.product) {
+        const p = data.product
+        const nombre = p.product_name_es || p.product_name || ""
+        const marca = p.brands || ""
+        const categoria = mapCategory(p.categories, p.categories_tags)
+
+        if (nombre || marca) {
+          return { found: true, nombre, marca, categoria }
+        }
+      }
+    } catch (e) {
+      console.warn("[OpenFoodFacts] Error:", e instanceof Error ? e.message : e, url)
+      continue
     }
-
-    const data = await response.json()
-    if (data.status === 1 && data.product) {
-      const p = data.product
-      const nombre = p.product_name_es || p.product_name || ""
-      const marca = p.brands || ""
-      const categoria = mapCategory(p.categories, p.categories_tags)
-
-      return { found: true, nombre, marca, categoria }
-    }
-    return { found: false }
-  } catch (e) {
-    // Log real para debugging — no silenciar
-    console.warn("[OpenFoodFacts] Error fetching product:", e instanceof Error ? e.message : e)
-    return { found: false }
   }
+
+  // DEBUG temporal: retornar info del barcode para diagnosticar
+  return { found: false, debug: `Barcode ${barcode} no encontrado en OFF world+ar` }
 }
 
 const QUICK_EMOJIS = [
@@ -306,8 +321,10 @@ export default function CrearProducto({ onProductCreated, sucursalId }: CrearPro
                   : "Completá la categoría manualmente"
             })
         } else {
-            toast.info("Código registrado", {
-                description: "No encontrado en la base de datos. Completá los datos manualmente."
+            // DEBUG: mostrar info de diagnóstico para resolver el problema
+            toast.info(`Código: ${code}`, {
+                description: (apiData as any).debug || "No encontrado en OpenFoodFacts. Completá los datos manualmente.",
+                duration: 10000,
             })
         }
     } catch (error: any) {
