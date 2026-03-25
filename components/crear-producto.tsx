@@ -165,19 +165,73 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
   return createPortal(overlay, document.body)
 }
 
+// Mapeo de categorías OpenFoodFacts → categorías del kiosco
+const CATEGORY_MAP: Record<string, string> = {
+  "beverages": "Bebidas", "drinks": "Bebidas", "waters": "Bebidas", "sodas": "Bebidas",
+  "juices": "Bebidas", "beers": "Bebidas", "wines": "Bebidas", "coffees": "Bebidas",
+  "teas": "Bebidas", "milk": "Lácteos", "milks": "Lácteos", "yogurts": "Lácteos",
+  "cheeses": "Lácteos", "dairies": "Lácteos", "dairy": "Lácteos",
+  "chocolates": "Golosinas", "candies": "Golosinas", "sweets": "Golosinas",
+  "confectioneries": "Golosinas", "snacks": "Snacks", "chips": "Snacks", "nuts": "Snacks",
+  "crackers": "Snacks", "cookies": "Galletitas", "biscuits": "Galletitas",
+  "breads": "Panificados", "pastries": "Panificados", "cereals": "Cereales",
+  "canned": "Conservas", "sauces": "Condimentos", "condiments": "Condimentos",
+  "cleaning": "Limpieza", "personal-care": "Higiene", "hygiene": "Higiene",
+  "tobaccos": "Cigarrillos", "cigarettes": "Cigarrillos",
+  "frozen": "Congelados", "ice-creams": "Helados",
+  "pastas": "Pastas", "oils": "Aceites", "flours": "Harinas",
+}
+
+function mapCategory(categories: string | undefined, categoriesTags: string[] | undefined): string {
+  // Primero intentar con categories_tags (más estructurado)
+  if (categoriesTags?.length) {
+    for (const tag of categoriesTags) {
+      // tags vienen como "en:chocolates", "en:snacks", etc.
+      const key = tag.replace(/^[a-z]{2}:/, "").toLowerCase()
+      if (CATEGORY_MAP[key]) return CATEGORY_MAP[key]
+    }
+  }
+  // Fallback: buscar en el string de categories
+  if (categories) {
+    const lower = categories.toLowerCase()
+    for (const [keyword, cat] of Object.entries(CATEGORY_MAP)) {
+      if (lower.includes(keyword)) return cat
+    }
+  }
+  return ""
+}
+
 async function fetchProductFromApi(barcode: string) {
   try {
-    const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8000) // 8s timeout para mobile
+
+    const response = await fetch(
+      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
+      { signal: controller.signal }
+    )
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      console.warn(`[OpenFoodFacts] HTTP ${response.status} para barcode ${barcode}`)
+      return { found: false }
+    }
+
     const data = await response.json()
-    if (data.status === 1) {
-      return { 
-        found: true, 
-        nombre: data.product.product_name_es || data.product.product_name, 
-        marca: data.product.brands 
-      }
+    if (data.status === 1 && data.product) {
+      const p = data.product
+      const nombre = p.product_name_es || p.product_name || ""
+      const marca = p.brands || ""
+      const categoria = mapCategory(p.categories, p.categories_tags)
+
+      return { found: true, nombre, marca, categoria }
     }
     return { found: false }
-  } catch (e) { return { found: false } }
+  } catch (e) {
+    // Log real para debugging — no silenciar
+    console.warn("[OpenFoodFacts] Error fetching product:", e instanceof Error ? e.message : e)
+    return { found: false }
+  }
 }
 
 const QUICK_EMOJIS = [
@@ -239,10 +293,23 @@ export default function CrearProducto({ onProductCreated, sucursalId }: CrearPro
         setFormData(prev => ({
             ...prev,
             codigo_barras: code,
-            nombre: apiData.found ? `${apiData.marca ? apiData.marca + ' ' : ''}${apiData.nombre}` : prev.nombre,
-            emoji: apiData.found ? "🥫" : "📦"
+            nombre: apiData.found && apiData.nombre
+              ? `${apiData.marca ? apiData.marca + ' ' : ''}${apiData.nombre}`.trim()
+              : prev.nombre,
+            categoria: apiData.found && apiData.categoria ? apiData.categoria : prev.categoria,
+            emoji: apiData.found ? "🥫" : prev.emoji,
         }))
-        if (apiData.found) toast.success("Identificado")
+        if (apiData.found) {
+            toast.success("Producto identificado", {
+                description: apiData.categoria
+                  ? `Categoría: ${apiData.categoria}`
+                  : "Completá la categoría manualmente"
+            })
+        } else {
+            toast.info("Código registrado", {
+                description: "No encontrado en la base de datos. Completá los datos manualmente."
+            })
+        }
     } catch (error: any) {
         console.error(error)
         toast.error("Error", { description: error.message })
