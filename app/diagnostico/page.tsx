@@ -18,7 +18,7 @@ function ts() {
 
 export default function DiagnosticoPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
-  const [phase, setPhase] = useState<"idle" | "capture" | "quagga-live" | "native-live" | "wasm-live" | "html5qr-live" | "done">("idle")
+  const [phase, setPhase] = useState<"idle" | "capture" | "quagga-live" | "native-live" | "wasm-live" | "html5qr-live" | "zbar-live" | "done">("idle")
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -518,6 +518,96 @@ export default function DiagnosticoPage() {
     setPhase("done")
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const zbarScannerRef = useRef<any>(null)
+
+  // === TEST 6: ZBar WASM (web-wasm-barcode-reader) ===
+  async function testZbar() {
+    setLogs([])
+    setCapturedImage(null)
+    setPhase("zbar-live")
+
+    log("=== ZBAR WASM TEST ===")
+    log("Cargando WASM (ZBar C → WebAssembly)...")
+
+    try {
+      // Cargar script Emscripten
+      await new Promise<void>((resolve, reject) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((window as any).Module?.calledRun) { resolve(); return }
+        const existing = document.getElementById("zbar-wasm-diag")
+        if (existing) existing.remove()
+        const script = document.createElement("script")
+        script.id = "zbar-wasm-diag"
+        script.src = "/a.out.js"
+        script.onload = () => {
+          const check = setInterval(() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if ((window as any).Module?.calledRun) { clearInterval(check); resolve() }
+          }, 50)
+          setTimeout(() => { clearInterval(check); reject(new Error("WASM timeout")) }, 8000)
+        }
+        script.onerror = () => reject(new Error("No se pudo cargar a.out.js"))
+        document.head.appendChild(script)
+      })
+      log("WASM cargado OK", "ok")
+
+      const { BarcodeScanner } = await import("web-wasm-barcode-reader")
+      log("BarcodeScanner importado OK", "ok")
+
+      const container = document.getElementById("diag-zbar")
+      if (!container) { log("Container no encontrado", "error"); setPhase("done"); return }
+
+      let detected = false
+      const startTime = Date.now()
+
+      const scanner = new BarcodeScanner({
+        container,
+        onDetect: (result) => {
+          if (detected) return
+          detected = true
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+          log(`ZBAR DETECTÓ: ${result.data} (symbology: ${result.symbol}) en ${elapsed}s`, "ok")
+        },
+        onError: (err) => {
+          log(`Error scanner: ${err.message}`, "error")
+        },
+        scanInterval: 120,
+        beepOnDetect: false,
+        facingMode: "environment",
+        scanRegion: { width: 0.85, height: 0.30 },
+      })
+      zbarScannerRef.current = scanner
+
+      await scanner.start()
+      log("Scanner ZBar iniciado, escaneando 20 segundos...", "info")
+
+      // Esperar
+      const checkInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000)
+        if (elapsed % 5 === 0 && elapsed > 0 && !detected) {
+          log(`${elapsed}s transcurridos...`, "info")
+        }
+      }, 1000)
+
+      await new Promise(r => setTimeout(r, 20000))
+      clearInterval(checkInterval)
+
+      if (!detected) {
+        log("ZBar NO detectó ningún barcode en 20 segundos", "error")
+      }
+
+      scanner.stop()
+      zbarScannerRef.current = null
+
+    } catch (e) {
+      log(`Error: ${e}`, "error")
+    }
+
+    log("=== ZBAR TEST COMPLETO ===")
+    setPhase("done")
+  }
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -526,6 +616,9 @@ export default function DiagnosticoPage() {
       }
       if (html5ScannerRef.current?.isScanning) {
         html5ScannerRef.current.stop().catch(() => {})
+      }
+      if (zbarScannerRef.current?.isRunning) {
+        zbarScannerRef.current.stop()
       }
       import("@ericblade/quagga2").then(m => m.default.stop()).catch(() => {})
     }
@@ -572,6 +665,12 @@ export default function DiagnosticoPage() {
           >
             ★ TEST 5: HTML5-QRCODE ZXing JS (20s)
           </button>
+          <button
+            onClick={testZbar}
+            style={{ background: "#06b6d4", color: "white", border: "none", borderRadius: 8, padding: "14px 24px", fontSize: 15, fontWeight: "bold" }}
+          >
+            ★★ TEST 6: ZBAR WASM (20s)
+          </button>
         </div>
       )}
 
@@ -604,6 +703,16 @@ export default function DiagnosticoPage() {
           width: "100%", height: 300, borderRadius: 8, marginTop: 12,
           background: "#1e293b", overflow: "hidden", position: "relative",
           display: phase === "html5qr-live" ? "block" : "none",
+        }}
+      />
+
+      {/* Container para ZBar WASM */}
+      <div
+        id="diag-zbar"
+        style={{
+          width: "100%", height: 350, borderRadius: 8, marginTop: 12,
+          background: "#1e293b", overflow: "hidden", position: "relative",
+          display: phase === "zbar-live" ? "block" : "none",
         }}
       />
 

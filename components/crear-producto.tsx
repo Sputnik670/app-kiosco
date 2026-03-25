@@ -10,53 +10,60 @@ import { Input } from "@/components/ui/input"
 // Dialog removido: html5-qrcode no funciona dentro de Radix Dialog
 // porque las CSS transforms (translate-x/y-50%) distorsionan getBoundingClientRect()
 // Ver: https://github.com/mebjas/html5-qrcode/issues/476
-import { Loader2, Package, Plus, DollarSign, ScanBarcode, X, AlertCircle, Camera } from "lucide-react"
+import { Loader2, Package, Plus, DollarSign, ScanBarcode, X, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 
-// --- SCANNER v11: Foto nativa + html5-qrcode live como bonus ---
-// El video stream de getUserMedia en muchos celulares NO activa autofocus,
-// y por eso Quagga2, BarcodeDetector, WASM y html5-qrcode fallan todos.
-// Solución: usar <input type="file" capture="environment"> que abre la
-// cámara NATIVA del celular (con autofocus real) y luego decodificar la foto.
-// El scan en vivo queda como intento adicional pero no como único camino.
+// --- SCANNER v12: ZBar WASM (web-wasm-barcode-reader) ---
+// Después de probar ZXing (html5-qrcode), Quagga2, y BarcodeDetector:
+// TODOS fallan en iOS Safari para barcodes 1D. Es un problema conocido y documentado.
+// ZBar es una librería C de decodificación probada hace décadas.
+// Compilada a WebAssembly corre a velocidad nativa en iOS Safari.
+// El paquete web-wasm-barcode-reader maneja todo: cámara, WASM, detección con
+// corrección de ángulo (0°, +30°, -30°).
 
-// Decodifica un barcode desde un File/Blob de imagen usando html5-qrcode
-async function decodeFromImage(file: File): Promise<string | null> {
-  try {
-    const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
-
-    const scanner = new Html5Qrcode("decode-temp-container", {
-      useBarCodeDetectorIfSupported: false,
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-      ],
-      verbose: false,
-    })
-
-    const result = await scanner.scanFileV2(file, /* showImage */ false)
-    scanner.clear()
-    return result.decodedText
-  } catch {
-    return null
-  }
+// Carga el script Emscripten (a.out.js) que inicializa el Module global
+function loadWasmScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (typeof (window as any).Module !== "undefined" && (window as any).Module.calledRun) {
+      resolve()
+      return
+    }
+    if (document.getElementById("zbar-wasm-script")) {
+      // Script ya está cargando, esperar a que termine
+      const check = setInterval(() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((window as any).Module?.calledRun) { clearInterval(check); resolve() }
+      }, 100)
+      setTimeout(() => { clearInterval(check); resolve() }, 5000)
+      return
+    }
+    const script = document.createElement("script")
+    script.id = "zbar-wasm-script"
+    script.src = "/a.out.js"
+    script.onload = () => {
+      // Esperar a que Emscripten inicialice el runtime
+      const check = setInterval(() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((window as any).Module?.calledRun) { clearInterval(check); resolve() }
+      }, 50)
+      setTimeout(() => { clearInterval(check); resolve() }, 5000)
+    }
+    script.onerror = () => reject(new Error("No se pudo cargar el motor de escaneo"))
+    document.head.appendChild(script)
+  })
 }
-
-const SCANNER_CONTAINER_ID = "barcode-scanner-crear-producto"
 
 function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [decodingPhoto, setDecodingPhoto] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
   const onResultRef = useRef(onResult)
+  const foundRef = useRef(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { onResultRef.current = onResult }, [onResult])
 
@@ -65,146 +72,75 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
     return () => { document.body.style.overflow = "" }
   }, [])
 
-  // Manejar foto tomada con cámara nativa
-  const handlePhotoCapture = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    setDecodingPhoto(true)
-    try {
-      const code = await decodeFromImage(file)
-      if (code) {
-        if (navigator.vibrate) navigator.vibrate(100)
-        // Parar scanner live si estaba corriendo
-        const scanner = scannerRef.current
-        if (scanner?.isScanning) {
-          scanner.stop().catch(() => {})
-        }
-        onResultRef.current(code)
-      } else {
-        toast.error("No se detectó código de barras en la foto", {
-          description: "Intentá sacar la foto más de cerca y con buena luz."
-        })
-      }
-    } catch {
-      toast.error("Error procesando la foto")
-    } finally {
-      setDecodingPhoto(false)
-      // Reset input para poder seleccionar la misma foto
-      if (fileInputRef.current) fileInputRef.current.value = ""
-    }
-  }, [])
-
-  // Intentar scan en vivo como bonus (puede no funcionar en todos los dispositivos)
   useEffect(() => {
     let cancelled = false
 
     const timer = setTimeout(async () => {
-      if (cancelled) return
-      const container = document.getElementById(SCANNER_CONTAINER_ID)
-      if (!container) return
+      if (cancelled || !containerRef.current) return
 
       try {
-        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode")
+        // 1. Cargar WASM
+        await loadWasmScript()
         if (cancelled) return
 
-        const scanner = new Html5Qrcode(SCANNER_CONTAINER_ID, {
-          useBarCodeDetectorIfSupported: false,
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E,
-          ],
-          verbose: false,
+        // 2. Import dinámico de la librería
+        const { BarcodeScanner } = await import("web-wasm-barcode-reader")
+        if (cancelled) return
+
+        // 3. Crear scanner
+        const scanner = new BarcodeScanner({
+          container: containerRef.current,
+          onDetect: (result) => {
+            if (foundRef.current) return
+            foundRef.current = true
+            if (navigator.vibrate) navigator.vibrate(100)
+            scanner.stop()
+            onResultRef.current(result.data)
+          },
+          onError: (err) => {
+            if (!cancelled) {
+              console.error("ZBar scanner error:", err)
+              setError(err.message || "Error del lector de códigos")
+              setLoading(false)
+            }
+          },
+          scanInterval: 120,
+          beepOnDetect: false, // usamos vibración en su lugar
+          facingMode: "environment",
+          scanRegion: { width: 0.85, height: 0.30 },
         })
         scannerRef.current = scanner
 
-        const containerWidth = container.clientWidth || 320
-        const qrboxWidth = Math.min(Math.floor(containerWidth * 0.85), 350)
-        const qrboxHeight = Math.floor(qrboxWidth * 0.45)
-
-        await scanner.start(
-          { facingMode: "environment" },
-          {
-            fps: 10,
-            qrbox: { width: qrboxWidth, height: qrboxHeight },
-            aspectRatio: 1.7778,
-            disableFlip: true,
-          },
-          (decodedText) => {
-            if (cancelled) return
-            if (navigator.vibrate) navigator.vibrate(100)
-            scanner.stop().then(() => scanner.clear()).catch(() => {})
-            onResultRef.current(decodedText)
-          },
-          () => {}
-        )
-
-        // Pedir autofocus continuo al track de video
-        try {
-          const videoEl = container.querySelector("video")
-          if (videoEl?.srcObject && videoEl.srcObject instanceof MediaStream) {
-            const track = videoEl.srcObject.getVideoTracks()[0]
-            if (track) {
-              // HD + autofocus
-              const constraints: MediaTrackConstraints = {
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-              }
-              // focusMode puede no estar en los types estándar pero funciona en runtime
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const capabilities = track.getCapabilities?.() as any
-              if (capabilities?.focusMode?.includes?.("continuous")) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ;(constraints as any).focusMode = "continuous"
-              }
-              await track.applyConstraints(constraints)
-            }
-          }
-        } catch { /* upgrade es opcional */ }
-
+        // 4. Iniciar
+        await scanner.start()
         if (!cancelled) setLoading(false)
+
       } catch (err) {
-        console.error("Scanner live init error:", err)
-        // No mostrar error — el usuario tiene el botón de foto como alternativa
-        if (!cancelled) setLoading(false)
+        console.error("Scanner init error:", err)
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "No se pudo iniciar el lector")
+          setLoading(false)
+        }
       }
-    }, 400)
+    }, 300)
 
     return () => {
       cancelled = true
       clearTimeout(timer)
-      const scanner = scannerRef.current
-      if (scanner) {
-        const isScanning = scanner.isScanning || scanner.getState?.() === 2
-        if (isScanning) {
-          scanner.stop().then(() => scanner.clear()).catch(() => {})
-        }
+      if (scannerRef.current?.isRunning) {
+        scannerRef.current.stop()
       }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const overlay = (
     <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "#000" }}>
-      {/* Container oculto para decodeSingle */}
-      <div id="decode-temp-container" style={{ display: "none" }} />
-
       {loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50 text-white gap-3">
           <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
           <p className="text-[10px] font-bold uppercase">Iniciando Lector...</p>
         </div>
       )}
-
-      {decodingPhoto && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-[100001] text-white gap-3">
-          <Loader2 className="h-10 w-10 animate-spin text-green-500" />
-          <p className="text-[10px] font-bold uppercase">Leyendo código...</p>
-        </div>
-      )}
-
       {error ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-white text-center space-y-4">
           <AlertCircle className="h-12 w-12 text-red-500" />
@@ -213,40 +149,13 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
           <Button onClick={onClose} variant="destructive" className="w-full max-w-xs">Cerrar</Button>
         </div>
       ) : (
-        <div id={SCANNER_CONTAINER_ID} style={{ width: "100%", height: "100%" }} />
+        <div
+          ref={containerRef}
+          style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}
+        />
       )}
-
-      {/* Input oculto para captura de foto nativa */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        onChange={handlePhotoCapture}
-        style={{ display: "none" }}
-      />
-
-      {/* Botones inferiores */}
-      <div style={{
-        position: "absolute", bottom: 24, left: 0, right: 0,
-        display: "flex", flexDirection: "column", alignItems: "center", gap: 10,
-        zIndex: 100000, padding: "0 20px",
-      }}>
-        {/* Botón principal: sacar foto */}
-        <Button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="w-full max-w-xs h-14 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black uppercase text-xs shadow-2xl gap-2"
-          disabled={decodingPhoto}
-        >
-          <Camera className="h-5 w-5" />
-          Sacar Foto del Código
-        </Button>
-        <Button
-          variant="destructive"
-          className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]"
-          onClick={onClose}
-        >
+      <div style={{ position: "absolute", bottom: 40, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 100000 }}>
+        <Button variant="destructive" className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]" onClick={onClose}>
           <X className="mr-2 h-4 w-4" /> Cancelar
         </Button>
       </div>
