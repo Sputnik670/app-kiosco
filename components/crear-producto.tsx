@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Loader2, Package, Plus, DollarSign, ScanBarcode, X, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
+import { checkExistingProductAction, createFullProductAction, lookupCatalogAction, lookupOpenFoodFactsAction, saveToCatalogAction } from "@/lib/actions/product.actions"
 
 // --- SCANNER v12: ZBar WASM (web-wasm-barcode-reader) ---
 // Después de probar ZXing (html5-qrcode), Quagga2, y BarcodeDetector:
@@ -165,89 +165,8 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
   return createPortal(overlay, document.body)
 }
 
-// Mapeo de categorías OpenFoodFacts → categorías del kiosco
-const CATEGORY_MAP: Record<string, string> = {
-  "beverages": "Bebidas", "drinks": "Bebidas", "waters": "Bebidas", "sodas": "Bebidas",
-  "juices": "Bebidas", "beers": "Bebidas", "wines": "Bebidas", "coffees": "Bebidas",
-  "teas": "Bebidas", "milk": "Lácteos", "milks": "Lácteos", "yogurts": "Lácteos",
-  "cheeses": "Lácteos", "dairies": "Lácteos", "dairy": "Lácteos",
-  "chocolates": "Golosinas", "candies": "Golosinas", "sweets": "Golosinas",
-  "confectioneries": "Golosinas", "snacks": "Snacks", "chips": "Snacks", "nuts": "Snacks",
-  "crackers": "Snacks", "cookies": "Galletitas", "biscuits": "Galletitas",
-  "breads": "Panificados", "pastries": "Panificados", "cereals": "Cereales",
-  "canned": "Conservas", "sauces": "Condimentos", "condiments": "Condimentos",
-  "cleaning": "Limpieza", "personal-care": "Higiene", "hygiene": "Higiene",
-  "tobaccos": "Cigarrillos", "cigarettes": "Cigarrillos",
-  "frozen": "Congelados", "ice-creams": "Helados",
-  "pastas": "Pastas", "oils": "Aceites", "flours": "Harinas",
-}
-
-function mapCategory(categories: string | undefined, categoriesTags: string[] | undefined): string {
-  // Primero intentar con categories_tags (más estructurado)
-  if (categoriesTags?.length) {
-    for (const tag of categoriesTags) {
-      // tags vienen como "en:chocolates", "en:snacks", etc.
-      const key = tag.replace(/^[a-z]{2}:/, "").toLowerCase()
-      if (CATEGORY_MAP[key]) return CATEGORY_MAP[key]
-    }
-  }
-  // Fallback: buscar en el string de categories
-  if (categories) {
-    const lower = categories.toLowerCase()
-    for (const [keyword, cat] of Object.entries(CATEGORY_MAP)) {
-      if (lower.includes(keyword)) return cat
-    }
-  }
-  return ""
-}
-
-async function fetchProductFromApi(barcode: string) {
-  // Intentar primero world, luego ar (regional Argentina)
-  const urls = [
-    `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,product_name_es,brands,categories,categories_tags`,
-    `https://ar.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,product_name_es,brands,categories,categories_tags`,
-  ]
-
-  for (const url of urls) {
-    try {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 8000)
-
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "AppKiosco/1.0 (entornomincyt@gmail.com)",
-        },
-      })
-      clearTimeout(timeout)
-
-      if (!response.ok) {
-        console.warn(`[OpenFoodFacts] HTTP ${response.status} en ${url}`)
-        continue
-      }
-
-      const data = await response.json()
-      console.warn(`[OpenFoodFacts] barcode=${barcode} status=${data.status} url=${url}`)
-
-      if (data.status === 1 && data.product) {
-        const p = data.product
-        const nombre = p.product_name_es || p.product_name || ""
-        const marca = p.brands || ""
-        const categoria = mapCategory(p.categories, p.categories_tags)
-
-        if (nombre || marca) {
-          return { found: true, nombre, marca, categoria }
-        }
-      }
-    } catch (e) {
-      console.warn("[OpenFoodFacts] Error:", e instanceof Error ? e.message : e, url)
-      continue
-    }
-  }
-
-  // DEBUG temporal: retornar info del barcode para diagnosticar
-  return { found: false, debug: `Barcode ${barcode} no encontrado en OFF world+ar` }
-}
+// Flujo de búsqueda: Catálogo compartido → OpenFoodFacts (server-side) → Manual
+// Todo se ejecuta en server actions para evitar problemas de CORS/User-Agent en mobile
 
 const QUICK_EMOJIS = [
     "🍫", "🍬", "🍭", "🍩", "🍪", "🥤", "🧃", "☕", "🧉", "🥛", 
@@ -304,29 +223,50 @@ export default function CrearProducto({ onProductCreated, sucursalId }: CrearPro
             return
         }
 
-        const apiData = await fetchProductFromApi(code)
-        setFormData(prev => ({
-            ...prev,
-            codigo_barras: code,
-            nombre: apiData.found && apiData.nombre
-              ? `${apiData.marca ? apiData.marca + ' ' : ''}${apiData.nombre}`.trim()
-              : prev.nombre,
-            categoria: apiData.found && apiData.categoria ? apiData.categoria : prev.categoria,
-            emoji: apiData.found ? "🥫" : prev.emoji,
-        }))
-        if (apiData.found) {
+        // PASO 1: Buscar en catálogo compartido de AppKiosco
+        const catalogResult = await lookupCatalogAction(code)
+        if (catalogResult.success && catalogResult.found) {
+            setFormData(prev => ({
+                ...prev,
+                codigo_barras: code,
+                nombre: catalogResult.name || prev.nombre,
+                categoria: catalogResult.category || prev.categoria,
+                emoji: catalogResult.emoji || "🥫",
+            }))
             toast.success("Producto identificado", {
-                description: apiData.categoria
-                  ? `Categoría: ${apiData.categoria}`
+                description: `${catalogResult.name}${catalogResult.category ? ` • ${catalogResult.category}` : ""}`,
+            })
+            return
+        }
+
+        // PASO 2: Buscar en OpenFoodFacts (server-side, sin CORS)
+        toast.info("Buscando en base de datos global...")
+        const offResult = await lookupOpenFoodFactsAction(code)
+        if (offResult.found && offResult.name) {
+            const nombre = `${offResult.brand ? offResult.brand + ' ' : ''}${offResult.name}`.trim()
+            setFormData(prev => ({
+                ...prev,
+                codigo_barras: code,
+                nombre,
+                categoria: offResult.category || prev.categoria,
+                emoji: "🥫",
+            }))
+            toast.success("Producto identificado", {
+                description: offResult.category
+                  ? `Categoría: ${offResult.category}`
                   : "Completá la categoría manualmente"
             })
-        } else {
-            // DEBUG: mostrar info de diagnóstico para resolver el problema
-            toast.info(`Código: ${code}`, {
-                description: (apiData as any).debug || "No encontrado en OpenFoodFacts. Completá los datos manualmente.",
-                duration: 10000,
-            })
+            return
         }
+
+        // PASO 3: No encontrado — completar manual
+        setFormData(prev => ({ ...prev, codigo_barras: code }))
+        toast.info(`Código: ${code}`, {
+            description: offResult.debug
+              ? `DEBUG: ${offResult.debug}`
+              : "Producto nuevo. Completá los datos manualmente.",
+            duration: 8000,
+        })
     } catch (error: any) {
         console.error(error)
         toast.error("Error", { description: error.message })
@@ -358,6 +298,17 @@ export default function CrearProducto({ onProductCreated, sucursalId }: CrearPro
 
       if (!result.success) {
         throw new Error(result.error || 'Error al crear producto')
+      }
+
+      // Guardar en catálogo compartido si tiene barcode (fire & forget)
+      if (formData.codigo_barras) {
+        saveToCatalogAction(
+          formData.codigo_barras,
+          formData.nombre,
+          undefined,
+          formData.categoria,
+          formData.emoji
+        ).catch(() => {}) // no bloquear si falla
       }
 
       toast.success("Catálogo actualizado")

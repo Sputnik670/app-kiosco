@@ -635,3 +635,202 @@ export async function deleteProductAction(
   }
 }
 
+// ───────────────────────────────────────────────────────────────────────────────
+// CATÁLOGO COMPARTIDO DE PRODUCTOS
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 🔍 Busca un producto por barcode en el catálogo compartido de AppKiosco
+ *
+ * Este catálogo se alimenta de todos los usuarios: cuando alguien crea un
+ * producto con código de barras, se guarda acá para que el próximo usuario
+ * que escanee el mismo código tenga los datos auto-completados.
+ *
+ * @param barcode - Código de barras escaneado
+ */
+export async function lookupCatalogAction(
+  barcode: string
+): Promise<{ success: boolean; found: boolean; name?: string; brand?: string; category?: string; emoji?: string; error?: string }> {
+  try {
+    const { supabase } = await verifyAuth()
+
+    const { data, error } = await supabase
+      .from('product_catalog')
+      .select('name, brand, category, emoji')
+      .eq('barcode', barcode)
+      .maybeSingle()
+
+    if (error) {
+      return { success: false, found: false, error: error.message }
+    }
+
+    if (data) {
+      return {
+        success: true,
+        found: true,
+        name: data.name,
+        brand: data.brand,
+        category: data.category,
+        emoji: data.emoji,
+      }
+    }
+
+    return { success: true, found: false }
+  } catch (error) {
+    return {
+      success: false,
+      found: false,
+      error: error instanceof Error ? error.message : 'Error al buscar en catálogo',
+    }
+  }
+}
+
+/**
+ * 🌐 Busca info de un producto por barcode en OpenFoodFacts (server-side)
+ *
+ * IMPORTANTE: Este fetch se hace DESDE EL SERVIDOR (Vercel) y no desde el
+ * browser del usuario. Esto evita problemas de:
+ * - CORS en mobile Safari/Chrome
+ * - Header User-Agent prohibido en fetch() del browser
+ * - Timeouts en redes móviles lentas
+ *
+ * @param barcode - Código de barras escaneado
+ */
+export async function lookupOpenFoodFactsAction(
+  barcode: string
+): Promise<{ success: boolean; found: boolean; name?: string; brand?: string; category?: string; error?: string; debug?: string }> {
+  try {
+    // Verificar auth (no exponemos esta API sin login)
+    await verifyAuth()
+
+    const urls = [
+      `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,product_name_es,brands,categories,categories_tags`,
+      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
+    ]
+
+    const debugInfo: string[] = []
+
+    for (const url of urls) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'AppKiosco/1.0 (entornomincyt@gmail.com)',
+          },
+          signal: AbortSignal.timeout(10000),
+        })
+
+        debugInfo.push(`${url.includes('v2') ? 'v2' : 'v0'}: HTTP ${response.status}`)
+
+        if (!response.ok) continue
+
+        const data = await response.json()
+
+        // v2 y v0 usan el mismo formato de status
+        if (data.status === 1 && data.product) {
+          const p = data.product
+          const name = p.product_name_es || p.product_name || ''
+          const brand = p.brands || ''
+
+          // Mapeo simple de categorías en el servidor
+          const rawCat = (p.categories_tags as string[] | undefined) || []
+          const catMap: Record<string, string> = {
+            'beverages': 'Bebidas', 'drinks': 'Bebidas', 'sodas': 'Bebidas',
+            'waters': 'Bebidas', 'juices': 'Bebidas', 'milk': 'Lácteos',
+            'milks': 'Lácteos', 'yogurts': 'Lácteos', 'cheeses': 'Lácteos',
+            'chocolates': 'Golosinas', 'candies': 'Golosinas', 'sweets': 'Golosinas',
+            'snacks': 'Snacks', 'chips': 'Snacks', 'cookies': 'Galletitas',
+            'biscuits': 'Galletitas', 'breads': 'Panificados', 'cereals': 'Cereales',
+            'canned': 'Conservas', 'sauces': 'Condimentos',
+            'cleaning': 'Limpieza', 'tobaccos': 'Cigarrillos',
+            'frozen': 'Congelados', 'ice-creams': 'Helados',
+            'pastas': 'Pastas', 'oils': 'Aceites',
+          }
+          let category = ''
+          for (const tag of rawCat) {
+            const key = tag.replace(/^[a-z]{2}:/, '').toLowerCase()
+            if (catMap[key]) { category = catMap[key]; break }
+          }
+          // Fallback: buscar en string de categorías
+          if (!category && p.categories) {
+            const lower = (p.categories as string).toLowerCase()
+            for (const [kw, cat] of Object.entries(catMap)) {
+              if (lower.includes(kw)) { category = cat; break }
+            }
+          }
+
+          if (name || brand) {
+            return { success: true, found: true, name, brand, category }
+          }
+        }
+
+        debugInfo.push(`status=${data.status}`)
+      } catch (e) {
+        debugInfo.push(`${url.includes('v2') ? 'v2' : 'v0'}: ${e instanceof Error ? e.message : 'error'}`)
+      }
+    }
+
+    return { success: true, found: false, debug: debugInfo.join(' | ') }
+  } catch (error) {
+    return {
+      success: false,
+      found: false,
+      error: error instanceof Error ? error.message : 'Error al buscar producto',
+    }
+  }
+}
+
+/**
+ * 💾 Guarda un producto en el catálogo compartido (upsert por barcode)
+ *
+ * Se llama automáticamente cuando un usuario crea un producto con código
+ * de barras. Usa upsert para no duplicar y actualizar si ya existe.
+ *
+ * @param barcode - Código de barras
+ * @param name - Nombre del producto
+ * @param brand - Marca (opcional)
+ * @param category - Categoría (opcional)
+ * @param emoji - Emoji del producto (opcional)
+ */
+export async function saveToCatalogAction(
+  barcode: string,
+  name: string,
+  brand?: string,
+  category?: string,
+  emoji?: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!barcode || !name) {
+      return { success: false, error: 'Barcode y nombre son requeridos' }
+    }
+
+    const { supabase, user } = await verifyAuth()
+
+    const { error } = await supabase
+      .from('product_catalog')
+      .upsert(
+        {
+          barcode,
+          name,
+          brand: brand || null,
+          category: category || null,
+          emoji: emoji || '📦',
+          source: 'user',
+          contributed_by: user.id,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'barcode' }
+      )
+
+    if (error) {
+      // No bloqueamos — es un "bonus" feature, no crítico
+      console.error('[Catálogo] Error al guardar:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error('[Catálogo] Error:', error)
+    return { success: false, error: 'Error al guardar en catálogo' }
+  }
+}
+
