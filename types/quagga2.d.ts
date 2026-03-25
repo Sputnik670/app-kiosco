@@ -8,6 +8,12 @@ declare module "@ericblade/quagga2" {
       type?: "LiveStream" | "ImageStream"
       constraints?: MediaTrackConstraints
       target?: HTMLElement | null
+      area?: {
+        top?: string
+        right?: string
+        left?: string
+        bottom?: string
+      }
     }
     decoder?: {
       readers?: string[]

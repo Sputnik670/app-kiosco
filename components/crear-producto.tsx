@@ -15,10 +15,13 @@ import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { checkExistingProductAction, createFullProductAction } from "@/lib/actions/product.actions"
 
-// --- SCANNER v8: BarcodeDetector nativo + Quagga2 fallback ---
-// Safari 17.2+ (iOS 17.2+, dic 2023) y Chrome Android soportan BarcodeDetector nativo.
-// Es MUCHO más rápido y confiable que Quagga2 puro JS.
-// Quagga2 se mantiene como fallback para browsers viejos, con settings mejorados.
+// --- SCANNER v9: 3 estrategias de detección ---
+// 1. BarcodeDetector nativo (Safari 17.2+, Chrome Android)
+// 2. barcode-detector polyfill WASM (ZXing C++ compilado a WASM) — funciona en todos los browsers
+// 3. Quagga2 como último fallback con area constraint
+//
+// El polyfill WASM es la clave: usa ZXing C++ (el mismo motor de Google Lens)
+// compilado a WebAssembly. Mucho más preciso que Quagga2 puro JS.
 
 function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string) => void, onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
@@ -40,56 +43,81 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
   useEffect(() => {
     let cancelled = false
     let animFrameId: number | null = null
+    let scanInterval: ReturnType<typeof setInterval> | null = null
 
-    async function startNativeDetector(stream: MediaStream) {
+    // Estrategia genérica para cualquier BarcodeDetector (nativo o polyfill)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async function startDetectorLoop(detector: any, video: HTMLVideoElement, stream: MediaStream, method: string) {
+      setScanMethod(method)
+      setLoading(false)
+
+      // Loop de detección — usamos setInterval en vez de rAF para control de frecuencia
+      // rAF puede ser throttled en background tabs
+      scanInterval = setInterval(async () => {
+        if (cancelled || foundRef.current) {
+          if (scanInterval) clearInterval(scanInterval)
+          return
+        }
+        try {
+          if (video.readyState >= 2) {
+            const barcodes = await detector.detect(video)
+            if (barcodes.length > 0 && !foundRef.current) {
+              const code = barcodes[0].rawValue
+              if (code) {
+                foundRef.current = true
+                if (scanInterval) clearInterval(scanInterval)
+                if (navigator.vibrate) navigator.vibrate(100)
+                stream.getTracks().forEach(t => t.stop())
+                onResultRef.current(code)
+              }
+            }
+          }
+        } catch {
+          // detect() puede fallar en algunos frames, ignorar
+        }
+      }, 100) // ~10fps, suficiente para barcode scanning
+    }
+
+    async function tryNativeDetector(stream: MediaStream, video: HTMLVideoElement): Promise<boolean> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const BarcodeDetectorClass = (window as any).BarcodeDetector
       if (!BarcodeDetectorClass) return false
 
       try {
-        // Verificar que soporte los formatos que necesitamos
         const formats = await BarcodeDetectorClass.getSupportedFormats()
         const needed = ["ean_13", "ean_8", "code_128", "upc_a", "upc_e"]
-        const hasFormats = needed.some((f: string) => formats.includes(f))
-        if (!hasFormats) return false
+        const available = needed.filter((f: string) => formats.includes(f))
+        if (available.length === 0) return false
 
-        const detector = new BarcodeDetectorClass({
-          formats: needed.filter((f: string) => formats.includes(f)),
-        })
-
-        const video = videoRef.current!
-        video.srcObject = stream
-        video.setAttribute("playsinline", "true")
-        await video.play()
-
-        setScanMethod("nativo")
-        setLoading(false)
-
-        // Loop de detección con requestAnimationFrame
-        async function detectLoop() {
-          if (cancelled || foundRef.current) return
-          try {
-            if (video.readyState >= 2) {
-              const barcodes = await detector.detect(video)
-              if (barcodes.length > 0 && !foundRef.current) {
-                const code = barcodes[0].rawValue
-                if (code) {
-                  foundRef.current = true
-                  if (navigator.vibrate) navigator.vibrate(100)
-                  stream.getTracks().forEach(t => t.stop())
-                  onResultRef.current(code)
-                  return
-                }
-              }
-            }
-          } catch {
-            // detect() puede fallar en algunos frames, ignorar
-          }
-          animFrameId = requestAnimationFrame(detectLoop)
-        }
-        detectLoop()
+        const detector = new BarcodeDetectorClass({ formats: available })
+        await startDetectorLoop(detector, video, stream, "nativo")
         return true
       } catch {
+        return false
+      }
+    }
+
+    async function tryWasmPolyfill(stream: MediaStream, video: HTMLVideoElement): Promise<boolean> {
+      try {
+        // Import dinámico del polyfill WASM (ZXing C++ → WASM)
+        const { BarcodeDetector: WasmDetector } = await import("barcode-detector")
+
+        const formats = await WasmDetector.getSupportedFormats()
+        const needed = ["ean_13", "ean_8", "code_128", "upc_a", "upc_e"] as const
+        const available = needed.filter(f => formats.includes(f))
+        if (available.length === 0) return false
+
+        const detector = new WasmDetector({ formats: [...available] })
+
+        // Test rápido: intentar detectar un frame para verificar que WASM funcione
+        if (video.readyState >= 2) {
+          await detector.detect(video) // Si falla, el catch lo maneja
+        }
+
+        await startDetectorLoop(detector, video, stream, "wasm")
+        return true
+      } catch (err) {
+        console.warn("WASM polyfill failed:", err)
         return false
       }
     }
@@ -110,6 +138,13 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
               height: { ideal: 720, min: 480 },
             },
             target: containerRef.current,
+            // Solo analizar la zona central (donde está la guía visual)
+            area: {
+              top: "30%",
+              right: "10%",
+              left: "10%",
+              bottom: "30%",
+            },
           },
           decoder: {
             readers: [
@@ -121,7 +156,7 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
             ],
           },
           locator: {
-            patchSize: "large",
+            patchSize: "x-large",
             halfSample: false,
           },
           frequency: 15,
@@ -151,7 +186,6 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
         const code = result?.codeResult?.code
         if (!code) return
 
-        // Validar confianza: necesitamos 2 lecturas iguales consecutivas
         if (code === lastCode) {
           confirmCount++
         } else {
@@ -172,7 +206,7 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
       if (cancelled) return
 
       try {
-        // Intentar BarcodeDetector nativo primero
+        // Paso 1: Obtener stream de cámara
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: "environment",
@@ -188,14 +222,29 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
         }
 
         streamRef.current = stream
-        const nativeWorked = await startNativeDetector(stream)
 
-        if (!nativeWorked) {
-          // Nativo no disponible, parar stream y usar Quagga2
-          stream.getTracks().forEach(t => t.stop())
-          streamRef.current = null
-          await startQuaggaFallback()
-        }
+        // Preparar video element
+        const video = videoRef.current!
+        video.srcObject = stream
+        video.setAttribute("playsinline", "true")
+        await video.play()
+
+        // Paso 2: Intentar estrategias en orden de prioridad
+        // 2a. BarcodeDetector nativo
+        const nativeOk = await tryNativeDetector(stream, video)
+        if (nativeOk) return
+
+        // 2b. Polyfill WASM (ZXing C++)
+        const wasmOk = await tryWasmPolyfill(stream, video)
+        if (wasmOk) return
+
+        // 2c. Quagga2 como último recurso
+        // Parar el stream actual, Quagga maneja su propio stream
+        stream.getTracks().forEach(t => t.stop())
+        streamRef.current = null
+        video.srcObject = null
+        await startQuaggaFallback()
+
       } catch (err) {
         console.error("Scanner error:", err)
         if (!cancelled) {
@@ -209,6 +258,7 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
       cancelled = true
       clearTimeout(timer)
       if (animFrameId) cancelAnimationFrame(animFrameId)
+      if (scanInterval) clearInterval(scanInterval)
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
       }
@@ -276,12 +326,16 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
             display: "flex", justifyContent: "center", zIndex: 11,
           }}>
             <span style={{
-              background: scanMethod === "nativo" ? "rgba(16,185,129,0.8)" : "rgba(139,92,246,0.8)",
+              background: scanMethod === "nativo" ? "rgba(16,185,129,0.8)"
+                : scanMethod === "wasm" ? "rgba(59,130,246,0.8)"
+                : "rgba(139,92,246,0.8)",
               color: "white", fontSize: 9, fontWeight: 800,
               padding: "4px 12px", borderRadius: 20, textTransform: "uppercase",
               letterSpacing: 1,
             }}>
-              {scanMethod === "nativo" ? "Detección nativa" : "Quagga2"}
+              {scanMethod === "nativo" ? "Detección nativa"
+                : scanMethod === "wasm" ? "ZXing WASM"
+                : "Quagga2"}
             </span>
           </div>
         </>

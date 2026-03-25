@@ -18,7 +18,7 @@ function ts() {
 
 export default function DiagnosticoPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
-  const [phase, setPhase] = useState<"idle" | "capture" | "quagga-live" | "native-live" | "done">("idle")
+  const [phase, setPhase] = useState<"idle" | "capture" | "quagga-live" | "native-live" | "wasm-live" | "done">("idle")
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -338,6 +338,98 @@ export default function DiagnosticoPage() {
     setPhase("done")
   }
 
+  // === TEST 4: barcode-detector polyfill WASM (15 seg) ===
+  async function testWasmLive() {
+    setLogs([])
+    setCapturedImage(null)
+    setPhase("wasm-live")
+
+    log("=== BARCODE-DETECTOR WASM POLYFILL TEST ===")
+    log("Importando ZXing C++ WASM polyfill...")
+
+    try {
+      const { BarcodeDetector: WasmDetector } = await import("barcode-detector")
+      log("Polyfill importado OK", "ok")
+
+      const formats = await WasmDetector.getSupportedFormats()
+      log(`Formatos soportados: ${formats.join(", ")}`, "ok")
+
+      const needed = ["ean_13", "ean_8", "code_128", "upc_a", "upc_e"] as const
+      const available = needed.filter(f => formats.includes(f))
+      log(`Formatos barcode 1D: ${available.join(", ") || "NINGUNO"}`, available.length > 0 ? "ok" : "error")
+
+      if (available.length === 0) {
+        log("No hay formatos de barcode 1D en el polyfill", "error")
+        setPhase("done")
+        return
+      }
+
+      const detector = new WasmDetector({ formats: [...available] })
+      log("Detector WASM creado OK", "ok")
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      })
+      streamRef.current = stream
+      log("Cámara OK", "ok")
+
+      const video = videoRef.current!
+      video.srcObject = stream
+      video.setAttribute("playsinline", "true")
+      video.style.display = "block"
+      await video.play()
+      log("Video playing, escaneando 15 segundos...", "info")
+
+      let detected = false
+      let frameCount = 0
+      let errorCount = 0
+      const startTime = Date.now()
+
+      while (Date.now() - startTime < 15000 && !detected) {
+        try {
+          if (video.readyState >= 2) {
+            frameCount++
+            const barcodes = await detector.detect(video)
+            if (barcodes.length > 0) {
+              detected = true
+              const bc = barcodes[0]
+              log(`WASM DETECTÓ: ${bc.rawValue} (format: ${bc.format})`, "ok")
+              if (barcodes.length > 1) {
+                log(`(${barcodes.length} barcodes en total)`, "info")
+              }
+            }
+            if (frameCount % 30 === 0) {
+              log(`Procesados: ${frameCount} frames...${errorCount > 0 ? ` (${errorCount} errores)` : ""}`, "info")
+            }
+          }
+        } catch (e) {
+          errorCount++
+          if (errorCount <= 3) {
+            log(`detect() error #${errorCount}: ${e}`, "warn")
+          }
+        }
+        await new Promise(r => setTimeout(r, 100)) // ~10fps
+      }
+
+      log(`Total frames procesados: ${frameCount}${errorCount > 0 ? `, ${errorCount} errores` : ""}`)
+      if (!detected) {
+        log("WASM NO detectó ningún barcode en 15 segundos", "error")
+      }
+
+      stream.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+      video.style.display = "none"
+
+    } catch (e) {
+      log(`Error importando/iniciando WASM: ${e}`, "error")
+      log("Esto puede pasar en algunos browsers. El scanner usará Quagga2 como fallback.", "warn")
+    }
+
+    log("=== WASM TEST COMPLETO ===")
+    setPhase("done")
+  }
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -354,7 +446,7 @@ export default function DiagnosticoPage() {
     <div style={{ background: "#0f172a", color: "white", minHeight: "100vh", padding: 16, fontFamily: "monospace" }}>
       <h1 style={{ fontSize: 16, fontWeight: "bold", marginBottom: 4 }}>DIAGNÓSTICO v3</h1>
       <p style={{ fontSize: 11, color: "#64748b", marginBottom: 16 }}>
-        Tres tests: captura + Quagga2 LiveStream + BarcodeDetector nativo.
+        4 tests: captura, Quagga2, BarcodeDetector nativo, WASM polyfill.
       </p>
 
       {phase === "idle" && (
@@ -377,6 +469,12 @@ export default function DiagnosticoPage() {
           >
             TEST 3: BARCODE DETECTOR NATIVO (15s)
           </button>
+          <button
+            onClick={testWasmLive}
+            style={{ background: "#dc2626", color: "white", border: "none", borderRadius: 8, padding: "12px 24px", fontSize: 14, fontWeight: "bold" }}
+          >
+            TEST 4: WASM POLYFILL ZXing (15s)
+          </button>
         </div>
       )}
 
@@ -387,7 +485,7 @@ export default function DiagnosticoPage() {
         style={{
           width: "100%", maxHeight: 180, objectFit: "cover",
           borderRadius: 8, marginTop: 12, background: "#1e293b",
-          display: (phase === "capture" || phase === "native-live") ? "block" : "none",
+          display: (phase === "capture" || phase === "native-live" || phase === "wasm-live") ? "block" : "none",
         }}
       />
       <canvas ref={canvasRef} style={{ display: "none" }} />
