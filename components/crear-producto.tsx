@@ -99,8 +99,9 @@ function BarcodeScannerOverlay({ onResult, onClose }: { onResult: (code: string)
 
     async function tryWasmPolyfill(stream: MediaStream, video: HTMLVideoElement): Promise<boolean> {
       try {
-        // Import dinámico del polyfill WASM (ZXing C++ → WASM)
-        const { BarcodeDetector: WasmDetector } = await import("barcode-detector")
+        // Import PURO WASM (ZXing C++ → WASM), sin tocar window.BarcodeDetector
+        // "barcode-detector/pure" = ponyfill que NO usa la API nativa (que puede estar rota en iOS)
+        const { BarcodeDetector: WasmDetector } = await import("barcode-detector/pure")
 
         const formats = await WasmDetector.getSupportedFormats()
         const needed = ["ean_13", "ean_8", "code_128", "upc_a", "upc_e"] as const

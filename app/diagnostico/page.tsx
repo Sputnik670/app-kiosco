@@ -348,8 +348,9 @@ export default function DiagnosticoPage() {
     log("Importando ZXing C++ WASM polyfill...")
 
     try {
-      const { BarcodeDetector: WasmDetector } = await import("barcode-detector")
-      log("Polyfill importado OK", "ok")
+      // "barcode-detector/pure" = ponyfill WASM puro, NO usa API nativa del browser
+      const { BarcodeDetector: WasmDetector } = await import("barcode-detector/pure")
+      log("Ponyfill WASM puro importado OK", "ok")
 
       const formats = await WasmDetector.getSupportedFormats()
       log(`Formatos soportados: ${formats.join(", ")}`, "ok")
