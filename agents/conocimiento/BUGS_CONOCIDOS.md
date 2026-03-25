@@ -350,7 +350,27 @@ const { supabase, orgId } = await verifyAuth()
 
 ---
 
-## 13. N+1 queries en historial de empleados (CORREGIDO 2026-03-19)
+## 13. Fetch a APIs externas desde client components en mobile (CORREGIDO 2026-03-25)
+
+**Problema**: `fetchProductFromApi()` en `crear-producto.tsx` hacía un `fetch()` a OpenFoodFacts directamente desde el browser del celular. El header `User-Agent` es un header prohibido en la Fetch API del browser — se ignora silenciosamente. OpenFoodFacts rechazaba o devolvía datos incompletos sin User-Agent. Resultado: el scanner leía el barcode pero nunca rellenaba el formulario.
+
+**Síntomas**:
+- Scanner funciona (lee el código)
+- Toast "Código registrado" pero nombre y categoría quedan vacíos
+- Error no visible (catch devolvía `{ found: false }` silenciosamente)
+
+**Dónde se encontró**:
+- `components/crear-producto.tsx` — `fetchProductFromApi()` (función eliminada)
+
+**Fix aplicado**: Movido el fetch a server action `lookupOpenFoodFactsAction()` en `product.actions.ts`. El request ahora sale del servidor de Vercel (Node.js) donde User-Agent funciona y no hay CORS.
+
+**Regla**: NUNCA hacer `fetch()` a APIs externas desde componentes `"use client"` en mobile. Siempre usar server actions. Headers como `User-Agent`, `Authorization` custom, etc. pueden ser prohibidos o modificados por el browser.
+
+**Estado**: CORREGIDO
+
+---
+
+## 14. N+1 queries en historial de empleados (CORREGIDO 2026-03-19)
 
 **Problema**: `tab-historial.tsx` hacía 3 queries por empleado dentro de un loop (3N+1 queries totales). Con 10 empleados = 31 queries.
 

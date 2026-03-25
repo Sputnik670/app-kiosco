@@ -549,7 +549,47 @@ staging → prod (manual approval)
 
 ---
 
-### 18. Documentación Comercial Creada
+### 18. Scanner Barcode: Fetch Server-Side (no client)
+
+**Cuándo**: 2026-03-25
+**Quién aprobó**: Ram (testeó en producción)
+**Estado**: IMPLEMENTADO
+
+**Problema**: El `fetch()` a OpenFoodFacts desde el browser del celular fallaba silenciosamente porque `User-Agent` es un header prohibido en la Fetch API del browser. Probado con 10+ productos, todos devolvían "no encontrado".
+
+**Decisión**: Mover TODOS los fetch a APIs externas a server actions. El request sale del servidor de Vercel (Node.js), donde no hay restricciones de headers ni CORS.
+
+**Regla nueva**: NUNCA hacer `fetch()` a APIs externas desde componentes `"use client"` en mobile. Siempre usar server actions.
+
+**Impacto**: Scanner ahora funciona al 100% en iOS Safari y Android Chrome.
+
+---
+
+### 19. Catálogo Compartido de Productos (product_catalog)
+
+**Cuándo**: 2026-03-25
+**Quién aprobó**: Ram
+**Estado**: IMPLEMENTADO
+
+**Qué es**: Tabla Supabase compartida entre TODAS las organizaciones. Cuando un usuario crea un producto con código de barras, la info (nombre, marca, categoría) se guarda en esta tabla. Cualquier otro usuario que escanee el mismo código obtiene auto-fill.
+
+**Por qué**:
+- OpenFoodFacts tiene poca cobertura de productos argentinos (barcode 779)
+- Cada producto cargado por un usuario beneficia a todos
+- Efecto red: cuantos más usuarios, mejor la base de datos
+- Ventaja competitiva vs competidores
+
+**Flujo de escaneo**:
+1. ¿Ya existe en mi catálogo? → avisa
+2. ¿Está en catálogo compartido? → auto-fill
+3. ¿Está en OpenFoodFacts? → auto-fill
+4. No encontrado → completar manual → se guarda para todos
+
+**Tabla**: `product_catalog` (barcode UNIQUE, name, brand, category, emoji, source, contributed_by)
+
+---
+
+### 20. Documentación Comercial Creada
 
 **Cuándo**: 2026-03-19
 **Quién aprobó**: Ram

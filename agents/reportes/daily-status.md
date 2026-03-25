@@ -1,24 +1,32 @@
 # Daily Status — App Kiosco
-**Fecha**: 2026-03-19
-**Generado por**: Ciclo Virtuoso Automático
+**Fecha**: 2026-03-25
+**Generado por**: Sesión de trabajo con Ram
 
 ## Estado rápido
-- **Build**: DESCONOCIDO — Verificar con `npx tsc --noEmit` o deploy en Vercel
-- **Seguridad**: RIESGO BAJO — 100% de server actions con auth, Zod implementado, rate limiting activo. H6 (reports branchId) confirmado resuelto. 3 issues menores pendientes (0 críticos).
-- **Commits últimas 48h**: 7 commits (1 nuevo desde última revisión: solo documentación)
-- **Features activas**: Punto de Venta, Inventario FIFO, Proveedores, Dashboard "Torre de Control" (Timeline, Historial, Alertas, Diario, Incidentes), Servicios Virtuales (SUBE + Cargas), Gamificación, Multi-sucursal, Fichaje QR, Reportes PDF/Excel, Facturación básica
+- **Build**: OK — TypeScript compila sin errores (`tsc --noEmit` limpio)
+- **Deploy**: VERIFICAR — Último deploy READY en Vercel pero `app-kiosco-chi.vercel.app` mostró ERR_CONNECTION_CLOSED (probablemente temporal de CDN)
+- **Seguridad**: RIESGO BAJO — Server actions con auth, Zod, rate limiting. 3 issues menores pendientes (ver AUDIT-FINDINGS.md)
+- **Features activas**: Punto de Venta, Inventario + Scanner Barcode (con auto-fill), Proveedores, Dashboard "Torre de Control", Servicios Virtuales (SUBE + Cargas), Gamificación, Multi-sucursal, Fichaje QR, Reportes PDF/Excel, Facturación básica
 - **Roadmap actual**:
-  1. Integración Mercado Pago QR — EN CURSO (OAuth + webhook activos)
-  2. ARCA — EN CURSO (en desarrollo activo)
+  1. Integración Mercado Pago QR — EN CURSO
+  2. ARCA — EN CURSO
   3. PWA/Offline con sync — PLANIFICAR
 
-## Acciones requeridas del dueño
-Sin acciones urgentes. El código está estable desde la última sesión. Los commits recientes fueron solo documentación y reportes de agentes.
+## Lo que se hizo hoy (25 marzo)
+1. **Fix crítico**: Scanner barcode no completaba formulario → fetch a OpenFoodFacts movido de client a server action
+2. **Feature nueva**: Catálogo compartido `product_catalog` — tabla Supabase para auto-fill entre usuarios
+3. **3 server actions nuevos**: `lookupCatalogAction`, `lookupOpenFoodFactsAction`, `saveToCatalogAction`
+4. **Mapeo de categorías**: OpenFoodFacts → categorías de kiosco argentino
+5. **Regla técnica nueva**: NUNCA fetch a APIs externas desde client en mobile
 
-Si Ram quiere avanzar, las opciones son:
-1. **Priorizar ARCA** — continuar desarrollo de la integración fiscal
-2. **Demo a potencial cliente** — la app está en estado funcional para mostrar
-3. **Revisar guión de demo** creado en último commit (0fa42b8)
+## Acciones requeridas del dueño
+1. **Verificar que la app esté accesible** — si sigue caído, hacer un redeploy desde Vercel dashboard
+2. **Testear scanner** con más productos y confirmar que auto-fill funciona
+3. **Push el último cambio** (limpieza de debug toast) si no se hizo
 
 ## Para la próxima sesión de Claude
-El proyecto está en estado estable post-auditoría. No hay bugs nuevos ni regresiones. Score: 8.5/10 (sin cambios). Prioridades técnicas: (1) completar ARCA si Ram lo aprueba, (2) migrar `tab-historial.tsx` a server actions para cerrar el último gap de seguridad defense-in-depth, (3) resolver RPC redundante en `dashboard.actions.ts:228`. H6 de reports.actions.ts se confirmó resuelto — ya usa `verifyMembership()` con role check. No hay migraciones pendientes ni cambios de schema necesarios.
+- Verificar que `app-kiosco-chi.vercel.app` está online
+- El catálogo compartido (`product_catalog`) está vacío — se va llenando a medida que usuarios crean productos con barcode
+- Los 3 server actions nuevos en `product.actions.ts` están testeados con TypeScript pero no tienen unit tests aún
+- Considerar agregar tests unitarios para `lookupOpenFoodFactsAction` y `saveToCatalogAction`
+- Score: 8.5/10 (estable, scanner arreglado, pendiente verificar deploy)

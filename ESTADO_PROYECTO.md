@@ -1,7 +1,7 @@
 # Estado del Proyecto — App Kiosco
 
 > **Este es tu mapa. Cuando te sientas perdido, vení acá.**
-> Última actualización: 19 de marzo de 2026
+> Última actualización: 25 de marzo de 2026
 
 ---
 
@@ -22,7 +22,7 @@ SaaS de gestión para cadenas de kioscos en Argentina. Cloud, mobile-first, con 
 | Módulo | Qué hace | Archivos clave |
 |--------|----------|----------------|
 | **Punto de Venta** | Vender productos, scanner, métodos de pago | `caja-ventas.tsx` / `ventas.actions.ts` |
-| **Inventario** | Productos, stock por lotes, vencimientos, alertas | `agregar-stock.tsx` / `inventory.actions.ts` |
+| **Inventario + Scanner** | Productos, stock, scanner barcode con auto-fill OpenFoodFacts + catálogo compartido | `crear-producto.tsx` / `product.actions.ts` |
 | **Proveedores** | Alta, saldo, historial de pagos | `gestion-proveedores.tsx` / `provider.actions.ts` |
 | **Dashboard Dueño** | Ventas del día, margen, tendencias, timeline | `dashboard-dueno.tsx` / `dashboard.actions.ts` |
 | **Reportes** | PDF y Excel de ventas, stock, vencimientos | `reports/` / `reports.actions.ts` |
@@ -171,6 +171,9 @@ En `docs/comercial/`:
 | Mar 19 | Fixes: margen, N+1, injection, branchId, touch targets | Auditoría de código, 7 fixes aplicados |
 | Mar 19 | Docs comerciales creados | Guión demo, ventajas competitivas, legales (.docx) |
 | Mar 19 | Skill git-sync creado | Sincronización automática entre PCs |
+| Mar 25 | Scanner barcode: fix OpenFoodFacts (server-side) | Fetch desde browser fallaba silenciosamente → movido a server action |
+| Mar 25 | Catálogo compartido `product_catalog` | Tabla Supabase compartida entre todos los usuarios para auto-fill de productos por barcode |
+| Mar 25 | Flujo scanner: catálogo propio → OFF → manual | 3 pasos de búsqueda al escanear código de barras |
 
 ---
 

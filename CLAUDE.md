@@ -1,6 +1,6 @@
 # App Kiosco — Instrucciones del Proyecto
 
-> Última actualización: 19 de marzo de 2026
+> Última actualización: 25 de marzo de 2026
 
 ## Qué es esto
 
@@ -56,7 +56,7 @@ SaaS de gestión para cadenas de kioscos en Argentina. El objetivo es convertir 
 
 ### Core (funcionando)
 - **Punto de Venta** — `caja-ventas.tsx` / `ventas.actions.ts`
-- **Inventario** — `agregar-stock.tsx`, `crear-producto.tsx` / `inventory.actions.ts`, `product.actions.ts`
+- **Inventario + Scanner Barcode** — `agregar-stock.tsx`, `crear-producto.tsx` / `inventory.actions.ts`, `product.actions.ts` (scanner ZBar WASM + lookup server-side en catálogo compartido + OpenFoodFacts)
 - **Proveedores** — `gestion-proveedores.tsx`, `control-saldo-proveedor.tsx` / `provider.actions.ts`
 - **Dashboard Dueño** — `dashboard-dueno.tsx` / `dashboard.actions.ts` (margen real con unit_cost, no hardcodeado)
 - **Reportes** — `reports/` / `reports.actions.ts` + `pdf-generator.ts` + `excel-generator.ts`
@@ -139,6 +139,20 @@ App-kiosco-main/
 - **Console.log con datos de usuario** → Eliminados 2 logs que exponían emails
 - **Código muerto** → 420 líneas de actualización masiva de precios eliminadas
 - **Touch targets mobile** → Botones y textos de tab-timeline ampliados a mínimo 36px
+
+## Fixes y Features (sesión 25 marzo 2026)
+
+### Scanner Barcode — Fix crítico + Feature catálogo compartido
+- **Bug: OpenFoodFacts no respondía desde el celular** → El `fetch()` se hacía desde el browser del usuario. El header `User-Agent` es prohibido en fetch del browser (se ignora silenciosamente) y OpenFoodFacts rechazaba la request. SOLUCIÓN: Movido a server action `lookupOpenFoodFactsAction()` que corre en Vercel (server-to-server, sin CORS, con User-Agent).
+- **Feature: Catálogo compartido `product_catalog`** → Nueva tabla Supabase compartida entre TODAS las organizaciones. Cuando un usuario escanea un barcode y crea un producto manualmente, la info se guarda en esta tabla. El próximo usuario que escanee el mismo código lo obtiene auto-completado.
+- **Feature: Mapeo de categorías OpenFoodFacts → kiosco** → `CATEGORY_MAP` en `lookupOpenFoodFactsAction()` traduce categorías en inglés de OFF a categorías útiles (Bebidas, Golosinas, Snacks, etc.).
+- **Nuevo flujo de escaneo**: `checkExistingProductAction()` → `lookupCatalogAction()` → `lookupOpenFoodFactsAction()` → manual.
+- **Nuevos server actions**: `lookupCatalogAction()`, `lookupOpenFoodFactsAction()`, `saveToCatalogAction()` en `product.actions.ts`.
+- **Nueva tabla**: `product_catalog` (barcode UNIQUE, name, brand, category, emoji, source, contributed_by).
+- **Scanner**: ZBar WASM (`web-wasm-barcode-reader` v1.5.0) — funciona en iOS Safari + Android Chrome. Archivos WASM en `/public/a.out.js` y `/public/a.out.wasm`.
+
+### Regla técnica nueva
+- **NUNCA hacer fetch a APIs externas desde componentes client en mobile.** Usar server actions. Razón: headers prohibidos (`User-Agent`), CORS, timeouts en redes móviles. El fetch desde el servidor de Vercel es confiable.
 
 ## Pendientes Prioritarios de Seguridad
 
