@@ -261,11 +261,8 @@ export default function CrearProducto({ onProductCreated, sucursalId }: CrearPro
 
         // PASO 3: No encontrado — completar manual
         setFormData(prev => ({ ...prev, codigo_barras: code }))
-        toast.info(`Código: ${code}`, {
-            description: offResult.debug
-              ? `DEBUG: ${offResult.debug}`
-              : "Producto nuevo. Completá los datos manualmente.",
-            duration: 8000,
+        toast.info("Código registrado", {
+            description: "Producto nuevo. Completá los datos manualmente.",
         })
     } catch (error: any) {
         console.error(error)
