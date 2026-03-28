@@ -24,6 +24,7 @@ export default function AuthForm() {
   const [usePasswordReset, setUsePasswordReset] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPasswordError, setShowPasswordError] = useState(false)
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -79,6 +80,12 @@ export default function AuthForm() {
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Credenciales inválidas.'
+
+      // Si falla el login con contraseña, sugerir Magic Link (empleados invitados sin password)
+      if (isLogin && !useMagicLink && !usePasswordReset) {
+        setShowPasswordError(true)
+      }
+
       toast.error('Error de autenticación', { description: message })
     } finally {
       setLoading(false)
@@ -142,6 +149,23 @@ export default function AuthForm() {
           </Button>
         </form>
 
+        {/* Banner de ayuda: aparece después de un login fallido con contraseña */}
+        {showPasswordError && !useMagicLink && !usePasswordReset && isLogin && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-center space-y-2">
+            <p className="text-xs font-medium text-amber-800">
+              ¿Fuiste invitado como empleado? Es posible que no tengas contraseña aún.
+            </p>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => { setUseMagicLink(true); setShowPasswordError(false) }}
+              className="h-8 text-xs border-amber-300 text-amber-700 hover:bg-amber-100"
+            >
+              <Wand2 className="mr-1.5 h-3.5 w-3.5" /> Ingresar con enlace mágico
+            </Button>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2 text-center text-sm text-muted-foreground">
           {usePasswordReset ? (
             <Button
@@ -155,19 +179,30 @@ export default function AuthForm() {
             </Button>
           ) : (
             <>
-              {/* Botón para alternar entre Contraseña y Magic Link */}
-              <Button
-                variant="link"
-                type="button"
-                onClick={() => setUseMagicLink(!useMagicLink)}
-                className="h-auto p-0 text-xs"
-                disabled={loading}
-              >
-                {useMagicLink
-                  ? "Volver a usar contraseña"
-                  : "Ingresar sin contraseña (Magic Link)"
-                }
-              </Button>
+              {/* Botón para alternar entre Contraseña y Magic Link — más visible */}
+              {!useMagicLink && isLogin && (
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => { setUseMagicLink(true); setShowPasswordError(false) }}
+                  className="h-9 text-xs gap-1.5"
+                  disabled={loading}
+                >
+                  <Wand2 className="h-3.5 w-3.5" /> Ingresar sin contraseña
+                </Button>
+              )}
+
+              {useMagicLink && (
+                <Button
+                  variant="link"
+                  type="button"
+                  onClick={() => setUseMagicLink(false)}
+                  className="h-auto p-0 text-xs"
+                  disabled={loading}
+                >
+                  Volver a usar contraseña
+                </Button>
+              )}
 
               {/* Botón Olvidé mi contraseña (solo en modo login con contraseña) */}
               {isLogin && !useMagicLink && (

@@ -29,6 +29,7 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
 
   // ──────────────────────────────────────────────────────────────────────────
   // 1. VERIFICACIÓN DE INVITACIÓN (REFACTORIZADO)
+  // Detecta invitación por 3 vías: propToken (URL), user_metadata, o email
   // ──────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const checkInvitation = async () => {
@@ -38,7 +39,13 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
       }
 
       try {
-        const result = await checkInvitationAction(user.email, propToken || undefined)
+        // Extraer invite_token del user_metadata (Supabase lo guarda al aceptar invite)
+        // Esto cubre el caso donde el usuario fue invitado, cerró el browser,
+        // y vuelve a entrar — el token ya no está en la URL pero sí en metadata
+        const metadataToken = user.user_metadata?.invite_token as string | undefined
+        const tokenToCheck = propToken || metadataToken || undefined
+
+        const result = await checkInvitationAction(user.email, tokenToCheck)
 
         if (!result.success) {
           console.error("Error buscando invitación:", result.error)
@@ -47,11 +54,6 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
         }
 
         if (result.invitation) {
-          console.log("✅ Invitación encontrada:", {
-            email: user.email,
-            orgId: result.invitation.organization_id
-          })
-
           // Pre-configurar como empleado
           setSelectedRole('empleado')
           setInvitacionData({
@@ -69,7 +71,7 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
     }
 
     checkInvitation()
-  }, [user])
+  }, [user, propToken])
 
   // ──────────────────────────────────────────────────────────────────────────
   // 2. GUARDADO DE PERFIL (REFACTORIZADO)
@@ -84,8 +86,8 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
       toast.error("Nombre requerido")
       return
     }
-    if (password && password.length < 6) {
-      toast.error("La contraseña es muy corta", { description: "Debe tener al menos 6 caracteres." })
+    if (password && password.length < 8) {
+      toast.error("La contraseña es muy corta", { description: "Debe tener al menos 8 caracteres." })
       return
     }
 
@@ -174,7 +176,7 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
                 <input
                   id="password"
                   type="password"
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder="Mínimo 8 caracteres"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="flex h-12 w-full rounded-xl border-2 bg-white pl-10 pr-4 font-bold focus:border-primary focus:outline-none transition-all"
