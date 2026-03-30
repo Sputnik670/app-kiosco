@@ -695,26 +695,18 @@ export async function deleteProviderAction(
 
     const { supabase } = await verifyOwner()
 
-    // Intentar soft-delete primero (is_active = false)
-    const { error: softError } = await supabase
-      .from('suppliers')
-      .update({ is_active: false })
-      .eq('id', providerId)
+    // Usar función SECURITY DEFINER para evitar conflicto entre la SELECT policy
+    // (is_active = true) y el UPDATE que pone is_active = false.
+    // La función valida ownership internamente antes de ejecutar.
+    const { data: ok, error: rpcError } = await supabase
+      .rpc('deactivate_supplier', { supplier_id_input: providerId })
 
-    if (softError) {
-      // Si is_active no existe, hacer hard-delete
-      if (softError.message.includes('is_active')) {
-        const { error: hardError } = await supabase
-          .from('suppliers')
-          .delete()
-          .eq('id', providerId)
+    if (rpcError) {
+      return { success: false, error: `Error al eliminar proveedor: ${rpcError.message}` }
+    }
 
-        if (hardError) {
-          return { success: false, error: `Error al eliminar proveedor: ${hardError.message}` }
-        }
-      } else {
-        return { success: false, error: `Error al eliminar proveedor: ${softError.message}` }
-      }
+    if (!ok) {
+      return { success: false, error: 'No tenés permiso para eliminar este proveedor' }
     }
 
     return { success: true }
