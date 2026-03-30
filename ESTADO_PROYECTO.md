@@ -1,7 +1,7 @@
 # Estado del Proyecto — App Kiosco
 
 > **Este es tu mapa. Cuando te sientas perdido, vení acá.**
-> Última actualización: 29 de marzo de 2026
+> Última actualización: 30 de marzo de 2026
 
 ---
 
@@ -23,15 +23,25 @@ SaaS de gestión para cadenas de kioscos en Argentina. Cloud, mobile-first, con 
 |--------|----------|----------------|
 | **Punto de Venta** | Vender productos, scanner, métodos de pago | `caja-ventas.tsx` / `ventas.actions.ts` |
 | **Inventario + Scanner** | Productos, stock, scanner barcode con auto-fill OpenFoodFacts + catálogo compartido | `crear-producto.tsx` / `product.actions.ts` |
-| **Proveedores** | Alta, saldo, historial de pagos | `gestion-proveedores.tsx` / `provider.actions.ts` |
+| **Proveedores** | Alta con tipo producto/servicio, saldo, historial, soft-delete | `gestion-proveedores.tsx` / `provider.actions.ts` |
 | **Dashboard Dueño** | Ventas del día, margen, tendencias, timeline | `dashboard-dueno.tsx` / `dashboard.actions.ts` |
 | **Reportes** | PDF y Excel de ventas, stock, vencimientos | `reports/` / `reports.actions.ts` |
 | **Empleados** | Invitar, roles, permisos por sucursal | `invitar-empleado.tsx` / `employee.actions.ts` |
 | **Fichaje QR** | Control de asistencia con QR impreso | `generar-qr-fichaje.tsx` / `qr-fichaje-scanner.tsx` |
-| **Gamificación** | Misiones, ranking, badges, capital, Happy Hour | `misiones-empleado.tsx` / `team-ranking.tsx` |
+| **Misiones** | Misiones manuales + vencimientos + arqueo de cierre | `misiones-empleado.tsx` / `missions.actions.ts` |
 | **Multi-sucursal** | Crear/gestionar sucursales, datos aislados | `gestion-sucursales.tsx` / `branch.actions.ts` |
 | **Servicios Virtuales** | SUBE + recargas con comisión configurable | `widget-sube.tsx` / `service.actions.ts` |
 | **Facturación interna** | Comprobantes internos (NO fiscal) | `facturacion/` / `invoicing.actions.ts` |
+
+### IMPLEMENTADO — PENDIENTE TESTEO EN PRODUCCIÓN
+
+| Módulo | Qué hace | Archivos clave | Estado |
+|--------|----------|----------------|--------|
+| **Sistema XP automático** | Apertura puntual (+20), cierre limpio (+30), tardanza (-25/-50), diferencia caja (-40), misiones incumplidas (-10) | `xp.actions.ts` | Backend + UI completos, compila OK |
+| **Descargo de empleado** | Empleado justifica tardanza/error, dueño resuelve con tipo formal | `incidents.actions.ts` + `mis-incidentes.tsx` | Flujo completo implementado |
+| **Ajuste manual XP** | Dueño da premio o sanción con mensaje obligatorio | `ajuste-manual-xp.tsx` + `xp.actions.ts` | UI integrada en dashboard |
+| **Analytics de rendimiento** | Resumen diario/semanal/mensual por empleado | `xp-analytics.tsx` + `xp.actions.ts` | UI integrada en dashboard |
+| **Configuración de rendimiento** | Dueño configura valores XP + horarios de sucursal | `configuracion-rendimiento.tsx` | UI integrada en dashboard |
 
 ### EN DESARROLLO
 
@@ -56,105 +66,28 @@ SaaS de gestión para cadenas de kioscos en Argentina. Cloud, mobile-first, con 
 
 ---
 
-## Estructura del Proyecto
+## Auditorías y Cobertura de Código
 
-```
-App-kiosco-main/
-├── app/                    → Rutas de Next.js (App Router)
-│   ├── page.tsx            → Entrada principal (auth + routing)
-│   └── api/                → API routes (mercadopago, productos)
-├── components/             → Componentes React (74 archivos)
-│   ├── dashboard/          → Tabs del dashboard del dueño
-│   ├── facturacion/        → Facturación interna
-│   ├── pwa/                → Componentes PWA
-│   └── reports/            → Generación de reportes
-├── lib/
-│   ├── actions/            → Server actions (23 archivos) ← LÓGICA DE NEGOCIO
-│   ├── offline/            → IndexedDB, sync, cache (módulo offline)
-│   └── repositories/       → Acceso a datos (browser client)
-├── hooks/                  → Custom React hooks
-├── agents/                 → 4 agentes activos + conocimiento + archivo
-├── .skills/                → Skills del proyecto (ver abajo)
-├── docs/
-│   ├── comercial/          → Guión demo, ventajas, legales (.docx)
-│   └── archivo/            → Docs viejos archivados
-├── e2e/                    → Tests E2E (Playwright)
-├── tests/                  → Tests unitarios (Vitest)
-├── supabase/migrations/    → 7 migraciones SQL
-├── CLAUDE.md               → Instrucciones para Claude (tech-leader)
-├── ESTADO_PROYECTO.md      → ESTE ARCHIVO (mapa del proyecto)
-└── AUDIT-FINDINGS.md       → Hallazgos de seguridad y performance
-```
+### Módulos auditados y corregidos (de mayor a menor intervención)
 
----
+| Módulo | Qué se hizo | Sesión |
+|--------|-------------|--------|
+| **Proveedores** | RLS soft-delete, tipo producto/servicio, función SECURITY DEFINER, UI completa | 29 mar |
+| **Dashboard** | Fix margen hardcodeado, N+1 queries, dynamic imports, performance | 19 mar |
+| **Scanner barcode** | Fix OpenFoodFacts (movido a server), catálogo compartido, mapeo de categorías | 25 mar |
+| **Seguridad DB general** | Views SECURITY INVOKER, audit trigger memberships, pg_cron cleanup, search_path en funciones | 25-29 mar |
+| **Auth/Registro** | Revisión completa del flujo: Auth + código + Vercel. Sin problemas críticos. | 29 mar |
+| **Gamificación/XP** | Sistema completo: backend + DB + UI + integración con caja. Falta testear. | 29 mar |
 
-## Agentes: 4 Activos + Base de Conocimiento
+### Módulos SIN auditar
 
-Los agentes están en `agents/` y son instrucciones que Claude sigue en momentos específicos del flujo de trabajo.
-
-| Agente | Para qué | Cuándo se usa |
-|--------|----------|---------------|
-| **inicio-sesion** | Sync git, reportar estado, pendientes | SIEMPRE al abrir el proyecto |
-| **revision-codigo** | Patrones, reglas de seguridad, bugs conocidos | ANTES de escribir o modificar código |
-| **pre-deploy** | Checklist de seguridad, tests, compilación | ANTES de pushear a main |
-| **comercial** | Competencia, onboarding, demos, precios | Al preparar demos o hablar con clientes |
-
-**Base de conocimiento** (`agents/conocimiento/`): 9 archivos con bugs conocidos, decisiones tomadas, patrones de código, proceso de onboarding, métricas, competencia e integraciones. Es la memoria del proyecto que los 4 agentes consultan.
-
-**Reportes históricos** (`agents/reportes/`): 16 reportes de auditorías previas (feb-marzo 2026).
-
-**Agentes archivados** (`agents/archivo/`): Los 17 agentes originales (orquestador, arquitectura, database, seguridad, etc.) están archivados. Su contenido útil se absorbió en los 4 agentes activos y la base de conocimiento.
-
----
-
-## Skills del Proyecto
-
-| Skill | Dónde | Para qué |
-|-------|-------|----------|
-| **competitive-research** | `.skills/competitive-research/` | Análisis de competidores |
-| **git-sync** | `.skills/git-sync/` | Sincronizar repo entre PCs |
-| **pwa-implementation** | `.skills/pwa-implementation/` | Docs para implementar offline |
-
----
-
-## Testing
-
-| Tipo | Framework | Archivos | Estado |
-|------|-----------|----------|--------|
-| **Unit tests** | Vitest | `tests/unit/` (7 tests) | Funcionales, cubren auth, caja, inventario, ventas, offline |
-| **E2E Smoke** | Playwright | `e2e/smoke-01` a `smoke-04` | Funcionales, cubren login→producto→venta→proveedores |
-| **E2E Viejos** | Playwright | `e2e/auth.spec.ts`, `qr-scanner*.spec.ts` | ARCHIVADOS (obsoletos, reemplazados por smoke) |
-
-Para correr tests: `npm test` (vitest) o `npm run test:e2e` (playwright).
-
----
-
-## Documentos Comerciales
-
-En `docs/comercial/`:
-- `guion-demo-completo.docx` — Guión de presentación paso a paso (14 pasos + objeciones)
-- `ventajas-competitivas.docx` — 7 razones para elegirnos (con tabla comparativa)
-- `documentacion-legal.docx` — Términos, privacidad, SLA (placeholders para nombre/CUIT)
-
----
-
-## Pendientes Concretos (en orden de prioridad)
-
-### Para el piloto
-1. ~~Testear Mercado Pago QR en producción con pago real~~ (en curso)
-2. Aplicar fixes de seguridad DB del AUDIT-FINDINGS.md (RLS de incidents, owner_notes, MP credentials)
-3. Aplicar optimizaciones de performance del AUDIT-FINDINGS.md (dynamic imports)
-4. Probar con el primer cliente real
-
-### Para después del piloto
-5. Modo offline / PWA con sync
-6. Evaluar cuentas corrientes (fiado) si hay demanda
-7. Evaluar integración con facturación fiscal si hay demanda
-
-### Infraestructura
-8. Comprar dominio propio
-9. Email profesional (soporte@)
-10. Definir nombre de marca
+| Módulo | Riesgo | Nota |
+|--------|--------|------|
+| **Fichaje QR** | Medio | Nunca se revisó end-to-end desde código |
+| **Facturación interna** | Bajo | Lógica de comprobantes y permisos no revisados |
+| **Vista Empleado** | Medio | Carga 9 componentes sin dynamic imports (performance) |
+| **Mercado Pago QR** | Alto | En desarrollo, no testeado en producción |
+| **Misiones (templates)** | Medio | La tabla mission_templates existe pero verificar si la generación automática al abrir caja funciona |
 
 ---
 
@@ -163,21 +96,37 @@ En `docs/comercial/`:
 | Fecha | Decisión | Por qué |
 |-------|----------|---------|
 | Mar 17 | Descartar actualización masiva de precios | Decisión de Ram |
-| Mar 2026 | Facturación AFIP = integrarse, no construir | Demasiado complejo, mejor usar Facturalo Simple/Alegra |
-| Mar 2026 | Catálogo precargado y fiado = posponer | El onboarding personalizado cubre eso por ahora |
-| Mar 2026 | Precio $199/mes por cadena completa | Competencia cobra $15k/mes por sucursal |
-| Mar 2026 | Primer mes gratis | Reducir barrera de entrada |
-| Mar 19 | Limpieza y reorganización del proyecto | Docs archivados, estructura docs/, ESTADO_PROYECTO.md creado |
 | Mar 19 | Fixes: margen, N+1, injection, branchId, touch targets | Auditoría de código, 7 fixes aplicados |
 | Mar 19 | Docs comerciales creados | Guión demo, ventajas competitivas, legales (.docx) |
-| Mar 19 | Skill git-sync creado | Sincronización automática entre PCs |
-| Mar 25 | Scanner barcode: fix OpenFoodFacts (server-side) | Fetch desde browser fallaba silenciosamente → movido a server action |
-| Mar 25 | Catálogo compartido `product_catalog` | Tabla Supabase compartida entre todos los usuarios para auto-fill de productos por barcode |
-| Mar 25 | Flujo scanner: catálogo propio → OFF → manual | 3 pasos de búsqueda al escanear código de barras |
-| Mar 29 | Auditoría de sistema de registro y auth | Revisión completa: Supabase Auth + código + Vercel. Sin problemas críticos. |
-| Mar 29 | Fixes de seguridad DB (views, trigger, cron, funciones) | SECURITY INVOKER en vistas, audit trigger en memberships, pg_cron para cleanup de invites |
-| Mar 29 | Columna `supplier_type` en suppliers | Diferencia proveedores de productos vs servicios. UI: selector al crear + agrupación en lista. |
-| Mar 29 | Fix RLS soft-delete de proveedores | Conflicto SELECT policy vs UPDATE: resuelto con función `deactivate_supplier()` SECURITY DEFINER |
+| Mar 25 | Scanner barcode: fix OpenFoodFacts (server-side) | Fetch desde browser fallaba silenciosamente |
+| Mar 25 | Catálogo compartido `product_catalog` | Tabla Supabase compartida para auto-fill por barcode |
+| Mar 29 | Fixes de seguridad DB | Views SECURITY INVOKER, audit trigger, pg_cron |
+| Mar 29 | `supplier_type` en proveedores | Diferencia productos vs servicios. UI: selector + agrupación |
+| Mar 29 | Fix RLS soft-delete proveedores | `deactivate_supplier()` SECURITY DEFINER |
+| Mar 29 | Sistema XP/gamificación completo | Backend + DB + UI implementados. Pendiente testeo. |
+| Mar 30 | Descargo obligatorio para empleados | El empleado DEBE escribir justificación antes de que el dueño pueda resolver |
+| Mar 30 | Dueño puede dar/quitar XP manual | Para premiar o sancionar con mensaje y registro formal |
+| Mar 2026 | Precio $199/mes por cadena completa | Competencia cobra $15k/mes por sucursal |
+| Mar 2026 | Primer mes gratis | Reducir barrera de entrada |
+
+---
+
+## Pendientes Concretos (en orden de prioridad)
+
+### Para el piloto
+1. **Testear sistema de XP/gamificación** — configurar horarios de sucursal, probar apertura→misiones→cierre→incidents→descargo
+2. Testear Mercado Pago QR en producción con pago real
+3. Probar con el primer cliente real
+
+### Para después del piloto
+4. Modo offline / PWA con sync
+5. Evaluar cuentas corrientes (fiado) si hay demanda
+6. Evaluar integración con facturación fiscal si hay demanda
+
+### Infraestructura
+7. Comprar dominio propio
+8. Email profesional (soporte@)
+9. Definir nombre de marca
 
 ---
 
