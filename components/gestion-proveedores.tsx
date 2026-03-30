@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Users, Plus, Phone, Mail, ChevronRight, DollarSign, Loader2,
-  ShoppingBag, Receipt, Globe, MapPin, Trash2, AlertTriangle
+  ShoppingBag, Receipt, Globe, MapPin, Trash2, AlertTriangle,
+  Package, Wrench
 } from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -30,6 +31,132 @@ interface GestionProveedoresProps {
     organizationId: string
 }
 
+// ─── Sub-componente de tarjeta de proveedor ─────────────────────────────────
+interface ProviderCardProps {
+  p: Provider
+  editingMarkup: string | null
+  markupForm: { type: "" | "percentage" | "fixed"; value: string }
+  savingMarkup: boolean
+  setMarkupForm: (f: { type: "" | "percentage" | "fixed"; value: string }) => void
+  setEditingMarkup: (id: string | null) => void
+  handleSaveMarkup: (id: string) => void
+  handleSelectProveedor: (p: Provider) => void
+  setConfirmDelete: (p: Provider | null) => void
+}
+
+function ProviderCard({
+  p, editingMarkup, markupForm, savingMarkup,
+  setMarkupForm, setEditingMarkup, handleSaveMarkup,
+  handleSelectProveedor, setConfirmDelete
+}: ProviderCardProps) {
+  const isService = p.supplier_type === 'service'
+  return (
+    <Card
+      onClick={() => handleSelectProveedor(p)}
+      className="p-4 hover:border-primary/50 transition-all cursor-pointer shadow-sm group relative overflow-hidden"
+    >
+      {/* Badge tipo */}
+      <div className={cn(
+        "absolute top-0 right-0 px-2 py-0.5 text-[8px] font-bold uppercase rounded-bl-lg flex items-center gap-1",
+        isService ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-600"
+      )}>
+        {isService ? <Wrench className="h-2.5 w-2.5" /> : <Package className="h-2.5 w-2.5" />}
+        {isService ? 'Servicio' : 'Producto'}
+      </div>
+
+      <div className="flex gap-3">
+        <div className="h-10 w-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold group-hover:bg-primary group-hover:text-white transition-colors">
+          {p.name.charAt(0)}
+        </div>
+        <div>
+          <h4 className="font-bold text-sm leading-tight group-hover:text-primary">{p.name}</h4>
+          {p.rubro && <p className="text-[10px] text-muted-foreground font-bold uppercase mt-0.5">{p.rubro}</p>}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-dashed">
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <Phone className="h-3 w-3" /> {p.phone || '---'}
+        </div>
+        <div className="flex items-center gap-2 text-[11px] font-bold text-emerald-600">
+          <DollarSign className="h-3 w-3" />
+          {p.markup_type === 'percentage' ? `+${p.markup_value}%` : p.markup_type === 'fixed' ? `+$${p.markup_value}` : 'Sin comisión'}
+        </div>
+      </div>
+
+      {/* Edición rápida de markup */}
+      <div className="mt-3 pt-3 border-t border-dashed">
+        {editingMarkup === p.id ? (
+          <div className="flex gap-2 items-end" onClick={e => e.stopPropagation()}>
+            <select
+              title="Tipo de comisión"
+              className="h-8 rounded-md border bg-background px-2 text-[11px] font-bold"
+              value={markupForm.type}
+              onChange={e => setMarkupForm({ ...markupForm, type: e.target.value as any })}
+            >
+              <option value="">Sin comisión</option>
+              <option value="percentage">% Porcentaje</option>
+              <option value="fixed">$ Fijo</option>
+            </select>
+            {markupForm.type && (
+              <Input
+                type="number"
+                placeholder={markupForm.type === 'percentage' ? 'Ej: 10' : 'Ej: 50'}
+                className="h-8 w-20 text-[11px] font-bold"
+                value={markupForm.value}
+                onClick={e => e.stopPropagation()}
+                onChange={e => setMarkupForm({ ...markupForm, value: e.target.value })}
+              />
+            )}
+            <Button
+              size="sm"
+              className="h-8 text-[10px] font-black"
+              disabled={savingMarkup}
+              onClick={e => { e.stopPropagation(); handleSaveMarkup(p.id) }}
+            >
+              {savingMarkup ? <Loader2 className="h-3 w-3 animate-spin" /> : "OK"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-[10px]"
+              onClick={e => { e.stopPropagation(); setEditingMarkup(null) }}
+            >
+              ✕
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <button
+              className="text-[10px] font-bold text-primary uppercase hover:underline"
+              onClick={e => {
+                e.stopPropagation()
+                setEditingMarkup(p.id)
+                setMarkupForm({
+                  type: p.markup_type || "",
+                  value: p.markup_value?.toString() || "",
+                })
+              }}
+            >
+              <Receipt className="h-3 w-3 inline mr-1" />
+              {p.markup_type ? 'Editar comisión' : 'Configurar comisión'}
+            </button>
+            <button
+              className="text-[10px] font-bold text-red-400 uppercase hover:text-red-600 transition-colors"
+              onClick={e => {
+                e.stopPropagation()
+                setConfirmDelete(p)
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 export default function GestionProveedores({ sucursalId, organizationId }: GestionProveedoresProps) {
   const [proveedores, setProveedores] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,6 +170,7 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
     nombre: "", rubro: "", contacto_nombre: "",
     telefono: "", email: "", condicion_pago: "contado",
     esGlobal: true, // Controla si sucursal_id será null o sucursalId
+    supplier_type: "product" as "product" | "service",
     markup_type: "" as "" | "percentage" | "fixed",
     markup_value: "",
   })
@@ -104,7 +232,7 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
     if (result.success) {
       toast.success(formData.esGlobal ? "Proveedor Global añadido" : "Proveedor Local añadido")
       setShowAddModal(false)
-      setFormData({ nombre: "", rubro: "", contacto_nombre: "", telefono: "", email: "", condicion_pago: "contado", esGlobal: true, markup_type: "", markup_value: "" })
+      setFormData({ nombre: "", rubro: "", contacto_nombre: "", telefono: "", email: "", condicion_pago: "contado", esGlobal: true, supplier_type: "product", markup_type: "", markup_value: "" })
       fetchProveedores()
     } else {
       toast.error("Error al guardar", { description: result.error })
@@ -172,112 +300,50 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {proveedores.map(p => (
-                <Card 
-                    key={p.id} 
-                    onClick={() => handleSelectProveedor(p)}
-                    className="p-4 hover:border-primary/50 transition-all cursor-pointer shadow-sm group relative overflow-hidden"
-                >
-                    {/* Badge de Alcance */}
-                    <div className={cn(
-                        "absolute top-0 right-0 px-2 py-0.5 text-[8px] font-bold uppercase rounded-bl-lg",
-                        "bg-blue-100 text-blue-700"
-                    )}>
-                        Global (Cadena)
-                    </div>
+        <div className="space-y-6">
+          {/* ── Sección Productos Físicos ── */}
+          {(() => {
+            const productos = proveedores.filter(p => p.supplier_type === 'product')
+            if (productos.length === 0) return null
+            return (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Package className="h-4 w-4 text-slate-600" />
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-600">Proveedores de Productos</span>
+                  <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{productos.length}</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {productos.map(p => <ProviderCard key={p.id} p={p} editingMarkup={editingMarkup} markupForm={markupForm} savingMarkup={savingMarkup} setMarkupForm={setMarkupForm} setEditingMarkup={setEditingMarkup} handleSaveMarkup={handleSaveMarkup} handleSelectProveedor={handleSelectProveedor} setConfirmDelete={setConfirmDelete} />)}
+                </div>
+              </div>
+            )
+          })()}
 
-                    <div className="flex gap-3">
-                        <div className="h-10 w-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold group-hover:bg-primary group-hover:text-white transition-colors">
-                            {p.name.charAt(0)}
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-sm leading-tight group-hover:text-primary">{p.name}</h4>
-                            <p className="text-[10px] text-muted-foreground font-bold uppercase mt-0.5">{''}</p>
-                        </div>
-                    </div>
+          {/* ── Sección Servicios ── */}
+          {(() => {
+            const servicios = proveedores.filter(p => p.supplier_type === 'service')
+            if (servicios.length === 0) return null
+            return (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Wrench className="h-4 w-4 text-indigo-600" />
+                  <span className="text-xs font-black uppercase tracking-wider text-indigo-600">Billeteras Virtuales y Servicios</span>
+                  <span className="text-[10px] font-bold bg-indigo-100 text-indigo-500 px-2 py-0.5 rounded-full">{servicios.length}</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {servicios.map(p => <ProviderCard key={p.id} p={p} editingMarkup={editingMarkup} markupForm={markupForm} savingMarkup={savingMarkup} setMarkupForm={setMarkupForm} setEditingMarkup={setEditingMarkup} handleSaveMarkup={handleSaveMarkup} handleSelectProveedor={handleSelectProveedor} setConfirmDelete={setConfirmDelete} />)}
+                </div>
+              </div>
+            )
+          })()}
 
-                    <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-dashed">
-                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <Phone className="h-3 w-3" /> {p.phone || '---'}
-                        </div>
-                        <div className="flex items-center gap-2 text-[11px] font-bold text-emerald-600">
-                            <DollarSign className="h-3 w-3" />
-                            {p.markup_type === 'percentage' ? `+${p.markup_value}%` : p.markup_type === 'fixed' ? `+$${p.markup_value}` : 'Sin comisión'}
-                        </div>
-                    </div>
-
-                    {/* Edición rápida de markup */}
-                    <div className="mt-3 pt-3 border-t border-dashed">
-                      {editingMarkup === p.id ? (
-                        <div className="flex gap-2 items-end" onClick={e => e.stopPropagation()}>
-                          <select
-                            title="Tipo de comisión"
-                            className="h-8 rounded-md border bg-background px-2 text-[11px] font-bold"
-                            value={markupForm.type}
-                            onChange={e => setMarkupForm({ ...markupForm, type: e.target.value as any })}
-                          >
-                            <option value="">Sin comisión</option>
-                            <option value="percentage">% Porcentaje</option>
-                            <option value="fixed">$ Fijo</option>
-                          </select>
-                          {markupForm.type && (
-                            <Input
-                              type="number"
-                              placeholder={markupForm.type === 'percentage' ? 'Ej: 10' : 'Ej: 50'}
-                              className="h-8 w-20 text-[11px] font-bold"
-                              value={markupForm.value}
-                              onClick={e => e.stopPropagation()}
-                              onChange={e => setMarkupForm({ ...markupForm, value: e.target.value })}
-                            />
-                          )}
-                          <Button
-                            size="sm"
-                            className="h-8 text-[10px] font-black"
-                            disabled={savingMarkup}
-                            onClick={e => { e.stopPropagation(); handleSaveMarkup(p.id) }}
-                          >
-                            {savingMarkup ? <Loader2 className="h-3 w-3 animate-spin" /> : "OK"}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 text-[10px]"
-                            onClick={e => { e.stopPropagation(); setEditingMarkup(null) }}
-                          >
-                            ✕
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between">
-                          <button
-                            className="text-[10px] font-bold text-primary uppercase hover:underline"
-                            onClick={e => {
-                              e.stopPropagation()
-                              setEditingMarkup(p.id)
-                              setMarkupForm({
-                                type: p.markup_type || "",
-                                value: p.markup_value?.toString() || "",
-                              })
-                            }}
-                          >
-                            <Receipt className="h-3 w-3 inline mr-1" />
-                            {p.markup_type ? 'Editar comisión' : 'Configurar comisión'}
-                          </button>
-                          <button
-                            className="text-[10px] font-bold text-red-400 uppercase hover:text-red-600 transition-colors"
-                            onClick={e => {
-                              e.stopPropagation()
-                              setConfirmDelete(p)
-                            }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                </Card>
-            ))}
+          {proveedores.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">
+              <Users className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm font-medium">No hay proveedores registrados</p>
+              <p className="text-xs mt-1">Hacé clic en "Nuevo" para agregar el primero</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -395,6 +461,31 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
                         >
                             <MapPin className="h-5 w-5 mb-1 text-amber-600" />
                             <span className="text-[10px] font-bold">Solo este Local</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* 🏷️ TIPO DE PROVEEDOR */}
+                <div className="bg-slate-50 p-3 rounded-lg border-2 border-slate-200">
+                    <Label className="text-xs font-black uppercase mb-3 block">Tipo de Proveedor</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setFormData({...formData, supplier_type: "product"})}
+                            className={cn("flex flex-col items-center p-3 rounded-md border-2 transition-all",
+                                formData.supplier_type === "product" ? "bg-white border-slate-500 shadow-sm" : "bg-transparent border-transparent grayscale opacity-60")}
+                        >
+                            <Package className="h-5 w-5 mb-1 text-slate-600" />
+                            <span className="text-[10px] font-bold">Producto Físico</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setFormData({...formData, supplier_type: "service"})}
+                            className={cn("flex flex-col items-center p-3 rounded-md border-2 transition-all",
+                                formData.supplier_type === "service" ? "bg-white border-indigo-500 shadow-sm" : "bg-transparent border-transparent grayscale opacity-60")}
+                        >
+                            <Wrench className="h-5 w-5 mb-1 text-indigo-600" />
+                            <span className="text-[10px] font-bold">Servicio / Billetera</span>
                         </button>
                     </div>
                 </div>

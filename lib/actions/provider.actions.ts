@@ -73,6 +73,7 @@ export interface Provider {
   markup_type: 'percentage' | 'fixed' | null
   markup_value: number | null
   rubro: string | null
+  supplier_type: 'product' | 'service'
 }
 
 /**
@@ -95,6 +96,7 @@ export interface CreateProviderData {
   email: string
   condicion_pago: string
   esGlobal: boolean
+  supplier_type: 'product' | 'service'
   markup_type?: 'percentage' | 'fixed' | null
   markup_value?: number | null
 }
@@ -158,6 +160,7 @@ export async function getServiceProvidersAction(): Promise<GetServiceProvidersRe
       .from('suppliers')
       .select('id, name, balance, markup_type, markup_value, rubro')
       .eq('organization_id', orgId)
+      .eq('supplier_type', 'service')
       .order('name', { ascending: true })
 
     if (error) {
@@ -414,6 +417,7 @@ export async function createProviderAction(
         phone: formData.telefono,
         email: formData.email,
         rubro: formData.rubro || null,
+        supplier_type: formData.supplier_type || 'product',
         markup_type: formData.markup_type || null,
         markup_value: formData.markup_value ?? null,
       }])
