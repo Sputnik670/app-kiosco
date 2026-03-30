@@ -475,16 +475,19 @@ export async function inviteEmployeeAction(
     )
 
     if (inviteError) {
-      // Si el usuario ya existe en auth, generar link de acceso directo
+      // Si el usuario ya existe en auth, generar link de recovery (reseteo de contraseña)
+      // Esto permite que el empleado re-invitado establezca una contraseña nueva
+      // y pueda entrar siempre con email + contraseña sin depender de links.
       if (inviteError.message?.includes('already been registered') ||
           inviteError.message?.includes('already exists')) {
 
-        // Generar magic link via admin (no envía email, pero devuelve la URL)
+        // Generar link de recovery via admin
+        // El tipo 'recovery' le permite al usuario setear una contraseña nueva
         const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-          type: 'magiclink',
+          type: 'recovery',
           email: normalizedEmail,
           options: {
-            redirectTo,
+            redirectTo: `${baseUrl}/auth/set-password`,
           },
         })
 
@@ -495,11 +498,16 @@ export async function inviteEmployeeAction(
           }
         }
 
-        // Devolver el link directo para que el dueño lo comparta
-        // (generateLink no envía email, pero el link es válido y seguro)
+        // Reactivar membership si estaba desactivada (re-invitación)
+        await supabaseAdmin
+          .from('memberships')
+          .update({ is_active: true, branch_id: branchId })
+          .eq('email', normalizedEmail)
+          .eq('organization_id', orgId)
+
         return {
           success: true,
-          message: 'El empleado ya tiene cuenta. Compartile este link para que acceda:',
+          message: 'El empleado ya tiene cuenta. Compartile este link para que cree su contraseña y pueda entrar siempre:',
           inviteLink: linkData.properties.action_link,
         }
       }

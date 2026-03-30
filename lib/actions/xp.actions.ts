@@ -257,30 +257,46 @@ export async function evaluateOpeningPunctualityAction(params: {
   try {
     const { organizationId, branchId, userId, cashRegisterId, openedAt } = params
 
-    // 1. Leer horario de la sucursal
-    const { data: schedule } = await supabaseAdmin
+    // 1. Leer TODOS los turnos activos de la sucursal
+    const { data: shifts } = await supabaseAdmin
       .from('branch_schedules')
-      .select('open_time, open_tolerance_minutes, is_active')
+      .select('shift_name, open_time, open_tolerance_minutes, is_active')
       .eq('branch_id', branchId)
-      .maybeSingle()
+      .eq('is_active', true)
+      .order('shift_order', { ascending: true })
 
-    // Sin horario configurado → no evaluar
-    if (!schedule || !schedule.is_active) {
+    // Sin turnos configurados → no evaluar
+    if (!shifts || shifts.length === 0) {
       return { success: true }
     }
 
-    // 2. Leer config de XP de la org
+    // 2. Encontrar el turno más cercano a la hora de apertura
+    const openedMinutes = openedAt.getHours() * 60 + openedAt.getMinutes()
+
+    let closestShift = shifts[0]
+    let closestDiff = Infinity
+
+    for (const shift of shifts) {
+      const [h, m] = (shift.open_time as string).split(':').map(Number)
+      const shiftMinutes = h * 60 + m
+      // Diferencia absoluta (considerar que podría abrir antes del turno)
+      const diff = Math.abs(openedMinutes - shiftMinutes)
+      if (diff < closestDiff) {
+        closestDiff = diff
+        closestShift = shift
+      }
+    }
+
+    // 3. Leer config de XP de la org
     const { config } = await getXpConfigAction(organizationId)
 
-    // 3. Calcular diferencia en minutos
-    const [targetHour, targetMin] = (schedule.open_time as string).split(':').map(Number)
-    const openedHour = openedAt.getHours()
-    const openedMin = openedAt.getMinutes()
-    const diffMinutes = (openedHour * 60 + openedMin) - (targetHour * 60 + targetMin)
+    // 4. Calcular diferencia en minutos (positivo = tarde, negativo = temprano)
+    const [targetHour, targetMin] = (closestShift.open_time as string).split(':').map(Number)
+    const diffMinutes = openedMinutes - (targetHour * 60 + targetMin)
 
-    const tolerance = schedule.open_tolerance_minutes || config.tardanza_tolerancia_min
+    const tolerance = closestShift.open_tolerance_minutes || config.tardanza_tolerancia_min
 
-    // 4. Evaluar
+    // 5. Evaluar
     if (diffMinutes <= tolerance) {
       // PUNTUAL: premio
       await addXpEventAction({
@@ -289,7 +305,7 @@ export async function evaluateOpeningPunctualityAction(params: {
         userId,
         eventType: 'apertura_puntual',
         points: config.xp_apertura_puntual,
-        description: `Apertura puntual (${diffMinutes > 0 ? '+' + diffMinutes : diffMinutes} min)`,
+        description: `Apertura puntual — turno ${closestShift.shift_name} (${diffMinutes > 0 ? '+' + diffMinutes : diffMinutes} min)`,
         cashRegisterId,
       })
       return { success: true, punctual: true, points: config.xp_apertura_puntual }
@@ -307,10 +323,10 @@ export async function evaluateOpeningPunctualityAction(params: {
         organization_id: organizationId,
         branch_id: branchId,
         employee_id: userId,
-        reported_by: userId, // sistema
+        reported_by: userId,
         cash_register_id: cashRegisterId,
         type: 'attendance',
-        description: `Tardanza de ${diffMinutes} minutos (horario esperado: ${schedule.open_time})`,
+        description: `Tardanza de ${diffMinutes} min en turno ${closestShift.shift_name} (horario esperado: ${closestShift.open_time})`,
         severity,
         status: 'open',
         xp_deducted: Math.abs(points),
@@ -325,7 +341,7 @@ export async function evaluateOpeningPunctualityAction(params: {
       userId,
       eventType: 'llegada_tarde',
       points,
-      description: `Tardanza de ${diffMinutes} min (${isGrave ? 'grave' : 'leve'})`,
+      description: `Tardanza de ${diffMinutes} min en turno ${closestShift.shift_name} (${isGrave ? 'grave' : 'leve'})`,
       cashRegisterId,
       incidentId: incident?.id || null,
     })
@@ -754,23 +770,39 @@ export async function getXpSummaryAction(params: {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// GUARDAR HORARIO DE SUCURSAL
+// GUARDAR TURNO DE SUCURSAL (multi-turno)
 // ───────────────────────────────────────────────────────────────────────────────
 
+export interface BranchShift {
+  branch_id: string
+  shift_name: string
+  shift_order: number
+  open_time: string
+  open_tolerance_minutes: number
+  is_active: boolean
+}
+
 /**
- * El dueño configura el horario de apertura esperado de una sucursal.
+ * El dueño configura un turno de una sucursal.
+ * Upsert por (branch_id, shift_name) — el constraint UNIQUE compuesto.
  */
 export async function saveBranchScheduleAction(params: {
   branchId: string
-  openTime: string // "HH:MM"
+  shiftName: string       // "Mañana", "Tarde", "Noche"
+  shiftOrder: number      // 1, 2, 3
+  openTime: string        // "HH:MM"
   toleranceMinutes?: number
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const { orgId } = await verifyOwner()
-    const { branchId, openTime, toleranceMinutes } = params
+    const { branchId, shiftName, shiftOrder, openTime, toleranceMinutes } = params
 
     if (!/^\d{2}:\d{2}$/.test(openTime)) {
       return { success: false, error: 'Formato de hora inválido. Usar HH:MM' }
+    }
+
+    if (!shiftName || shiftName.trim().length === 0) {
+      return { success: false, error: 'El nombre del turno es obligatorio' }
     }
 
     const { error } = await supabaseAdmin
@@ -779,15 +811,17 @@ export async function saveBranchScheduleAction(params: {
         {
           branch_id: branchId,
           organization_id: orgId,
+          shift_name: shiftName.trim(),
+          shift_order: shiftOrder,
           open_time: openTime,
           open_tolerance_minutes: toleranceMinutes || 15,
           is_active: true,
         },
-        { onConflict: 'branch_id' }
+        { onConflict: 'branch_id,shift_name' }
       )
 
     if (error) {
-      return { success: false, error: `Error guardando horario: ${error.message}` }
+      return { success: false, error: `Error guardando turno: ${error.message}` }
     }
 
     return { success: true }
@@ -797,16 +831,39 @@ export async function saveBranchScheduleAction(params: {
 }
 
 /**
- * Obtiene los horarios de todas las sucursales de la organización
+ * Elimina un turno de una sucursal (hard delete).
+ */
+export async function deleteBranchShiftAction(params: {
+  branchId: string
+  shiftName: string
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { orgId } = await verifyOwner()
+
+    const { error } = await supabaseAdmin
+      .from('branch_schedules')
+      .delete()
+      .eq('branch_id', params.branchId)
+      .eq('organization_id', orgId)
+      .eq('shift_name', params.shiftName)
+
+    if (error) {
+      return { success: false, error: `Error eliminando turno: ${error.message}` }
+    }
+
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Error desconocido' }
+  }
+}
+
+/**
+ * Obtiene los turnos de todas las sucursales de la organización.
+ * Devuelve múltiples filas por sucursal (una por turno).
  */
 export async function getBranchSchedulesAction(): Promise<{
   success: boolean
-  schedules: Array<{
-    branch_id: string
-    open_time: string
-    open_tolerance_minutes: number
-    is_active: boolean
-  }>
+  schedules: BranchShift[]
   error?: string
 }> {
   try {
@@ -814,14 +871,15 @@ export async function getBranchSchedulesAction(): Promise<{
 
     const { data, error } = await supabase
       .from('branch_schedules')
-      .select('branch_id, open_time, open_tolerance_minutes, is_active')
+      .select('branch_id, shift_name, shift_order, open_time, open_tolerance_minutes, is_active')
       .eq('organization_id', orgId)
+      .order('shift_order', { ascending: true })
 
     if (error) {
       return { success: false, schedules: [], error: error.message }
     }
 
-    return { success: true, schedules: data || [] }
+    return { success: true, schedules: (data || []) as BranchShift[] }
   } catch (error) {
     return { success: false, schedules: [], error: error instanceof Error ? error.message : 'Error desconocido' }
   }

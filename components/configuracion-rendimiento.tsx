@@ -14,6 +14,8 @@ import {
   Loader2,
   RotateCcw,
   Settings,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -21,7 +23,9 @@ import {
   saveXpConfigAction,
   getBranchSchedulesAction,
   saveBranchScheduleAction,
+  deleteBranchShiftAction,
   type XpConfig,
+  type BranchShift,
 } from '@/lib/actions/xp.actions'
 
 /**
@@ -42,14 +46,18 @@ import {
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-interface BranchForSchedule {
-  id: string
-  name: string
-  schedule?: {
-    open_time: string
-    open_tolerance_minutes: number
-    is_active: boolean
-  }
+// Turnos predefinidos que el dueño puede agregar
+const SHIFT_PRESETS = [
+  { name: 'Mañana', order: 1, defaultTime: '06:00' },
+  { name: 'Tarde', order: 2, defaultTime: '14:00' },
+  { name: 'Noche', order: 3, defaultTime: '22:00' },
+]
+
+interface LocalShift {
+  shift_name: string
+  shift_order: number
+  open_time: string
+  tolerance: number
 }
 
 export default function ConfiguracionRendimiento({
@@ -58,7 +66,8 @@ export default function ConfiguracionRendimiento({
   branches: Array<{ id: string; name: string }>
 }) {
   const [config, setConfig] = useState<XpConfig | null>(null)
-  const [schedules, setSchedules] = useState<Map<string, { open_time: string; tolerance: number }>>(new Map())
+  // Map<branchId, LocalShift[]> — múltiples turnos por sucursal
+  const [branchShifts, setBranchShifts] = useState<Map<string, LocalShift[]>>(new Map())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savingSchedule, setSavingSchedule] = useState<string | null>(null)
@@ -77,14 +86,19 @@ export default function ConfiguracionRendimiento({
       }
 
       if (schedulesResult.success) {
-        const map = new Map<string, { open_time: string; tolerance: number }>()
+        // Agrupar turnos por branch_id
+        const map = new Map<string, LocalShift[]>()
         for (const s of schedulesResult.schedules) {
-          map.set(s.branch_id, {
+          const existing = map.get(s.branch_id) || []
+          existing.push({
+            shift_name: s.shift_name,
+            shift_order: s.shift_order,
             open_time: s.open_time?.substring(0, 5) || '08:00',
             tolerance: s.open_tolerance_minutes,
           })
+          map.set(s.branch_id, existing)
         }
-        setSchedules(map)
+        setBranchShifts(map)
       }
     } catch {
       toast.error('Error al cargar configuración')
@@ -115,21 +129,31 @@ export default function ConfiguracionRendimiento({
     }
   }
 
-  // ─── Guardar horario de sucursal ───────────────────────────────────────────
-  const handleSaveSchedule = async (branchId: string) => {
-    const schedule = schedules.get(branchId)
-    if (!schedule) return
+  // ─── Guardar TODOS los turnos de una sucursal ─────────────────────────────
+  const handleSaveShifts = async (branchId: string) => {
+    const shifts = branchShifts.get(branchId)
+    if (!shifts || shifts.length === 0) return
+
     setSavingSchedule(branchId)
     try {
-      const result = await saveBranchScheduleAction({
-        branchId,
-        openTime: schedule.open_time,
-        toleranceMinutes: schedule.tolerance,
-      })
-      if (result.success) {
-        toast.success('Horario guardado')
+      // Guardar cada turno en paralelo
+      const results = await Promise.all(
+        shifts.map((shift) =>
+          saveBranchScheduleAction({
+            branchId,
+            shiftName: shift.shift_name,
+            shiftOrder: shift.shift_order,
+            openTime: shift.open_time,
+            toleranceMinutes: shift.tolerance,
+          })
+        )
+      )
+
+      const failed = results.find((r) => !r.success)
+      if (failed) {
+        toast.error(failed.error || 'Error al guardar turnos')
       } else {
-        toast.error(result.error || 'Error al guardar horario')
+        toast.success(`${shifts.length} turno(s) guardado(s)`)
       }
     } catch {
       toast.error('Error inesperado')
@@ -138,16 +162,70 @@ export default function ConfiguracionRendimiento({
     }
   }
 
+  // ─── Agregar turno a una sucursal ─────────────────────────────────────────
+  const addShift = (branchId: string) => {
+    const current = branchShifts.get(branchId) || []
+    const existingNames = new Set(current.map((s) => s.shift_name))
+
+    // Buscar el primer preset que no esté usado
+    const nextPreset = SHIFT_PRESETS.find((p) => !existingNames.has(p.name))
+    if (!nextPreset) {
+      toast.info('Ya tenés los 3 turnos configurados para esta sucursal')
+      return
+    }
+
+    const updated = [
+      ...current,
+      {
+        shift_name: nextPreset.name,
+        shift_order: nextPreset.order,
+        open_time: nextPreset.defaultTime,
+        tolerance: 15,
+      },
+    ].sort((a, b) => a.shift_order - b.shift_order)
+
+    setBranchShifts(new Map(branchShifts).set(branchId, updated))
+  }
+
+  // ─── Eliminar turno ──────────────────────────────────────────────────────
+  const removeShift = async (branchId: string, shiftName: string) => {
+    const current = branchShifts.get(branchId) || []
+    if (current.length <= 1) {
+      toast.error('Debe haber al menos un turno por sucursal')
+      return
+    }
+
+    // Eliminar del servidor
+    const result = await deleteBranchShiftAction({ branchId, shiftName })
+    if (!result.success) {
+      toast.error(result.error || 'Error eliminando turno')
+      return
+    }
+
+    // Eliminar del estado local
+    const updated = current.filter((s) => s.shift_name !== shiftName)
+    setBranchShifts(new Map(branchShifts).set(branchId, updated))
+    toast.success(`Turno "${shiftName}" eliminado`)
+  }
+
+  // ─── Actualizar campo de un turno ─────────────────────────────────────────
+  const updateShift = (
+    branchId: string,
+    shiftName: string,
+    field: 'open_time' | 'tolerance',
+    value: string | number
+  ) => {
+    const current = branchShifts.get(branchId) || []
+    const updated = current.map((s) =>
+      s.shift_name === shiftName ? { ...s, [field]: value } : s
+    )
+    setBranchShifts(new Map(branchShifts).set(branchId, updated))
+  }
+
   // ─── Helpers ───────────────────────────────────────────────────────────────
   const updateConfig = (key: keyof XpConfig, value: number) => {
     if (!config) return
     setConfig({ ...config, [key]: value })
-  }
-
-  const updateSchedule = (branchId: string, field: 'open_time' | 'tolerance', value: string | number) => {
-    const current = schedules.get(branchId) || { open_time: '08:00', tolerance: 15 }
-    const updated = { ...current, [field]: value }
-    setSchedules(new Map(schedules).set(branchId, updated))
   }
 
   const resetDefaults = () => {
@@ -450,70 +528,126 @@ export default function ConfiguracionRendimiento({
 
       <Separator />
 
-      {/* HORARIOS POR SUCURSAL */}
+      {/* HORARIOS POR SUCURSAL — MULTI-TURNO */}
       <div>
         <h3 className="text-base font-semibold flex items-center gap-2 mb-1">
           <Clock className="h-4 w-4" />
-          Horarios de apertura por sucursal
+          Turnos por sucursal
         </h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Configurá la hora de apertura esperada de cada sucursal. Si no configurás un horario, la puntualidad no se evalúa para esa sucursal.
+          Configurá los turnos de cada sucursal (Mañana, Tarde, Noche). El sistema evalúa puntualidad contra el turno más cercano a la hora de apertura de caja.
         </p>
 
-        <div className="space-y-3">
+        <div className="space-y-4">
           {branches.map((branch) => {
-            const schedule = schedules.get(branch.id) || { open_time: '08:00', tolerance: 15 }
+            const shifts = branchShifts.get(branch.id) || []
             const isSaving = savingSchedule === branch.id
+            const canAddMore = shifts.length < 3
 
             return (
               <Card key={branch.id}>
-                <CardContent className="py-3 px-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                    <span className="font-medium text-sm min-w-[120px]">{branch.name}</span>
-
+                <CardHeader className="pb-2 pt-3 px-4">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-bold">{branch.name}</CardTitle>
                     <div className="flex items-center gap-2">
-                      <Label htmlFor={`time-${branch.id}`} className="text-xs text-muted-foreground whitespace-nowrap">
-                        Hora apertura:
-                      </Label>
-                      <Input
-                        id={`time-${branch.id}`}
-                        type="time"
-                        value={schedule.open_time}
-                        onChange={(e) => updateSchedule(branch.id, 'open_time', e.target.value)}
-                        className="w-28"
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor={`tol-${branch.id}`} className="text-xs text-muted-foreground whitespace-nowrap">
-                        Tolerancia:
-                      </Label>
-                      <Input
-                        id={`tol-${branch.id}`}
-                        type="number"
-                        min={0}
-                        max={120}
-                        value={schedule.tolerance}
-                        onChange={(e) => updateSchedule(branch.id, 'tolerance', Number(e.target.value))}
-                        className="w-20"
-                      />
-                      <span className="text-xs text-muted-foreground">min</span>
-                    </div>
-
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleSaveSchedule(branch.id)}
-                      disabled={isSaving}
-                      className="ml-auto"
-                    >
-                      {isSaving ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Save className="h-3 w-3" />
+                      {canAddMore && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => addShift(branch.id)}
+                          className="h-7 text-[10px] font-bold gap-1"
+                        >
+                          <Plus className="h-3 w-3" />
+                          Agregar turno
+                        </Button>
                       )}
-                    </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSaveShifts(branch.id)}
+                        disabled={isSaving || shifts.length === 0}
+                        className="h-7 text-[10px] font-bold gap-1"
+                      >
+                        {isSaving ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Save className="h-3 w-3" />
+                        )}
+                        Guardar
+                      </Button>
+                    </div>
                   </div>
+                </CardHeader>
+                <CardContent className="px-4 pb-3 space-y-2">
+                  {shifts.length === 0 && (
+                    <div className="text-center py-3">
+                      <p className="text-xs text-muted-foreground mb-2">
+                        Sin turnos configurados. La puntualidad no se evalúa.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => addShift(branch.id)}
+                        className="text-xs gap-1"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Configurar primer turno
+                      </Button>
+                    </div>
+                  )}
+
+                  {shifts.map((shift) => (
+                    <div
+                      key={shift.shift_name}
+                      className="flex flex-col sm:flex-row sm:items-center gap-2 py-2 px-3 rounded-lg bg-slate-50 border"
+                    >
+                      <span className="text-xs font-bold text-slate-700 min-w-[60px]">
+                        {shift.shift_name}
+                      </span>
+
+                      <div className="flex items-center gap-1.5">
+                        <Label className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          Hora:
+                        </Label>
+                        <Input
+                          type="time"
+                          value={shift.open_time}
+                          onChange={(e) =>
+                            updateShift(branch.id, shift.shift_name, 'open_time', e.target.value)
+                          }
+                          className="w-28 h-8 text-sm"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <Label className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          Tolerancia:
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={120}
+                          value={shift.tolerance}
+                          onChange={(e) =>
+                            updateShift(branch.id, shift.shift_name, 'tolerance', Number(e.target.value))
+                          }
+                          className="w-16 h-8 text-sm"
+                        />
+                        <span className="text-[10px] text-muted-foreground">min</span>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => removeShift(branch.id, shift.shift_name)}
+                        className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50 ml-auto"
+                        disabled={shifts.length <= 1}
+                        title="Eliminar turno"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
             )
