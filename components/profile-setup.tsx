@@ -86,6 +86,11 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
       toast.error("Nombre requerido")
       return
     }
+    // Contraseña obligatoria para empleados
+    if (selectedRole === 'empleado' && !password) {
+      toast.error("Contraseña obligatoria", { description: "Necesitás crear una contraseña para poder entrar al kiosco todos los días." })
+      return
+    }
     if (password && password.length < 8) {
       toast.error("La contraseña es muy corta", { description: "Debe tener al menos 8 caracteres." })
       return
@@ -167,10 +172,12 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
             />
           </div>
 
-          {/* Input Contraseña — Solo para usuarios que entraron por Magic Link (no tienen contraseña aún) */}
-          {invitacionData && (
+          {/* Input Contraseña — Obligatorio para empleados, opcional para dueños que ya la tienen */}
+          {selectedRole === 'empleado' && (
             <div className="space-y-1.5">
-              <label htmlFor="password" className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Crear Contraseña</label>
+              <label htmlFor="password" className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">
+                Crear Contraseña <span className="text-red-500">*</span>
+              </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-3.5 h-5 w-5 text-slate-300" />
                 <input
@@ -179,11 +186,12 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
                   placeholder="Mínimo 8 caracteres"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  required
                   className="flex h-12 w-full rounded-xl border-2 bg-white pl-10 pr-4 font-bold focus:border-primary focus:outline-none transition-all"
                 />
               </div>
-              <p className="text-[9px] text-slate-400 font-bold ml-1">
-                ⚠️ La usarás para entrar al kiosco mañana.
+              <p className="text-[9px] text-amber-600 font-bold ml-1">
+                Esta contraseña la vas a usar todos los días para entrar. No la pierdas.
               </p>
             </div>
           )}

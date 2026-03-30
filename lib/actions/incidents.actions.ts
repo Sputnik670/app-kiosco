@@ -12,7 +12,9 @@
 'use server'
 
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { createIncidentSchema, justifyIncidentSchema, resolveIncidentSchema, getZodError } from '@/lib/validations'
+import { addXpEventAction } from '@/lib/actions/xp.actions'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -32,6 +34,11 @@ export interface Incident {
   status: string
   created_at: string
   resolved_at: string | null
+  // Campos v2: descargo + resolución formal
+  employee_message: string | null
+  resolution_notes: string | null
+  resolution_type: string | null
+  xp_deducted: number
 }
 
 export interface CreateIncidentParams {
@@ -147,6 +154,10 @@ export async function getIncidentsAction(filters?: {
       status: d.status,
       created_at: d.created_at,
       resolved_at: d.resolved_at,
+      employee_message: d.employee_message || null,
+      resolution_notes: d.resolution_notes || null,
+      resolution_type: d.resolution_type || null,
+      xp_deducted: d.xp_deducted || 0,
     }))
 
     return { success: true, incidents }
@@ -159,6 +170,14 @@ export async function getIncidentsAction(filters?: {
 // JUSTIFICAR INCIDENTE (Empleado)
 // ───────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Empleado envía su descargo para un incidente.
+ * El mensaje es OBLIGATORIO — no se puede enviar sin texto.
+ * El status pasa a 'awaiting_resolution' para que el dueño lo revise.
+ *
+ * También soporta el formato legacy con justification_type para
+ * mantener compatibilidad con componentes existentes.
+ */
 export async function justifyIncidentAction(
   incidentId: string,
   justification: string,
@@ -170,6 +189,10 @@ export async function justifyIncidentAction(
       return { success: false, error: getZodError(parsed) }
     }
 
+    if (!justification || justification.trim().length < 5) {
+      return { success: false, error: 'El descargo es obligatorio (mínimo 5 caracteres)' }
+    }
+
     const { supabase } = await verifyAuth()
 
     const { error } = await supabase
@@ -177,7 +200,8 @@ export async function justifyIncidentAction(
       .update({
         justification,
         justification_type: justificationType,
-        status: 'justified',
+        employee_message: justification, // campo v2
+        status: 'awaiting_resolution',
       })
       .eq('id', incidentId)
 
@@ -232,6 +256,94 @@ export async function resolveIncidentAction(
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
+// RESOLVER INCIDENTE V2 — Con tipo de resolución y devolución de XP
+// ───────────────────────────────────────────────────────────────────────────────
+
+export type ResolutionType = 'sin_consecuencias' | 'capacitacion' | 'advertencia' | 'sancion' | 'desvinculacion'
+
+/**
+ * Resolución formal de un incidente por el dueño (v2).
+ *
+ * FLUJO:
+ * 1. Valida que el incidente existe y tiene descargo del empleado
+ * 2. Guarda resolution_type + resolution_notes
+ * 3. Si resolution_type === 'sin_consecuencias' y hay xp_deducted > 0,
+ *    devuelve el XP descontado registrando un evento 'absolucion'
+ * 4. Cierra el incidente
+ */
+export async function resolveIncidentV2Action(params: {
+  incidentId: string
+  resolutionType: ResolutionType
+  resolutionNotes: string
+}): Promise<{ success: boolean; xpRestored?: number; error?: string }> {
+  try {
+    const { incidentId, resolutionType, resolutionNotes } = params
+
+    if (!incidentId) {
+      return { success: false, error: 'ID de incidente requerido' }
+    }
+    if (!resolutionNotes || resolutionNotes.trim().length < 3) {
+      return { success: false, error: 'Las notas de resolución son obligatorias' }
+    }
+
+    const { user, orgId } = await verifyOwner()
+
+    // Leer incidente actual (con supabaseAdmin para evitar RLS issues)
+    const { data: incident, error: readError } = await supabaseAdmin
+      .from('incidents')
+      .select('id, employee_id, branch_id, xp_deducted, status, employee_message')
+      .eq('id', incidentId)
+      .eq('organization_id', orgId)
+      .single()
+
+    if (readError || !incident) {
+      return { success: false, error: 'Incidente no encontrado' }
+    }
+
+    // Validar que el empleado ya envió su descargo
+    if (!incident.employee_message && incident.status === 'open') {
+      return { success: false, error: 'El empleado aún no envió su descargo. El descargo es obligatorio antes de resolver.' }
+    }
+
+    // Actualizar incidente
+    const { error: updateError } = await supabaseAdmin
+      .from('incidents')
+      .update({
+        status: 'resolved',
+        resolution_type: resolutionType,
+        resolution_notes: resolutionNotes,
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', incidentId)
+
+    if (updateError) {
+      return { success: false, error: updateError.message }
+    }
+
+    // Si fue absuelto y hay XP descontado, devolver
+    let xpRestored = 0
+    if (resolutionType === 'sin_consecuencias' && incident.xp_deducted && incident.xp_deducted > 0) {
+      xpRestored = incident.xp_deducted
+
+      await addXpEventAction({
+        organizationId: orgId,
+        branchId: incident.branch_id,
+        userId: incident.employee_id,
+        eventType: 'absolucion',
+        points: xpRestored, // positivo: devuelve los puntos
+        description: `Puntos devueltos por resolución sin consecuencias: ${resolutionNotes}`,
+        incidentId,
+        createdBy: user.id,
+      })
+    }
+
+    return { success: true, xpRestored }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Error desconocido' }
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 // OBTENER INCIDENTES DEL EMPLEADO ACTUAL (para vista empleado)
 // ───────────────────────────────────────────────────────────────────────────────
 
@@ -243,7 +355,7 @@ export async function getMyIncidentsAction(): Promise<{ success: boolean; incide
       .from('incidents')
       .select('*')
       .eq('employee_id', user.id)
-      .in('status', ['open', 'justified'])
+      .in('status', ['open', 'justified', 'awaiting_resolution'])
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -265,6 +377,10 @@ export async function getMyIncidentsAction(): Promise<{ success: boolean; incide
         status: d.status,
         created_at: d.created_at,
         resolved_at: d.resolved_at,
+        employee_message: d.employee_message || null,
+        resolution_notes: d.resolution_notes || null,
+        resolution_type: d.resolution_type || null,
+        xp_deducted: d.xp_deducted || 0,
       })),
     }
   } catch (error) {

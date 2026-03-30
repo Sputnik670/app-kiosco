@@ -1,7 +1,7 @@
 # Estado del Proyecto — App Kiosco
 
 > **Este es tu mapa. Cuando te sientas perdido, vení acá.**
-> Última actualización: 25 de marzo de 2026
+> Última actualización: 29 de marzo de 2026
 
 ---
 
@@ -174,6 +174,10 @@ En `docs/comercial/`:
 | Mar 25 | Scanner barcode: fix OpenFoodFacts (server-side) | Fetch desde browser fallaba silenciosamente → movido a server action |
 | Mar 25 | Catálogo compartido `product_catalog` | Tabla Supabase compartida entre todos los usuarios para auto-fill de productos por barcode |
 | Mar 25 | Flujo scanner: catálogo propio → OFF → manual | 3 pasos de búsqueda al escanear código de barras |
+| Mar 29 | Auditoría de sistema de registro y auth | Revisión completa: Supabase Auth + código + Vercel. Sin problemas críticos. |
+| Mar 29 | Fixes de seguridad DB (views, trigger, cron, funciones) | SECURITY INVOKER en vistas, audit trigger en memberships, pg_cron para cleanup de invites |
+| Mar 29 | Columna `supplier_type` en suppliers | Diferencia proveedores de productos vs servicios. UI: selector al crear + agrupación en lista. |
+| Mar 29 | Fix RLS soft-delete de proveedores | Conflicto SELECT policy vs UPDATE: resuelto con función `deactivate_supplier()` SECURITY DEFINER |
 
 ---
 

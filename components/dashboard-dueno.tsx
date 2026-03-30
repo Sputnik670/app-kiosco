@@ -74,6 +74,15 @@ const InvitarEmpleado = dynamic(
 const GenerarQRFichaje = dynamic(() => import("@/components/generar-qr-fichaje"), {
   loading: TabLoadingFallback,
 })
+const XpAnalytics = dynamic(() => import("@/components/xp-analytics"), {
+  loading: TabLoadingFallback,
+})
+const AjusteManualXp = dynamic(() => import("@/components/ajuste-manual-xp"), {
+  loading: TabLoadingFallback,
+})
+const ConfiguracionRendimiento = dynamic(() => import("@/components/configuracion-rendimiento"), {
+  loading: TabLoadingFallback,
+})
 
 // Tab Historial (Timeline unificada)
 const TabTimeline = dynamic(
@@ -324,9 +333,21 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
               ventasRecientes={data.ventasRecientes}
               onPrintTurno={handlePrintTurno}
             />
+            <Card className="p-5 border-2">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-black text-slate-800 uppercase flex items-center gap-2">
+                  Control de Rendimiento
+                </h3>
+                <AjusteManualXp branchId={currentSucursalId} />
+              </div>
+              <XpAnalytics branchId={currentSucursalId} />
+            </Card>
             <TeamRanking />
             <GestionIncidentes sucursalId={currentSucursalId} organizationId={data.organizationId} />
             <InvitarEmpleado />
+            <ConfiguracionRendimiento
+              branches={data.sucursales.map(s => ({ id: s.id, name: s.nombre }))}
+            />
             <Card className="p-6 border-2">
               <h3 className="text-lg font-black text-slate-800 uppercase mb-4 flex items-center gap-2">
                 <QrCode className="h-5 w-5 text-blue-600" /> Generar QR de Fichaje

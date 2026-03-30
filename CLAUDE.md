@@ -154,6 +154,32 @@ App-kiosco-main/
 ### Regla técnica nueva
 - **NUNCA hacer fetch a APIs externas desde componentes client en mobile.** Usar server actions. Razón: headers prohibidos (`User-Agent`), CORS, timeouts en redes móviles. El fetch desde el servidor de Vercel es confiable.
 
+## Fixes y Features (sesión 29 marzo 2026)
+
+### Revisión sistema de registro y auth
+- Revisión completa del flujo: Supabase Auth (email/password, PKCE, confirmación), RLS de memberships, server actions de onboarding. Sin problemas críticos.
+- Leaked Password Protection requiere plan Pro de Supabase — no aplicado.
+
+### Fixes de seguridad DB
+- Vistas `v_products_with_stock` y `v_expiring_stock` cambiadas a `security_invoker = on`.
+- `update_mp_creds_updated_at()` y `update_owner_notes_updated_at()` recibieron `SET search_path TO 'public'`.
+- Audit trigger en `memberships`.
+- pg_cron: job diario a 03:00 UTC para `cleanup_expired_invites()`.
+
+### Proveedores: diferenciación producto/servicio
+- Nueva columna `supplier_type` en `suppliers`: `'product'` | `'service'`, NOT NULL DEFAULT `'product'`.
+- `getServiceProvidersAction` ahora filtra `.eq('supplier_type', 'service')`.
+- `createProviderAction` incluye `supplier_type` en el INSERT.
+- `gestion-proveedores.tsx`: selector de tipo al crear, lista agrupada por sección, badge de tipo en tarjetas.
+
+### Fix definitivo de soft-delete de proveedores
+- Causa: SELECT policy `is_active = true` aplicada al RETURNING del UPDATE → rechazaba filas recién desactivadas.
+- Solución: función `deactivate_supplier(uuid)` SECURITY DEFINER con validación de ownership interna.
+- `deleteProviderAction` usa `.rpc('deactivate_supplier', ...)`.
+
+### Regla técnica nueva
+- **Soft-delete con SELECT policy restrictiva**: Si la SELECT policy filtra por un campo que el UPDATE modifica, usar función SECURITY DEFINER para el soft-delete. UPDATE directo falla en PostgREST por el RETURNING check.
+
 ## Pendientes Prioritarios de Seguridad
 
 Ver `AUDIT-FINDINGS.md` para la lista completa. Los más importantes:

@@ -20,8 +20,10 @@ import {
   createIncidentAction,
   getIncidentsAction,
   resolveIncidentAction,
+  resolveIncidentV2Action,
   type Incident,
   type CreateIncidentParams,
+  type ResolutionType,
 } from "@/lib/actions/incidents.actions"
 import { getEmployeesForMissionsAction } from "@/lib/actions/missions.actions"
 
@@ -51,6 +53,22 @@ const JUSTIFICATION_LABELS: Record<string, string> = {
   otro: 'Otro motivo',
 }
 
+const RESOLUTION_TYPES: Array<{ value: ResolutionType; label: string; color: string }> = [
+  { value: 'sin_consecuencias', label: 'Sin consecuencias', color: 'bg-emerald-600 hover:bg-emerald-700' },
+  { value: 'capacitacion', label: 'Capacitación', color: 'bg-blue-600 hover:bg-blue-700' },
+  { value: 'advertencia', label: 'Advertencia formal', color: 'bg-amber-600 hover:bg-amber-700' },
+  { value: 'sancion', label: 'Sanción', color: 'bg-orange-600 hover:bg-orange-700' },
+  { value: 'desvinculacion', label: 'Desvinculación', color: 'bg-red-600 hover:bg-red-700' },
+]
+
+const RESOLUTION_TYPE_LABELS: Record<string, string> = {
+  sin_consecuencias: 'Sin consecuencias',
+  capacitacion: 'Capacitación',
+  advertencia: 'Advertencia formal',
+  sancion: 'Sanción',
+  desvinculacion: 'Desvinculación',
+}
+
 export default function GestionIncidentes({ sucursalId, organizationId }: GestionIncidentesProps) {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
@@ -66,9 +84,10 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
   const [formResolution, setFormResolution] = useState("")
   const [creating, setCreating] = useState(false)
 
-  // Resolve state
+  // Resolve state v2
   const [resolvingId, setResolvingId] = useState<string | null>(null)
   const [resolveNote, setResolveNote] = useState("")
+  const [resolveType, setResolveType] = useState<ResolutionType>('sin_consecuencias')
 
   const fetchIncidents = useCallback(async () => {
     try {
@@ -128,6 +147,38 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
     }
   }
 
+  const handleResolveV2 = async (id: string) => {
+    if (!resolveNote.trim() || resolveNote.trim().length < 3) {
+      toast.error("Las notas de resolución son obligatorias")
+      return
+    }
+    setResolvingId(id)
+    try {
+      const result = await resolveIncidentV2Action({
+        incidentId: id,
+        resolutionType: resolveType,
+        resolutionNotes: resolveNote.trim(),
+      })
+      if (!result.success) {
+        toast.error("Error", { description: result.error })
+        return
+      }
+      let msg = `Incidente resuelto: ${RESOLUTION_TYPE_LABELS[resolveType]}`
+      if (result.xpRestored && result.xpRestored > 0) {
+        msg += ` (+${result.xpRestored} puntos devueltos)`
+      }
+      toast.success(msg)
+      setResolveNote("")
+      setResolveType('sin_consecuencias')
+      fetchIncidents()
+    } catch (err: any) {
+      toast.error("Error", { description: err.message })
+    } finally {
+      setResolvingId(null)
+    }
+  }
+
+  // Legacy resolve for backward compat
   const handleResolve = async (id: string, status: 'resolved' | 'dismissed') => {
     setResolvingId(id)
     try {
@@ -146,7 +197,7 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
     }
   }
 
-  const openIncidents = incidents.filter(i => i.status === 'open' || i.status === 'justified')
+  const openIncidents = incidents.filter(i => i.status === 'open' || i.status === 'justified' || i.status === 'awaiting_resolution')
   const resolvedIncidents = incidents.filter(i => i.status === 'resolved' || i.status === 'dismissed')
 
   const severityBadge = (severity: string) => {
@@ -158,6 +209,7 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
     switch (status) {
       case 'open': return 'bg-red-100 text-red-700 border-red-200'
       case 'justified': return 'bg-blue-100 text-blue-700 border-blue-200'
+      case 'awaiting_resolution': return 'bg-amber-100 text-amber-700 border-amber-200'
       case 'resolved': return 'bg-emerald-100 text-emerald-700 border-emerald-200'
       case 'dismissed': return 'bg-slate-100 text-slate-500 border-slate-200'
       default: return 'bg-slate-100 text-slate-600'
@@ -166,8 +218,9 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
 
   const statusLabel = (status: string) => {
     switch (status) {
-      case 'open': return 'Pendiente'
-      case 'justified': return 'Justificado'
+      case 'open': return 'Sin descargo'
+      case 'justified': return 'Descargo enviado'
+      case 'awaiting_resolution': return 'Listo para resolver'
       case 'resolved': return 'Resuelto'
       case 'dismissed': return 'Descartado'
       default: return status
@@ -294,37 +347,104 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
                 </div>
               )}
 
-              {/* Justificación del empleado */}
-              {inc.justification && (
+              {/* Descargo del empleado */}
+              {(inc.employee_message || inc.justification) && (
                 <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
                   <p className="text-[10px] font-black text-amber-600 uppercase mb-1">
-                    Justificación: {JUSTIFICATION_LABELS[inc.justification_type || ''] || inc.justification_type}
+                    Descargo del empleado
+                    {inc.justification_type && ` — ${JUSTIFICATION_LABELS[inc.justification_type] || inc.justification_type}`}
                   </p>
-                  <p className="text-xs text-amber-800">{inc.justification}</p>
+                  <p className="text-xs text-amber-800">{inc.employee_message || inc.justification}</p>
                 </div>
               )}
 
-              {/* Acciones del dueño */}
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1 text-[10px] font-bold text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                  disabled={resolvingId === inc.id}
-                  onClick={() => handleResolve(inc.id, 'resolved')}
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Resolver
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1 text-[10px] font-bold text-slate-500 border-slate-200 hover:bg-slate-50"
-                  disabled={resolvingId === inc.id}
-                  onClick={() => handleResolve(inc.id, 'dismissed')}
-                >
-                  <XCircle className="h-3.5 w-3.5 mr-1" /> Descartar
-                </Button>
-              </div>
+              {/* Info de XP descontado */}
+              {inc.xp_deducted > 0 && (
+                <p className="text-[10px] text-red-600 font-bold">
+                  Se descontaron {inc.xp_deducted} puntos. Si resolvés "Sin consecuencias" se devuelven automáticamente.
+                </p>
+              )}
+
+              {/* Sin descargo: esperando al empleado */}
+              {inc.status === 'open' && !inc.employee_message && !inc.justification && (
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                  <p className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Esperando descargo del empleado (obligatorio antes de resolver)
+                  </p>
+                </div>
+              )}
+
+              {/* Panel de resolución v2 — solo si el empleado ya envió descargo */}
+              {(inc.employee_message || inc.justification) && inc.status !== 'resolved' && inc.status !== 'dismissed' ? (
+                <div className="space-y-3 bg-slate-50 rounded-lg p-3 border border-slate-200">
+                  <p className="text-[10px] font-black text-slate-600 uppercase">Resolución</p>
+
+                  {/* Tipo de resolución */}
+                  <div className="flex gap-1.5 flex-wrap">
+                    {RESOLUTION_TYPES.map(rt => (
+                      <button
+                        key={rt.value}
+                        onClick={() => setResolveType(rt.value)}
+                        className={`text-[9px] font-bold px-2.5 py-1.5 rounded-full border transition-all ${
+                          resolveType === rt.value
+                            ? `${rt.color} text-white border-transparent`
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                        }`}
+                      >
+                        {rt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Notas de resolución */}
+                  <Textarea
+                    placeholder="Notas de la decisión (obligatorio)..."
+                    value={resolveNote}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setResolveNote(e.target.value)}
+                    rows={2}
+                    className="text-xs"
+                  />
+
+                  <Button
+                    size="sm"
+                    onClick={() => handleResolveV2(inc.id)}
+                    disabled={resolvingId === inc.id}
+                    className="w-full text-[10px] font-bold"
+                  >
+                    {resolvingId === inc.id ? (
+                      <Loader2 className="animate-spin h-3.5 w-3.5 mr-1" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    Confirmar resolución
+                  </Button>
+                </div>
+              ) : null}
+
+              {/* Fallback para incidentes antiguos sin descargo: botones legacy */}
+              {!inc.employee_message && !inc.justification && inc.status === 'open' && (
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 text-[10px] font-bold text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                    disabled={resolvingId === inc.id}
+                    onClick={() => handleResolve(inc.id, 'resolved')}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Resolver
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 text-[10px] font-bold text-slate-500 border-slate-200 hover:bg-slate-50"
+                    disabled={resolvingId === inc.id}
+                    onClick={() => handleResolve(inc.id, 'dismissed')}
+                  >
+                    <XCircle className="h-3.5 w-3.5 mr-1" /> Descartar
+                  </Button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -343,15 +463,26 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
           {showResolved && (
             <div className="mt-2 space-y-2">
               {resolvedIncidents.map(inc => (
-                <div key={inc.id} className="border rounded-lg p-3 opacity-60">
+                <div key={inc.id} className="border rounded-lg p-3 opacity-70">
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-slate-600">{inc.description}</p>
-                    <Badge className={`text-[8px] ${statusBadge(inc.status)}`}>
-                      {statusLabel(inc.status)}
-                    </Badge>
+                    <div className="flex gap-1">
+                      {inc.resolution_type && (
+                        <Badge className="text-[8px] bg-slate-100 text-slate-600">
+                          {RESOLUTION_TYPE_LABELS[inc.resolution_type] || inc.resolution_type}
+                        </Badge>
+                      )}
+                      <Badge className={`text-[8px] ${statusBadge(inc.status)}`}>
+                        {statusLabel(inc.status)}
+                      </Badge>
+                    </div>
                   </div>
+                  {inc.resolution_notes && (
+                    <p className="text-[10px] text-slate-500 mt-1 italic">"{inc.resolution_notes}"</p>
+                  )}
                   <p className="text-[10px] text-slate-400 mt-1">
                     {inc.employee_name || 'Empleado'} · {format(parseISO(inc.created_at), "dd/MM/yyyy")}
+                    {inc.resolved_at && ` · Resuelto: ${format(parseISO(inc.resolved_at), "dd/MM/yyyy")}`}
                   </p>
                 </div>
               ))}

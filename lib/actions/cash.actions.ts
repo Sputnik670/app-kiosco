@@ -22,6 +22,7 @@ import { verifyAuth } from '@/lib/actions/auth-helpers'
 import { format, addDays } from 'date-fns'
 import { logger } from '@/lib/logging'
 import { abrirCajaSchema, cerrarCajaSchema, cashMovementSchema, getZodError } from '@/lib/validations'
+import { evaluateOpeningPunctualityAction, evaluateClosingAction } from '@/lib/actions/xp.actions'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIPOS EXPORTADOS
@@ -267,6 +268,20 @@ export async function abrirCajaAction(
     // PASO 3: Generar misiones automáticas
     await generateMissions(cashRegister.id, user.id, orgId, sucursalId)
 
+    // PASO 4: Evaluar puntualidad de apertura (XP automático)
+    // No bloqueamos la apertura si falla — es feature secundaria
+    try {
+      await evaluateOpeningPunctualityAction({
+        organizationId: orgId,
+        branchId: sucursalId,
+        userId: user.id,
+        cashRegisterId: cashRegister.id,
+        openedAt: today,
+      })
+    } catch (xpError) {
+      logger.error('abrirCajaAction', 'Error evaluando puntualidad', xpError instanceof Error ? xpError : new Error(String(xpError)))
+    }
+
     return {
       success: true,
       cajaId: cashRegister.id,
@@ -382,32 +397,13 @@ export async function cerrarCajaAction(
     const desvio = montoDeclarado - dineroEsperado
     const exitoArqueo = Math.abs(desvio) <= 100 // Tolerancia de $100
 
-    // PASO 7: GAMIFICACIÓN - COMPLETAR MISIÓN Y OTORGAR XP
+    // PASO 7: GAMIFICACIÓN - Completar misión de arqueo si fue preciso
     if (exitoArqueo) {
-      // Completar misión de arqueo
       await supabase
         .from('missions')
         .update({ is_completed: true, current_value: 1, completed_at: new Date().toISOString() })
         .eq('cash_register_id', cajaId)
         .eq('type', 'arqueo_cierre')
-
-      // Otorgar XP al empleado via memberships
-      // IMPORTANTE: Usar supabaseAdmin porque la RLS de memberships_update
-      // requiere is_org_admin(), y el empleado no puede actualizar su propio XP
-      const { data: membership } = await supabaseAdmin
-        .from('memberships')
-        .select('xp')
-        .eq('user_id', cashRegister.opened_by)
-        .eq('organization_id', cashRegister.organization_id)
-        .single<{ xp: number | null }>()
-
-      if (membership && membership.xp !== null) {
-        await supabaseAdmin
-          .from('memberships')
-          .update({ xp: membership.xp + 20 })
-          .eq('user_id', cashRegister.opened_by)
-          .eq('organization_id', cashRegister.organization_id)
-      }
     }
 
     // PASO 8: GUARDAR CIERRE EN BASE DE DATOS
@@ -422,6 +418,30 @@ export async function cerrarCajaAction(
         closed_at: new Date().toISOString(),
       })
       .eq('id', cajaId)
+
+    // PASO 9: EVALUAR RENDIMIENTO DE CIERRE (XP automático)
+    // Evalúa: diferencia de caja + misiones incumplidas
+    // No bloqueamos el cierre si falla — es feature secundaria
+    try {
+      // Necesitamos el branch_id del cash_register
+      const { data: crForBranch } = await supabase
+        .from('cash_registers')
+        .select('branch_id')
+        .eq('id', cajaId)
+        .single<{ branch_id: string }>()
+
+      if (crForBranch) {
+        await evaluateClosingAction({
+          organizationId: cashRegister.organization_id,
+          branchId: crForBranch.branch_id,
+          userId: cashRegister.opened_by,
+          cashRegisterId: cajaId,
+          variance: desvio,
+        })
+      }
+    } catch (xpError) {
+      logger.error('cerrarCajaAction', 'Error evaluando cierre XP', xpError instanceof Error ? xpError : new Error(String(xpError)))
+    }
 
     return {
       success: true,
