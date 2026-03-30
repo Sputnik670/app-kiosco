@@ -481,13 +481,23 @@ export async function inviteEmployeeAction(
       if (inviteError.message?.includes('already been registered') ||
           inviteError.message?.includes('already exists')) {
 
-        // Generar link de recovery via admin
-        // El tipo 'recovery' le permite al usuario setear una contraseña nueva
+        // Limpiar el pending_invite huérfano que se creó antes de detectar que el usuario
+        // ya existe — sin esto, el próximo intento de re-invitar falla con error 23505.
+        await supabase
+          .from('pending_invites')
+          .delete()
+          .eq('token', invite.token)
+
+        // Generar link de recovery via admin.
+        // IMPORTANTE: redirectTo apunta a /auth/callback?next=/auth/set-password
+        // para que el PKCE code exchange ocurra en el handler existente antes de
+        // llegar a set-password. Sin este paso el usuario llega sin sesión y ve
+        // "Link expirado o inválido" aunque el link sea válido.
         const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
           type: 'recovery',
           email: normalizedEmail,
           options: {
-            redirectTo: `${baseUrl}/auth/set-password`,
+            redirectTo: `${baseUrl}/auth/callback?next=/auth/set-password`,
           },
         })
 
@@ -590,7 +600,28 @@ export async function removeEmployeeAction(userId: string): Promise<AuthResult> 
 
     const { supabase, orgId } = await verifyOwner()
 
-    // Soft delete: marcar is_active = false en memberships
+    // 1. Cerrar turnos abiertos del empleado antes de desvincularlo
+    //    Si no se cierra, queda un turno fantasma sin dueño activo
+    const { data: openShifts } = await supabase
+      .from('cash_registers')
+      .select('id')
+      .eq('organization_id', orgId)
+      .eq('opened_by', userId)
+      .eq('is_open', true)
+
+    if (openShifts && openShifts.length > 0) {
+      const shiftIds = openShifts.map(s => s.id)
+      await supabase
+        .from('cash_registers')
+        .update({
+          is_open: false,
+          closed_at: new Date().toISOString(),
+          closed_by: userId,  // Se registra que cerró su propio turno (por baja)
+        })
+        .in('id', shiftIds)
+    }
+
+    // 2. Soft delete: marcar is_active = false en memberships
     const { error } = await supabase
       .from('memberships')
       .update({ is_active: false })
@@ -606,7 +637,9 @@ export async function removeEmployeeAction(userId: string): Promise<AuthResult> 
 
     return {
       success: true,
-      message: 'Empleado dado de baja',
+      message: openShifts && openShifts.length > 0
+        ? 'Empleado dado de baja. Se cerró su turno abierto automáticamente.'
+        : 'Empleado dado de baja',
     }
   } catch (error) {
     return {
