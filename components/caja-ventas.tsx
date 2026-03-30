@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Trash2, ShoppingCart, Plus, Minus, Loader2, ScanBarcode, ReceiptText, CloudOff, QrCode } from "lucide-react"
+import { Trash2, ShoppingCart, Plus, Minus, Loader2, ScanBarcode, ReceiptText, CloudOff, QrCode, Star, ChevronDown, ChevronUp } from "lucide-react"
 import { toast } from "sonner"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +17,7 @@ import { MercadoPagoQRDialog } from "@/components/mercadopago-qr-dialog"
 import { linkSaleToMercadoPagoOrderAction } from "@/lib/actions/mercadopago.actions"
 import { SyncStatusIndicator, SyncBadge } from "@/components/pwa"
 import type { ProductoVenta } from "@/lib/actions/ventas.actions"
+import { getTopProductsAction } from "@/lib/actions/ventas.actions"
 
 type CajaPaymentMethod = "cash" | "card" | "wallet" | "mercadopago"
 
@@ -52,6 +53,9 @@ export default function CajaVentas({
   const [imprimirTicket, setImprimirTicket] = useState(true)
   const [showMercadoPagoQR, setShowMercadoPagoQR] = useState(false)
   const [mercadoPagoTempSaleId, setMercadoPagoTempSaleId] = useState<string>("")
+  const [topProducts, setTopProducts] = useState<ProductoVenta[]>([])
+  const [showAllTop, setShowAllTop] = useState(false)
+  const [loadingTop, setLoadingTop] = useState(true)
 
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -84,6 +88,25 @@ export default function CajaVentas({
       }
     },
   })
+
+  // Cargar top 30 productos al abrir la caja
+  useEffect(() => {
+    let cancelled = false
+    const loadTopProducts = async () => {
+      try {
+        const result = await getTopProductsAction(sucursalId, 30)
+        if (!cancelled && result.success) {
+          setTopProducts(result.products)
+        }
+      } catch {
+        // Silencioso — los botones simplemente no aparecen
+      } finally {
+        if (!cancelled) setLoadingTop(false)
+      }
+    }
+    loadTopProducts()
+    return () => { cancelled = true }
+  }, [sucursalId])
 
   const agregarAlCarrito = useCallback(
     (producto: ProductoVenta) => {
@@ -343,6 +366,46 @@ export default function CajaVentas({
             </div>
           )}
         </div>
+
+        {/* Grid de acceso rápido — Top 30 más vendidos */}
+        {topProducts.length > 0 && (
+          <div>
+            <button
+              onClick={() => setShowAllTop(!showAllTop)}
+              className="flex items-center gap-1.5 mb-2 text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <Star className="h-3 w-3 text-amber-400 fill-amber-400" />
+              Rápidos ({topProducts.length})
+              {showAllTop ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </button>
+            <div className={cn(
+              "grid grid-cols-5 sm:grid-cols-6 gap-1.5 transition-all overflow-hidden",
+              showAllTop ? "max-h-[500px]" : "max-h-[140px]"
+            )}>
+              {topProducts.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => agregarAlCarrito(p)}
+                  className="flex flex-col items-center justify-center bg-white border border-slate-100 rounded-xl p-1.5 hover:bg-blue-50 hover:border-blue-200 active:scale-95 transition-all min-h-[56px] shadow-sm"
+                  title={`${p.name} — $${p.price}`}
+                >
+                  <span className="text-lg leading-none">{p.emoji || '📦'}</span>
+                  <span className="text-[8px] font-bold text-slate-600 leading-tight mt-0.5 line-clamp-2 text-center w-full px-0.5">
+                    {p.name.length > 12 ? p.name.slice(0, 12) : p.name}
+                  </span>
+                  <span className="text-[7px] font-black text-blue-600 leading-none mt-0.5">
+                    ${p.price}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {loadingTop && (
+          <div className="flex items-center gap-2 text-[10px] text-slate-300 font-bold uppercase">
+            <Loader2 className="h-3 w-3 animate-spin" /> Cargando favoritos...
+          </div>
+        )}
 
         <div className="space-y-3 max-h-[400px] overflow-y-auto scrollbar-hide">
           {cart.isEmpty ? (

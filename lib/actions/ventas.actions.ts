@@ -283,6 +283,146 @@ export async function confirmSaleAction(
 }
 
 /**
+ * ⭐ Obtiene los 30 productos más vendidos de una sucursal (últimos 30 días)
+ *
+ * LÓGICA:
+ * - Consulta sale_items unido a sales filtrado por branch_id
+ * - Cuenta frecuencia de cada product_id en los últimos 30 días
+ * - Toma los top N (default 30) productos
+ * - Cruza con v_products_with_stock para obtener datos actuales (precio, stock, emoji)
+ * - Solo devuelve productos activos con stock > 0
+ *
+ * USO:
+ * - Grid de acceso rápido en el punto de venta
+ * - Se carga una vez al abrir la caja, no en cada venta
+ *
+ * @param branchId - ID de la sucursal
+ * @param limit - Cantidad de productos (default 30)
+ * @returns Lista de productos ordenados por frecuencia de venta
+ */
+export async function getTopProductsAction(
+  branchId: string,
+  limit: number = 30
+): Promise<{ success: boolean; products: ProductoVenta[]; error?: string }> {
+  try {
+    if (!branchId) {
+      return { success: false, products: [], error: 'Branch ID requerido' }
+    }
+
+    const { supabase } = await verifyAuth()
+
+    // Fecha de corte: últimos 30 días
+    const thirtyDaysAgo = new Date()
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+    // 1. Obtener sale_items recientes de esta sucursal
+    //    Usamos la relación sale_items → sales para filtrar por branch
+    const { data: salesData, error: salesError } = await supabase
+      .from('sales')
+      .select('id')
+      .eq('branch_id', branchId)
+      .gte('created_at', thirtyDaysAgo.toISOString())
+      .limit(500)
+
+    if (salesError || !salesData || salesData.length === 0) {
+      // Sin ventas recientes → devolver productos con stock ordenados por nombre
+      const { data: fallbackData } = await supabase
+        .from('v_products_with_stock')
+        .select('*')
+        .eq('branch_id', branchId)
+        .eq('is_service', false)
+        .eq('is_active', true)
+        .gt('stock_available', 0)
+        .order('name')
+        .limit(limit)
+
+      return {
+        success: true,
+        products: (fallbackData || []).map((p: ProductWithStock) => ({
+          id: p.id || '',
+          name: p.name || '',
+          price: Number(p.sale_price) || 0,
+          stock: Number(p.stock_available) || 0,
+          barcode: p.barcode || undefined,
+          emoji: p.emoji || undefined,
+        })),
+      }
+    }
+
+    const saleIds = salesData.map(s => s.id)
+
+    // 2. Obtener items de esas ventas (solo product_id)
+    const { data: itemsData, error: itemsError } = await supabase
+      .from('sale_items')
+      .select('product_id')
+      .in('sale_id', saleIds)
+
+    if (itemsError || !itemsData) {
+      return { success: false, products: [], error: 'Error obteniendo historial de ventas' }
+    }
+
+    // 3. Contar frecuencia por product_id
+    const frequency: Record<string, number> = {}
+    for (const item of itemsData) {
+      if (item.product_id) {
+        frequency[item.product_id] = (frequency[item.product_id] || 0) + 1
+      }
+    }
+
+    // Ordenar por frecuencia descendente, tomar top N
+    const topProductIds = Object.entries(frequency)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([id]) => id)
+
+    if (topProductIds.length === 0) {
+      return { success: true, products: [] }
+    }
+
+    // 4. Obtener datos actuales de esos productos (con stock)
+    const { data: productsData, error: productsError } = await supabase
+      .from('v_products_with_stock')
+      .select('*')
+      .eq('branch_id', branchId)
+      .eq('is_service', false)
+      .eq('is_active', true)
+      .gt('stock_available', 0)
+      .in('id', topProductIds)
+
+    if (productsError) {
+      return { success: false, products: [], error: productsError.message }
+    }
+
+    // 5. Mapear y ordenar por frecuencia original
+    const productMap = new Map(
+      (productsData || []).map((p: ProductWithStock) => [
+        p.id,
+        {
+          id: p.id || '',
+          name: p.name || '',
+          price: Number(p.sale_price) || 0,
+          stock: Number(p.stock_available) || 0,
+          barcode: p.barcode || undefined,
+          emoji: p.emoji || undefined,
+        },
+      ])
+    )
+
+    const products: ProductoVenta[] = topProductIds
+      .filter(id => productMap.has(id))
+      .map(id => productMap.get(id)!)
+
+    return { success: true, products }
+  } catch (error) {
+    return {
+      success: false,
+      products: [],
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
  * 📋 Obtiene las ventas recientes de una caja
  *
  * @param cashRegisterId - ID de la caja
