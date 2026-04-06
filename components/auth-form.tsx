@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Loader2, Mail, Lock, LogIn, UserPlus, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { supabaseClient } from '@/lib/supabase-client'
+import { createBrowserClient } from '@supabase/ssr'
 import {
   signInWithPasswordAction,
   signUpAction,
@@ -57,7 +57,15 @@ export default function AuthForm() {
         ? `${window.location.origin}/auth/callback`
         : '/auth/callback'
 
-      const { error } = await supabaseClient.auth.signInWithOAuth({
+      // Usar createBrowserClient (SSR) en lugar del cliente vanilla
+      // para que el code verifier PKCE se guarde en cookies y sea
+      // accesible desde el server callback route
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo },
       })
