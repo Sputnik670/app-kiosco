@@ -124,10 +124,10 @@ export default function CajaVentas({
     [cart]
   )
 
-  const buscarProductos = useCallback(async (query: string, autoAdd: boolean = false) => {
+  const buscarProductos = useCallback(async (query: string, autoAdd: boolean = false): Promise<boolean> => {
     if (!query || query.trim().length === 0) {
       setProductos([])
-      return
+      return false
     }
     setLoading(true)
     try {
@@ -137,14 +137,24 @@ export default function CajaVentas({
 
       if (autoAdd && resultados.length > 0) {
         const matchExacto = resultados.find(p => p.barcode === query)
-        if (matchExacto) agregarAlCarrito(matchExacto)
-        else if (resultados.length === 1) agregarAlCarrito(resultados[0])
+        if (matchExacto) {
+          agregarAlCarrito(matchExacto)
+          return true
+        } else if (resultados.length === 1) {
+          agregarAlCarrito(resultados[0])
+          return true
+        }
+        // Hay resultados pero no se pudo auto-agregar (múltiples coincidencias)
+        // Los productos quedan visibles en el dropdown para selección manual
+        return true
       }
+      return resultados.length > 0
     } catch (error) {
       // Error logged by offline hook
       toast.error("Error en búsqueda", {
         description: error instanceof Error ? error.message : 'Error desconocido'
       })
+      return false
     } finally {
       setLoading(false)
     }
@@ -163,11 +173,23 @@ export default function CajaVentas({
     return () => clearTimeout(delayDebounceFn)
   }, [busqueda, buscarProductos])
 
-  const handleBarcodeScanned = (code: string) => {
+  const handleBarcodeScanned = useCallback((code: string) => {
+    const trimmed = code.trim()
     setShowScanner(false)
-    toast.success("Código detectado", { description: "Buscando producto..." })
-    buscarProductos(code, true)
-  }
+    // Poner el código en el input para que el usuario vea qué se escaneó
+    // y como fallback: el debounce también buscará
+    setBusqueda(trimmed)
+    toast.success("Código detectado", { description: trimmed })
+    buscarProductos(trimmed, true).then((found) => {
+      // Si autoAdd no agregó nada, avisar al usuario
+      if (!found) {
+        toast.info("Producto no encontrado", {
+          description: "Verificá que esté cargado en inventario con ese código de barras.",
+          duration: 4000,
+        })
+      }
+    })
+  }, [buscarProductos])
 
   // Los métodos del carrito ahora vienen del hook useCart
 

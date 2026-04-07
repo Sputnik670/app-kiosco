@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef } from "react"
 import { toast } from "sonner"
 
 export interface CartItem {
@@ -18,8 +18,16 @@ export interface UseCartOptions {
   onItemRemoved?: (itemId: string) => void
 }
 
-export function useCart(options: UseCartOptions = {}) {
+// Objeto vacío estable para evitar recrear funciones cada render
+// cuando se llama useCart() sin argumentos
+const EMPTY_OPTIONS: UseCartOptions = {}
+
+export function useCart(options: UseCartOptions = EMPTY_OPTIONS) {
   const [items, setItems] = useState<CartItem[]>([])
+  // Usar ref para callbacks opcionales — evita que addItem/removeItem
+  // se recreen cuando el consumer pasa un objeto options nuevo cada render
+  const optionsRef = useRef(options)
+  optionsRef.current = options
 
   const addItem = useCallback(
     (product: Omit<CartItem, "cantidad">) => {
@@ -31,7 +39,7 @@ export function useCart(options: UseCartOptions = {}) {
           )
         }
         const newItem = { ...product, cantidad: 1 }
-        options.onItemAdded?.(newItem)
+        optionsRef.current.onItemAdded?.(newItem)
         return [...prev, newItem]
       })
       toast.success(`+1 ${product.name}`, {
@@ -39,15 +47,15 @@ export function useCart(options: UseCartOptions = {}) {
         duration: 800,
       })
     },
-    [options]
+    [] // estable — usa optionsRef en vez de options
   )
 
   const removeItem = useCallback(
     (itemId: string) => {
       setItems((prev) => prev.filter((item) => item.id !== itemId))
-      options.onItemRemoved?.(itemId)
+      optionsRef.current.onItemRemoved?.(itemId)
     },
-    [options]
+    [] // estable
   )
 
   const updateQuantity = useCallback((itemId: string, delta: number) => {
