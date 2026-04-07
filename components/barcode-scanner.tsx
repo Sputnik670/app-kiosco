@@ -1,138 +1,161 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef } from "react"
+import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { Loader2, X, AlertCircle } from "lucide-react"
-// html5-qrcode is loaded dynamically inside useEffect to avoid adding ~200KB to the initial bundle
+
+// --- Scanner unificado: ZBar WASM (web-wasm-barcode-reader) ---
+// Antes usaba html5-qrcode que crasheaba dentro de Radix Dialog
+// (CSS transforms distorsionan getBoundingClientRect).
+// ZBar WASM + createPortal evita ese problema completamente.
+// Misma implementación probada que funciona en crear-producto.tsx.
+
+function loadWasmScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (typeof (window as any).Module !== "undefined" && (window as any).Module.calledRun) {
+      resolve()
+      return
+    }
+    if (document.getElementById("zbar-wasm-script")) {
+      const check = setInterval(() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((window as any).Module?.calledRun) { clearInterval(check); resolve() }
+      }, 100)
+      setTimeout(() => { clearInterval(check); resolve() }, 5000)
+      return
+    }
+    const script = document.createElement("script")
+    script.id = "zbar-wasm-script"
+    script.src = "/a.out.js"
+    script.onload = () => {
+      const check = setInterval(() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((window as any).Module?.calledRun) { clearInterval(check); resolve() }
+      }, 50)
+      setTimeout(() => { clearInterval(check); resolve() }, 5000)
+    }
+    script.onerror = () => reject(new Error("No se pudo cargar el motor de escaneo"))
+    document.head.appendChild(script)
+  })
+}
 
 interface BarcodeScannerProps {
   onResult: (code: string) => void
   onClose: () => void
-  scannerId?: string
+  scannerId?: string // mantenido por compatibilidad, ya no se usa
 }
 
 export function BarcodeScanner({
   onResult,
   onClose,
-  scannerId = "barcode-reader",
 }: BarcodeScannerProps) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const onResultRef = useRef(onResult)
+  const foundRef = useRef(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null)
-  const onResultRef = useRef(onResult)
 
-  // Mantener ref actualizada sin disparar re-init del scanner
   useEffect(() => { onResultRef.current = onResult }, [onResult])
+
+  // Bloquear scroll del body mientras el scanner está abierto
+  useEffect(() => {
+    document.body.style.overflow = "hidden"
+    return () => { document.body.style.overflow = "" }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
 
-    const initTimer = setTimeout(async () => {
+    const timer = setTimeout(async () => {
+      if (cancelled || !containerRef.current) return
+
       try {
-        if (cancelled) return
-        if (!document.getElementById(scannerId)) {
-          throw new Error("El contenedor de video no está listo.")
-        }
-
-        const { Html5Qrcode } = await import("html5-qrcode")
+        // 1. Cargar WASM
+        await loadWasmScript()
         if (cancelled) return
 
-        const html5QrCode = new Html5Qrcode(scannerId)
-        scannerRef.current = html5QrCode
-
-        // qrbox responsivo: 85% del ancho del contenedor
-        const container = document.getElementById(scannerId)
-        const containerWidth = container?.clientWidth || 300
-        const qrboxWidth = Math.min(Math.floor(containerWidth * 0.85), 350)
-        const qrboxHeight = Math.floor(qrboxWidth * 0.6)
-
-        const config = {
-          fps: 10,
-          qrbox: { width: qrboxWidth, height: qrboxHeight },
-          disableFlip: true,
-        }
-
+        // 2. Import dinámico de la librería
+        const { BarcodeScanner: ZBarScanner } = await import("web-wasm-barcode-reader")
         if (cancelled) return
 
-        await html5QrCode.start(
-          { facingMode: "environment" },
-          config,
-          (decodedText) => {
+        // 3. Crear scanner
+        const scanner = new ZBarScanner({
+          container: containerRef.current,
+          onDetect: (result: { data: string }) => {
+            if (foundRef.current) return
+            foundRef.current = true
             if (navigator.vibrate) navigator.vibrate(100)
-            onResultRef.current(decodedText)
+            scanner.stop()
+            onResultRef.current(result.data)
           },
-          () => {}
-        )
-
-        // Upgradear resolución del video track a HD después de arrancar
-        try {
-          const containerEl = document.getElementById(scannerId)
-          const videoEl = containerEl?.querySelector("video")
-          if (videoEl?.srcObject && videoEl.srcObject instanceof MediaStream) {
-            const track = videoEl.srcObject.getVideoTracks()[0]
-            if (track) {
-              await track.applyConstraints({
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-              })
+          onError: (err: Error) => {
+            if (!cancelled) {
+              console.error("ZBar scanner error:", err)
+              setError(err.message || "Error del lector de códigos")
+              setLoading(false)
             }
-          }
-        } catch (hdErr) {
-          console.warn("No se pudo upgradear a HD:", hdErr)
-        }
+          },
+          scanInterval: 120,
+          beepOnDetect: false,
+          facingMode: "environment",
+          scanRegion: { width: 0.85, height: 0.30 },
+        })
+        scannerRef.current = scanner
 
+        // 4. Iniciar
+        await scanner.start()
         if (!cancelled) setLoading(false)
+
       } catch (err) {
-        console.error("Error iniciando scanner:", err)
+        console.error("Scanner init error:", err)
         if (!cancelled) {
-          setError("No se pudo iniciar la cámara. Verifica los permisos.")
+          setError(err instanceof Error ? err.message : "No se pudo iniciar el lector")
           setLoading(false)
         }
       }
-    }, 500)
+    }, 300)
 
     return () => {
       cancelled = true
-      clearTimeout(initTimer)
-      const scanner = scannerRef.current
-      if (scanner?.isScanning) {
-        scanner.stop().then(() => scanner.clear()).catch(console.error)
+      clearTimeout(timer)
+      if (scannerRef.current?.isRunning) {
+        scannerRef.current.stop()
       }
     }
-  }, [scannerId])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center bg-black min-h-[400px] p-6 text-white text-center space-y-4">
-        <AlertCircle className="h-12 w-12 text-red-500" />
-        <p className="font-bold">Error de cámara</p>
-        <p className="text-sm text-slate-400">{error}</p>
-        <Button onClick={onClose} variant="destructive" className="w-full">
-          Cerrar
-        </Button>
-      </div>
-    )
-  }
-
-  return (
-    <div className="relative flex flex-col items-center justify-center bg-black w-full min-h-[400px]">
+  const overlay = (
+    <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "#000" }}>
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black z-50 text-white">
-          <Loader2 className="h-8 w-8 animate-spin mb-2" />
-          <p>Conectando lector...</p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50 text-white gap-3">
+          <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
+          <p className="text-[10px] font-bold uppercase">Iniciando Lector...</p>
         </div>
       )}
-      <div id={scannerId} className="w-full h-full" />
-      <div className="absolute bottom-4 flex flex-col gap-2 z-50 pointer-events-none">
-        <Button
-          variant="destructive"
-          className="rounded-full px-8 pointer-events-auto shadow-xl"
-          onClick={onClose}
-        >
+      {error ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-white text-center space-y-4">
+          <AlertCircle className="h-12 w-12 text-red-500" />
+          <p className="font-bold uppercase text-sm">Error de Cámara</p>
+          <p className="text-xs text-slate-400">{error}</p>
+          <Button onClick={onClose} variant="destructive" className="w-full max-w-xs">Cerrar</Button>
+        </div>
+      ) : (
+        <div
+          ref={containerRef}
+          style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}
+        />
+      )}
+      <div style={{ position: "absolute", bottom: 40, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 100000 }}>
+        <Button variant="destructive" className="rounded-full px-10 shadow-xl font-bold uppercase text-[10px]" onClick={onClose}>
           <X className="mr-2 h-4 w-4" /> Cancelar
         </Button>
       </div>
     </div>
   )
+
+  return createPortal(overlay, document.body)
 }

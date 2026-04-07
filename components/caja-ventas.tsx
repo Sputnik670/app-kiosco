@@ -7,7 +7,6 @@ import { Trash2, ShoppingCart, Plus, Minus, Loader2, ScanBarcode, ReceiptText, C
 import { toast } from "sonner"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { generarTicketVenta } from "@/lib/generar-ticket"
 import { useOfflineVentas } from "@/hooks/use-offline-ventas"
@@ -533,17 +532,12 @@ export default function CajaVentas({
         </Button>
       </div>
 
-      <Dialog open={showScanner} onOpenChange={setShowScanner}>
-        <DialogContent className="sm:max-w-md p-0 overflow-hidden bg-black border-none">
-          {showScanner && (
-            <BarcodeScanner
-              scannerId="reader-ventas"
-              onResult={handleBarcodeScanned}
-              onClose={() => setShowScanner(false)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {showScanner && (
+        <BarcodeScanner
+          onResult={handleBarcodeScanned}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
 
       <MercadoPagoQRDialog
         open={showMercadoPagoQR}
