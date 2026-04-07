@@ -67,7 +67,12 @@ export default function AuthForm() {
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo },
+        options: {
+          redirectTo,
+          queryParams: {
+            prompt: 'select_account', // Siempre muestra el selector de cuenta de Google
+          },
+        },
       })
 
       if (error) throw error
