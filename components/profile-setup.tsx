@@ -234,12 +234,24 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
               {selectedRole === "empleado" && <Check className="ml-auto h-4 w-4 text-slate-800"/>}
             </div>
           </Card>
+
+          {/* Aviso si selecciona empleado pero no tiene invitación activa */}
+          {selectedRole === "empleado" && !invitacionData && (
+            <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-3 text-center space-y-1">
+              <p className="text-xs font-bold text-amber-800">
+                No encontramos una invitación activa para {user.email}
+              </p>
+              <p className="text-[10px] text-amber-600">
+                Pedile al dueño del kiosco que te envíe la invitación primero. Si ya te la mandaron, puede haber expirado.
+              </p>
+            </div>
+          )}
         </div>
 
         <Button
           onClick={handleSaveProfile}
           className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-widest shadow-xl bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all"
-          disabled={loading || !selectedRole}
+          disabled={loading || !selectedRole || (selectedRole === 'empleado' && !invitacionData)}
         >
           {loading ? <Loader2 className="animate-spin" /> : "GUARDAR Y ENTRAR"}
         </Button>
