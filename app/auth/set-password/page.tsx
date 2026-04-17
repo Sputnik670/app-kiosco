@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { updatePasswordAction } from '@/lib/actions/auth.actions'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -68,10 +69,10 @@ export default function SetPasswordPage() {
 
     setLoading(true)
     try {
-      const { error } = await supabase.auth.updateUser({ password })
+      const result = await updatePasswordAction(password)
 
-      if (error) {
-        toast.error('Error al establecer contraseña', { description: error.message })
+      if (!result.success) {
+        toast.error('Error al establecer contraseña', { description: result.error })
         return
       }
 
@@ -83,8 +84,9 @@ export default function SetPasswordPage() {
       setTimeout(() => {
         router.push('/')
       }, 1500)
-    } catch (err: any) {
-      toast.error('Error inesperado', { description: err.message })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Error inesperado'
+      toast.error('Error inesperado', { description: message })
     } finally {
       setLoading(false)
     }

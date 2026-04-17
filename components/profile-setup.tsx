@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { supabase } from "@/lib/supabase"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Loader2, User as UserIcon, Store, Check, Lock } from "lucide-react"
@@ -9,7 +8,8 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import {
   checkInvitationAction,
-  completeProfileSetupAction
+  completeProfileSetupAction,
+  updatePasswordAction
 } from "@/lib/actions/auth.actions"
 import type { User } from "@supabase/supabase-js"
 
@@ -22,7 +22,10 @@ interface ProfileSetupProps {
 export default function ProfileSetup({ user, inviteToken: propToken, onProfileCreated }: ProfileSetupProps) {
   const [selectedRole, setSelectedRole] = useState<"dueño" | "empleado" | null>(null)
   const [loading, setLoading] = useState(false)
-  const [name, setName] = useState(user?.email?.split('@')[0] || "Usuario")
+  // Antes pre-llenábamos el nombre con user.email.split('@')[0]. Eso hacía que el
+  // nombre de la organización saliera horrible (ej: "Kiosco de garciamaximiliano247kioscos").
+  // Mejor dejarlo vacío y que el usuario escriba su nombre real.
+  const [name, setName] = useState("")
   const [password, setPassword] = useState("")
   const [checkingInvitation, setCheckingInvitation] = useState(true)
   const [invitacionData, setInvitacionData] = useState<{ organization_id: string; branch_id: string | null; token: string } | null>(null)
@@ -103,11 +106,8 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
       // Usuarios que se registraron con email+contraseña ya la tienen configurada.
       // Solo quienes entraron por Magic Link (empleados invitados) necesitan crear una.
       if (password) {
-        const { error: pwdError } = await supabase.auth.updateUser({
-          password: password
-        })
-
-        if (pwdError) throw pwdError
+        const pwdResult = await updatePasswordAction(password)
+        if (!pwdResult.success) throw new Error(pwdResult.error)
       }
 
       // ✅ PASO 2: Completar configuración de perfil (SERVER ACTION)
@@ -165,7 +165,7 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
             <input
               id="user-name"
               type="text"
-              placeholder="Tu nombre completo"
+              placeholder="Ej: Maxi"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="flex h-12 w-full rounded-xl border-2 bg-white px-4 font-bold focus:border-primary focus:outline-none transition-all"
@@ -211,40 +211,31 @@ export default function ProfileSetup({ user, inviteToken: propToken, onProfileCr
                 <div className="bg-primary/10 p-2 rounded-lg"><Store className="h-5 w-5 text-primary" /></div>
                 <div>
                   <h2 className="font-bold text-xs uppercase">Soy Dueño</h2>
-                  <p className="text-[9px] text-slate-400">Crear nueva organización</p>
+                  <p className="text-[9px] text-slate-400">Es mi kiosco, yo lo manejo</p>
                 </div>
                 {selectedRole === "dueño" && <Check className="ml-auto h-4 w-4 text-primary"/>}
               </div>
             </Card>
           )}
 
-          <Card
-            className={cn(
-              "p-4 cursor-pointer border-2 transition-all rounded-xl",
-              selectedRole === "empleado" ? "border-slate-800 bg-slate-50" : "hover:border-slate-300 bg-white"
-            )}
-            onClick={() => setSelectedRole("empleado")}
-          >
-            <div className="flex items-center gap-3">
-              <div className="bg-slate-800 p-2 rounded-lg"><UserIcon className="h-5 w-5 text-white" /></div>
-              <div>
-                <h2 className="font-bold text-xs uppercase">Soy Empleado</h2>
-                <p className="text-[9px] text-slate-400">Tengo una invitación</p>
+          {/* Card "Soy Empleado" — solo se muestra si se detectó una invitación activa */}
+          {invitacionData && (
+            <Card
+              className={cn(
+                "p-4 cursor-pointer border-2 transition-all rounded-xl",
+                selectedRole === "empleado" ? "border-slate-800 bg-slate-50" : "hover:border-slate-300 bg-white"
+              )}
+              onClick={() => setSelectedRole("empleado")}
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-slate-800 p-2 rounded-lg"><UserIcon className="h-5 w-5 text-white" /></div>
+                <div>
+                  <h2 className="font-bold text-xs uppercase">Soy Empleado</h2>
+                  <p className="text-[9px] text-slate-400">Invitación detectada</p>
+                </div>
+                {selectedRole === "empleado" && <Check className="ml-auto h-4 w-4 text-slate-800"/>}
               </div>
-              {selectedRole === "empleado" && <Check className="ml-auto h-4 w-4 text-slate-800"/>}
-            </div>
-          </Card>
-
-          {/* Aviso si selecciona empleado pero no tiene invitación activa */}
-          {selectedRole === "empleado" && !invitacionData && (
-            <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-3 text-center space-y-1">
-              <p className="text-xs font-bold text-amber-800">
-                No encontramos una invitación activa para {user.email}
-              </p>
-              <p className="text-[10px] text-amber-600">
-                Pedile al dueño del kiosco que te envíe la invitación primero. Si ya te la mandaron, puede haber expirado.
-              </p>
-            </div>
+            </Card>
           )}
         </div>
 

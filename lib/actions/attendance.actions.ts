@@ -49,6 +49,15 @@ export interface GetAttendanceStatusResult {
 }
 
 /**
+ * Resultado de búsqueda de sucursal activa del empleado
+ */
+export interface GetActiveBranchResult {
+  success: boolean
+  branchId: string | null
+  error?: string
+}
+
+/**
  * Resultado de toggle de asistencia
  */
 export interface ToggleAttendanceResult {
@@ -350,6 +359,46 @@ export async function processQRScanAction(
       success: false,
       action: null,
       error: error instanceof Error ? error.message : 'Error desconocido al procesar QR',
+    }
+  }
+}
+
+/**
+ * Obtiene la sucursal donde el empleado tiene fichaje activo (sin check_out)
+ *
+ * USO: En page.tsx para restaurar el contexto de sucursal del empleado
+ * cuando vuelve a la app sin haber seleccionado sucursal manualmente.
+ *
+ * @returns GetActiveBranchResult - branch_id activo o null
+ */
+export async function getActiveBranchAction(): Promise<GetActiveBranchResult> {
+  try {
+    const { supabase, user } = await verifyAuth()
+
+    const { data, error } = await supabase
+      .from('attendance')
+      .select('branch_id')
+      .eq('user_id', user.id)
+      .is('check_out', null)
+      .maybeSingle()
+
+    if (error) {
+      return {
+        success: false,
+        branchId: null,
+        error: `Error al consultar fichaje activo: ${error.message}`,
+      }
+    }
+
+    return {
+      success: true,
+      branchId: data?.branch_id ?? null,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      branchId: null,
+      error: error instanceof Error ? error.message : 'Error desconocido',
     }
   }
 }

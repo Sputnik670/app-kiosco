@@ -93,7 +93,13 @@ export default function AuthForm() {
 
       if (usePasswordReset) {
         // Opción 0: Recuperar contraseña
-        const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined
+        // IMPORTANTE: el redirectTo DEBE apuntar a /auth/callback con next=/auth/set-password
+        // para que el code de PKCE se intercambie y el usuario llegue a la pantalla
+        // donde escribe su contraseña nueva. Si redirigimos al origen raíz, el code
+        // queda colgado en la URL y el flujo se rompe silenciosamente.
+        const redirectTo = typeof window !== 'undefined'
+          ? `${window.location.origin}/auth/callback?next=/auth/set-password`
+          : undefined
         result = await resetPasswordAction(email, redirectTo)
       } else if (useMagicLink) {
         // Opción 1: Iniciar con Magic Link (Para empleados invitados)
@@ -104,7 +110,12 @@ export default function AuthForm() {
         result = await signInWithPasswordAction(email, password)
       } else {
         // Opción 3: Registro nuevo (Signup con contraseña)
-        result = await signUpAction(email, password)
+        // El link de confirmación del email DEBE entrar por /auth/callback
+        // para intercambiar el code de PKCE por una sesión.
+        const signUpRedirectTo = typeof window !== 'undefined'
+          ? `${window.location.origin}/auth/callback`
+          : undefined
+        result = await signUpAction(email, password, signUpRedirectTo)
 
         // Si el registro fue exitoso, cambiamos a modo login
         if (result.success) {

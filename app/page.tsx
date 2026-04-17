@@ -17,7 +17,8 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 import { getQuickSnapshotAction } from "@/lib/actions/dashboard.actions"
 import { getBranchesAction } from "@/lib/actions/branch.actions"
-import { toggleAttendanceAction } from "@/lib/actions/attendance.actions"
+import { toggleAttendanceAction, getActiveBranchAction } from "@/lib/actions/attendance.actions"
+import { getCurrentUserAction } from "@/lib/actions/auth.actions"
 import { logger } from "@/lib/logging"
 import type { QuickSnapshot } from "@/types/dashboard.types"
 import type { Session } from "@supabase/supabase-js"
@@ -252,21 +253,11 @@ function HomePageInner() {
     try {
         logger.debug('page', 'fetchProfile iniciando', { userId })
 
-        // Schema V2: Obtener datos desde memberships (única fuente de verdad)
-        const { data: membership, error: membershipError } = await supabase
-            .from('memberships')
-            .select('user_id, organization_id, branch_id, role, display_name, email')
-            .eq('user_id', userId)
-            .eq('is_active', true)
-            .maybeSingle()
-
-        if (membershipError) {
-            logger.error('page', 'Error de BD al obtener membership', membershipError as unknown as Error, { userId })
-            throw membershipError
-        }
+        // Usar server action en vez de browser client directo para consistencia
+        const result = await getCurrentUserAction()
 
         // Si no hay membership, el usuario necesita completar setup
-        if (!membership) {
+        if (!result.success || !result.user) {
             logger.debug('page', 'No tiene membership, mostrando setup', { userId })
             setHasProfile(false)
             setUserProfile(null)
@@ -277,18 +268,18 @@ function HomePageInner() {
         }
 
         // Mapear role de BD a rol de UI (owner → dueño, employee → empleado)
-        const rolUI = membership.role === 'owner' ? 'dueño' : 'empleado'
+        const rolUI = result.user.role === 'owner' ? 'dueño' : 'empleado'
 
         setUserProfile({
-            id: membership.user_id,
-            nombre: membership.display_name,
+            id: result.user.id,
+            nombre: result.user.display_name,
             rol: rolUI as 'dueño' | 'empleado',
-            organization_id: membership.organization_id
+            organization_id: result.user.organization_id
         })
         setHasProfile(true)
 
         // Para dueños, verificar si ya tienen sucursales
-        if (membership.role === 'owner') {
+        if (result.user.role === 'owner') {
             const branchResult = await getBranchesAction()
             setHasBranches(branchResult.success && (branchResult.branches?.length ?? 0) > 0)
         }
@@ -347,15 +338,9 @@ function HomePageInner() {
 
       // Prioridad 2: Asistencia activa en DB (si es empleado y no hay ID seleccionado)
       if (userProfile.rol === "empleado" && !sucursalId) {
-        const { data: asistencia } = await supabase
-          .from('attendance')
-          .select('branch_id')
-          .eq('user_id', session.user.id)
-          .is('check_out', null)
-          .maybeSingle()
-
-        if (asistencia?.branch_id) {
-          setSucursalId(asistencia.branch_id)
+        const activeBranch = await getActiveBranchAction()
+        if (activeBranch.success && activeBranch.branchId) {
+          setSucursalId(activeBranch.branchId)
         }
       }
     }

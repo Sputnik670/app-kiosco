@@ -71,9 +71,10 @@ export async function signInWithPasswordAction(
       }
     }
 
+    const normalizedEmail = email.trim().toLowerCase()
     const supabaseServer = await createClient()
     const { error } = await supabaseServer.auth.signInWithPassword({
-      email,
+      email: normalizedEmail,
       password,
     })
 
@@ -102,13 +103,21 @@ export async function signInWithPasswordAction(
  * MÉTODO: signUp
  * USO: Para nuevos dueños que crean su cuenta
  *
+ * IMPORTANTE: pasamos `emailRedirectTo` apuntando a /auth/callback para
+ * que el link de confirmación entre por el route handler que intercambia
+ * el code de PKCE por una sesión. Si se deja vacío, GoTrue usa el Site URL
+ * configurado en el dashboard — funciona pero depende de una config
+ * remota que puede cambiar y romper el onboarding silenciosamente.
+ *
  * @param email - Email del nuevo usuario
  * @param password - Contraseña
+ * @param redirectTo - URL base para el link de confirmación (opcional)
  * @returns AuthResult - Resultado de la operación
  */
 export async function signUpAction(
   email: string,
-  password: string
+  password: string,
+  redirectTo?: string
 ): Promise<AuthResult> {
   try {
     // Validaciones básicas
@@ -126,10 +135,21 @@ export async function signUpAction(
       }
     }
 
+    // Forzar el callback para que el code de PKCE se intercambie correctamente
+    const emailRedirectTo =
+      redirectTo ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.VERCEL_URL ||
+      'http://localhost:3000'
+
+    const normalizedEmail = email.trim().toLowerCase()
     const supabaseServer = await createClient()
     const { error } = await supabaseServer.auth.signUp({
-      email,
+      email: normalizedEmail,
       password,
+      options: {
+        emailRedirectTo,
+      },
     })
 
     if (error) {
@@ -186,9 +206,10 @@ export async function signInWithMagicLinkAction(
       process.env.VERCEL_URL ||
       'http://localhost:3000'
 
+    const normalizedEmail = email.trim().toLowerCase()
     const supabaseServer = await createClient()
     const { error } = await supabaseServer.auth.signInWithOtp({
-      email,
+      email: normalizedEmail,
       options: {
         emailRedirectTo,
         shouldCreateUser: false, // Solo enviamos link si el usuario ya existe
@@ -250,8 +271,9 @@ export async function resetPasswordAction(
       process.env.VERCEL_URL ||
       'http://localhost:3000'
 
+    const normalizedEmail = email.trim().toLowerCase()
     const supabaseServer = await createClient()
-    const { error } = await supabaseServer.auth.resetPasswordForEmail(email, {
+    const { error } = await supabaseServer.auth.resetPasswordForEmail(normalizedEmail, {
       redirectTo: emailRedirectTo,
     })
 
@@ -270,6 +292,46 @@ export async function resetPasswordAction(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido al recuperar contraseña',
+    }
+  }
+}
+
+/**
+ * 🔑 Actualiza la contraseña del usuario autenticado actualmente
+ *
+ * NOTA: Se ejecuta en el servidor para mantener el patrón del proyecto.
+ * El usuario debe tener una sesión activa (viene de magic link o recovery link).
+ *
+ * @param password - Nueva contraseña (mínimo 8 caracteres)
+ * @returns AuthResult - Resultado de la operación
+ */
+export async function updatePasswordAction(password: string): Promise<AuthResult> {
+  try {
+    if (!password || password.length < 8) {
+      return {
+        success: false,
+        error: 'La contraseña debe tener al menos 8 caracteres',
+      }
+    }
+
+    const supabaseServer = await createClient()
+    const { error } = await supabaseServer.auth.updateUser({ password })
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Error al actualizar la contraseña',
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Contraseña actualizada correctamente.',
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido al actualizar contraseña',
     }
   }
 }
@@ -420,6 +482,67 @@ export async function inviteEmployeeAction(
     const { supabase, user, orgId } = await verifyOwner()
     const normalizedEmail = email.trim().toLowerCase()
 
+    // URL base para redirecciones
+    const rawUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.VERCEL_URL ||
+      'http://localhost:3000'
+    const baseUrl = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`
+
+    // ─── CHECKEAR SI EL USUARIO YA EXISTE EN AUTH ───────────────────────
+    // Antes se creaba pending_invite → inviteUserByEmail fallaba → se borraba.
+    // Ahora verificamos primero para evitar el patrón "crear para fallar".
+    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers({
+      page: 1,
+      perPage: 1,
+    })
+    // listUsers no filtra por email, buscar con getUserByEmail que es más directo
+    const { data: existingUser } = await supabaseAdmin.auth.admin.getUserById(
+      '' // placeholder — usamos getUserByEmail abajo
+    ).catch(() => ({ data: null }))
+    // Método correcto: buscar por email en la lista de usuarios invitados
+    // Supabase Admin no tiene getUserByEmail directo, pero inviteUserByEmail
+    // retorna error descriptivo. Usamos una heurística: si el email ya tiene
+    // una membership activa en ESTA org, es re-invitación segura.
+    const { data: existingMembership } = await supabaseAdmin
+      .from('memberships')
+      .select('id, is_active')
+      .eq('email', normalizedEmail)
+      .eq('organization_id', orgId)
+      .maybeSingle()
+
+    // CASO RE-INVITACIÓN: usuario ya tiene membership (activa o inactiva) en esta org
+    if (existingMembership) {
+      // Reactivar membership si estaba desactivada
+      await supabaseAdmin
+        .from('memberships')
+        .update({ is_active: true, branch_id: branchId })
+        .eq('id', existingMembership.id)
+
+      // Generar link de recovery para que establezca contraseña nueva
+      const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+        type: 'recovery',
+        email: normalizedEmail,
+        options: {
+          redirectTo: `${baseUrl}/auth/callback?next=/auth/set-password`,
+        },
+      })
+
+      if (linkError || !linkData?.properties?.action_link) {
+        return {
+          success: false,
+          error: `Error al generar link de acceso: ${linkError?.message || 'No se pudo generar el link'}`,
+        }
+      }
+
+      return {
+        success: true,
+        message: 'El empleado ya tiene cuenta. Compartile este link para que cree su contraseña y pueda entrar siempre:',
+        inviteLink: linkData.properties.action_link,
+      }
+    }
+
+    // ─── NUEVA INVITACIÓN ───────────────────────────────────────────────
     // Insertar invitación en base de datos
     const { data: invite, error: dbError } = await supabase
       .from('pending_invites')
@@ -452,14 +575,6 @@ export async function inviteEmployeeAction(
       }
     }
 
-    // Enviar invitación via Admin API (evita PKCE - el code_verifier
-    // no se comparte entre browsers del dueño y empleado)
-    const rawUrl =
-      process.env.NEXT_PUBLIC_APP_URL ||
-      process.env.VERCEL_URL ||
-      'http://localhost:3000'
-    const baseUrl = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`
-
     const redirectTo = `${baseUrl}/?invite_token=${invite.token}`
 
     const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
@@ -475,24 +590,17 @@ export async function inviteEmployeeAction(
     )
 
     if (inviteError) {
-      // Si el usuario ya existe en auth, generar link de recovery (reseteo de contraseña)
-      // Esto permite que el empleado re-invitado establezca una contraseña nueva
-      // y pueda entrar siempre con email + contraseña sin depender de links.
+      // Si a pesar del check previo el usuario ya existe en auth pero NO tenía
+      // membership (caso edge: usuario registrado que nunca completó setup),
+      // generar recovery link y limpiar el pending_invite huérfano.
       if (inviteError.message?.includes('already been registered') ||
           inviteError.message?.includes('already exists')) {
 
-        // Limpiar el pending_invite huérfano que se creó antes de detectar que el usuario
-        // ya existe — sin esto, el próximo intento de re-invitar falla con error 23505.
         await supabase
           .from('pending_invites')
           .delete()
           .eq('token', invite.token)
 
-        // Generar link de recovery via admin.
-        // IMPORTANTE: redirectTo apunta a /auth/callback?next=/auth/set-password
-        // para que el PKCE code exchange ocurra en el handler existente antes de
-        // llegar a set-password. Sin este paso el usuario llega sin sesión y ve
-        // "Link expirado o inválido" aunque el link sea válido.
         const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
           type: 'recovery',
           email: normalizedEmail,
@@ -507,13 +615,6 @@ export async function inviteEmployeeAction(
             error: `Error al generar link de acceso: ${linkError?.message || 'No se pudo generar el link'}`,
           }
         }
-
-        // Reactivar membership si estaba desactivada (re-invitación)
-        await supabaseAdmin
-          .from('memberships')
-          .update({ is_active: true, branch_id: branchId })
-          .eq('email', normalizedEmail)
-          .eq('organization_id', orgId)
 
         return {
           success: true,
@@ -801,11 +902,10 @@ export async function completeProfileSetupAction(formData: {
 
     const { email, name, role, inviteToken } = formData
     // H3 FIX: Derive userId from server session, not from client
-    const supabaseAuth = await createClient()
-    const { data: { user: authUser } } = await supabaseAuth.auth.getUser()
+    const supabase = await createClient()
+    const { data: { user: authUser } } = await supabase.auth.getUser()
     const userId = authUser?.id || formData.userId
     const emailNormalizado = email.toLowerCase().trim()
-    const supabase = await createClient()
 
     // Verificación de idempotencia: verificar si ya existe membership
     const { data: existingMembership } = await supabase
