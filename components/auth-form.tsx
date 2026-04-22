@@ -93,12 +93,13 @@ export default function AuthForm() {
 
       if (usePasswordReset) {
         // Opción 0: Recuperar contraseña
-        // IMPORTANTE: el redirectTo DEBE apuntar a /auth/callback con next=/auth/set-password
-        // para que el code de PKCE se intercambie y el usuario llegue a la pantalla
-        // donde escribe su contraseña nueva. Si redirigimos al origen raíz, el code
-        // queda colgado en la URL y el flujo se rompe silenciosamente.
+        // FIX 2026-04-22: Redirigir DIRECTO a /auth/set-password, sin pasar por /auth/callback.
+        // Razón: Supabase usa implicit flow para recovery (tokens en el hash #access_token=...).
+        // El callback server-side no puede leer el hash (el server no recibe fragmentos),
+        // por lo que si pasamos por ahí el token se pierde. La página set-password tiene
+        // el consumer de hash que establece la sesión al cargar.
         const redirectTo = typeof window !== 'undefined'
-          ? `${window.location.origin}/auth/callback?next=/auth/set-password`
+          ? `${window.location.origin}/auth/set-password`
           : undefined
         result = await resetPasswordAction(email, redirectTo)
       } else if (useMagicLink) {

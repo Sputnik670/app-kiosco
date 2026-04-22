@@ -34,14 +34,77 @@ export default function SetPasswordPage() {
 
   // Verificar que el usuario esté autenticado (el recovery link lo autentica)
   useEffect(() => {
-    const checkSession = async () => {
+    // ─── FIX 2026-04-22: Consumir tokens del hash (implicit flow) ───────────
+    // Supabase manda el recovery link con tokens en el hash (#access_token=...),
+    // pero @supabase/ssr NO los procesa automáticamente (solo PKCE ?code=).
+    // Sin este consumer, getUser() devuelve null y el listener PASSWORD_RECOVERY
+    // nunca se dispara → el usuario ve "Link expirado o inválido".
+    const consumeAuthHash = async (): Promise<void> => {
+      if (typeof window === 'undefined') return
+      const hash = window.location.hash
+      if (!hash.includes('access_token=')) return
+
+      const hashParams = new URLSearchParams(hash.substring(1))
+      const access_token = hashParams.get('access_token')
+      const refresh_token = hashParams.get('refresh_token')
+
+      if (!access_token || !refresh_token) return
+
+      try {
+        const { error } = await supabase.auth.setSession({ access_token, refresh_token })
+        if (error) {
+          console.error('[set-password] Error estableciendo sesión desde hash:', error)
+          return
+        }
+        // Limpiar hash de la URL (la sesión ya quedó establecida)
+        window.history.replaceState({}, '', window.location.pathname + window.location.search)
+      } catch (err) {
+        console.error('[set-password] Excepción en setSession desde hash:', err)
+      }
+    }
+
+    // ─── FIX 2026-04-22 (v2): Procesar ?code= de PKCE flow ────────────────
+    // En la práctica Supabase manda el recovery link con ?code=... (PKCE),
+    // no con #access_token=... (implicit). Hay que canjear el code por sesión
+    // con exchangeCodeForSession(). Requiere que el browser tenga el
+    // code_verifier guardado (cookies/localStorage), o sea: debe ser el
+    // mismo browser donde se pidió el reset. Si se abre en incógnito o en
+    // otro dispositivo, el canje falla con PKCE grant flow error.
+    const consumePkceCode = async (): Promise<void> => {
+      if (typeof window === 'undefined') return
+      const url = new URL(window.location.href)
+      const code = url.searchParams.get('code')
+      if (!code) return
+
+      try {
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (error) {
+          console.error('[set-password] Error canjeando code PKCE:', error)
+          return
+        }
+        // Limpiar ?code= de la URL
+        url.searchParams.delete('code')
+        const newSearch = url.searchParams.toString()
+        window.history.replaceState(
+          {},
+          '',
+          url.pathname + (newSearch ? `?${newSearch}` : '') + url.hash
+        )
+      } catch (err) {
+        console.error('[set-password] Excepción canjeando code:', err)
+      }
+    }
+
+    const init = async () => {
+      await consumeAuthHash()
+      await consumePkceCode()
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         setAuthenticated(true)
       }
       setChecking(false)
     }
-    checkSession()
+    init()
 
     // Escuchar el evento PASSWORD_RECOVERY que Supabase emite al procesar el link
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -73,21 +136,25 @@ export default function SetPasswordPage() {
 
       if (!result.success) {
         toast.error('Error al establecer contraseña', { description: result.error })
+        setLoading(false)
         return
       }
 
-      toast.success('Contraseña creada', {
-        description: 'Ahora podés entrar siempre con tu email y esta contraseña.',
+      toast.success('Contraseña guardada', {
+        description: 'Entrando al sistema...',
       })
 
-      // Redirigir al dashboard después de un breve delay para que lea el mensaje
+      // FIX 2026-04-22: usar window.location.href en vez de router.push para
+      // forzar full reload. Tras updateUser() Supabase rota el refresh token
+      // y router.push puede leer cookies stale, dejando al user en limbo.
+      // NO llamamos setLoading(false) acá: mantenemos el spinner del botón
+      // mientras se ejecuta el redirect para evitar "flash" del form.
       setTimeout(() => {
-        router.push('/')
-      }, 1500)
+        window.location.href = '/'
+      }, 800)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error inesperado'
       toast.error('Error inesperado', { description: message })
-    } finally {
       setLoading(false)
     }
   }

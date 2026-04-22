@@ -48,10 +48,16 @@ if (-not $Token.StartsWith("sbp_")) {
 
 # --- Setup ---
 
+# Force UTF-8 output in PowerShell 5.1 (console + default encoding).
+# Sin esto, los caracteres con acentos/enies del payload pueden degradarse
+# al serializar JSON en PS 5.1 (que usa Windows-1252 por default).
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 $BaseUrl = "https://api.supabase.com/v1/projects/$ProjectRef/config/auth"
 $Headers = @{
     "Authorization" = "Bearer $Token"
-    "Content-Type"  = "application/json"
+    "Content-Type"  = "application/json; charset=utf-8"
 }
 
 function Read-TemplateFile {
@@ -97,13 +103,24 @@ if ($DryRun) {
 
 Write-Host "Leyendo 6 templates desde $PSScriptRoot ..." -ForegroundColor Cyan
 
+# Subjects con acentos via [char] Unicode. Evita depender del encoding del .ps1:
+# si el archivo se guarda como Windows-1252, un string literal con "á" llega
+# corrupto al server. Construyendo con [char]0x00E1 garantiza que la letra
+# tiene el code point Unicode correcto en memoria.
+$subj_confirmation     = "Confirm{0} tu cuenta en KioscoApp" -f [char]0x00E1
+$subj_recovery         = "Restablec{0} tu contrase{1}a de KioscoApp" -f [char]0x00E9, [char]0x00F1
+$subj_invite           = "Te invitaron a unirte a un kiosco en KioscoApp"
+$subj_magic_link       = "Tu enlace de acceso a KioscoApp"
+$subj_email_change     = "Confirm{0} tu nueva direcci{1}n de mail" -f [char]0x00E1, [char]0x00F3
+$subj_reauthentication = "Tu c{0}digo de verificaci{0}n de KioscoApp" -f [char]0x00F3
+
 $payload = @{
-    mailer_subjects_confirmation     = "Confirma tu cuenta en KioscoApp"
-    mailer_subjects_recovery         = "Restablece tu contrasena de KioscoApp"
-    mailer_subjects_invite           = "Te invitaron a unirte a un kiosco en KioscoApp"
-    mailer_subjects_magic_link       = "Tu enlace de acceso a KioscoApp"
-    mailer_subjects_email_change     = "Confirma tu nueva direccion de mail"
-    mailer_subjects_reauthentication = "Tu codigo de verificacion de KioscoApp"
+    mailer_subjects_confirmation     = $subj_confirmation
+    mailer_subjects_recovery         = $subj_recovery
+    mailer_subjects_invite           = $subj_invite
+    mailer_subjects_magic_link       = $subj_magic_link
+    mailer_subjects_email_change     = $subj_email_change
+    mailer_subjects_reauthentication = $subj_reauthentication
 
     mailer_templates_confirmation_content     = Read-TemplateFile "01-confirm-signup.html"
     mailer_templates_recovery_content         = Read-TemplateFile "02-reset-password.html"
@@ -114,15 +131,20 @@ $payload = @{
 }
 
 $jsonBody = $payload | ConvertTo-Json -Depth 3 -Compress
-$sizeKb = [Math]::Round($jsonBody.Length / 1024, 1)
-Write-Host "Payload: 12 fields, $sizeKb KB" -ForegroundColor Green
+
+# Serializar el JSON a bytes UTF-8 explicitos. Sin esto, PS 5.1 manda el body
+# como string y el server lo interpreta como Windows-1252, lo que rompe
+# acentos y enies (llegan como "?" o caracteres basura en los mails).
+$utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($jsonBody)
+$sizeKb = [Math]::Round($utf8Bytes.Length / 1024, 1)
+Write-Host "Payload: 12 fields, $sizeKb KB (UTF-8)" -ForegroundColor Green
 
 # --- PATCH ---
 
 Write-Host ""
 Write-Host "PATCH a $BaseUrl ..." -ForegroundColor Cyan
 try {
-    $response = Invoke-RestMethod -Uri $BaseUrl -Headers $Headers -Method Patch -Body $jsonBody
+    $response = Invoke-RestMethod -Uri $BaseUrl -Headers $Headers -Method Patch -Body $utf8Bytes
     Write-Host "OK. Config de auth actualizada." -ForegroundColor Green
 } catch {
     Write-Host "ERROR en PATCH:" -ForegroundColor Red
@@ -140,12 +162,12 @@ Write-Host "Verificando subjects..." -ForegroundColor Cyan
 try {
     $check = Invoke-RestMethod -Uri $BaseUrl -Headers $Headers -Method Get
     $expected = @{
-        "mailer_subjects_confirmation"     = "Confirma tu cuenta en KioscoApp"
-        "mailer_subjects_recovery"         = "Restablece tu contrasena de KioscoApp"
-        "mailer_subjects_invite"           = "Te invitaron a unirte a un kiosco en KioscoApp"
-        "mailer_subjects_magic_link"       = "Tu enlace de acceso a KioscoApp"
-        "mailer_subjects_email_change"     = "Confirma tu nueva direccion de mail"
-        "mailer_subjects_reauthentication" = "Tu codigo de verificacion de KioscoApp"
+        "mailer_subjects_confirmation"     = $subj_confirmation
+        "mailer_subjects_recovery"         = $subj_recovery
+        "mailer_subjects_invite"           = $subj_invite
+        "mailer_subjects_magic_link"       = $subj_magic_link
+        "mailer_subjects_email_change"     = $subj_email_change
+        "mailer_subjects_reauthentication" = $subj_reauthentication
     }
     $allOk = $true
     foreach ($key in $expected.Keys) {
