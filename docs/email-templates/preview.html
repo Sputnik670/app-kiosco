@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Preview — Plantillas de mail KioscoApp</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #f1f5f9;
+    }
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .subtitle {
+      margin: 0 0 32px 0;
+      color: #94a3b8;
+      font-size: 15px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 24px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .card header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .card header h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+    .card header code {
+      font-size: 12px;
+      color: #818cf8;
+      background: #0f172a;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+    }
+    .card iframe {
+      width: 100%;
+      height: 720px;
+      border: 0;
+      background: #f8fafc;
+      display: block;
+    }
+    .legend {
+      margin-top: 32px;
+      padding: 20px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #cbd5e1;
+    }
+    .legend strong { color: #f1f5f9; }
+  </style>
+</head>
+<body>
+  <h1>Plantillas de mail — KioscoApp</h1>
+  <p class="subtitle">Preview local. Las variables <code style="color:#818cf8;">{{ .ConfirmationURL }}</code> y similares aparecen como texto literal — Supabase las reemplaza al enviar.</p>
+
+  <div class="grid">
+    <div class="card">
+      <header><h2>Confirm signup</h2><code>01</code></header>
+      <iframe src="01-confirm-signup.html"></iframe>
+    </div>
+    <div class="card">
+      <header><h2>Reset password</h2><code>02</code></header>
+      <iframe src="02-reset-password.html"></iframe>
+    </div>
+    <div class="card">
+      <header><h2>Invite user</h2><code>03</code></header>
+      <iframe src="03-invite-user.html"></iframe>
+    </div>
+    <div class="card">
+      <header><h2>Magic link</h2><code>04</code></header>
+      <iframe src="04-magic-link.html"></iframe>
+    </div>
+    <div class="card">
+      <header><h2>Change email</h2><code>05</code></header>
+      <iframe src="05-change-email.html"></iframe>
+    </div>
+    <div class="card">
+      <header><h2>Reauthentication</h2><code>06</code></header>
+      <iframe src="06-reauthentication.html"></iframe>
+    </div>
+  </div>
+
+  <div class="legend">
+    <strong>Cómo usar:</strong> abrí este archivo en el navegador con doble clic. Si algo no te cierra, editá el HTML del template y refrescá. Cuando esté ok, copiá-pegá cada uno en <strong>Supabase Dashboard → Authentication → Email Templates</strong> según las instrucciones del README.
+  </div>
+</body>
+</html>
