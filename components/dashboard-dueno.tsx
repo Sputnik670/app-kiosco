@@ -74,9 +74,6 @@ const InvitarEmpleado = dynamic(
 const TarjetasQREmpleados = dynamic(() => import("@/components/tarjetas-qr-empleados"), {
   loading: TabLoadingFallback,
 })
-const QREmpleadoScanner = dynamic(() => import("@/components/qr-empleado-scanner"), {
-  ssr: false,
-})
 const XpAnalytics = dynamic(() => import("@/components/xp-analytics"), {
   loading: TabLoadingFallback,
 })
@@ -127,9 +124,6 @@ interface DashboardDuenoProps {
 export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoProps) {
   // Estado de sucursal seleccionada (puede cambiar)
   const [currentSucursalId, setCurrentSucursalId] = useState(sucursalId)
-
-  // Scanner de fichaje por tarjeta QR de empleado (2026-04-23)
-  const [fichajeScannerOpen, setFichajeScannerOpen] = useState(false)
 
   // Hooks refactorizados
   const { state, actions, dateRangeLabel } = useDashboardState()
@@ -362,7 +356,7 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
                 Cada empleado tiene una tarjeta QR personal. Imprimila y entregala; luego
                 escaneala desde este dispositivo para abrir o cerrar su turno.
               </p>
-              <TarjetasQREmpleados onOpenScanner={() => setFichajeScannerOpen(true)} />
+              <TarjetasQREmpleados />
             </Card>
           </div>
         )}
@@ -427,15 +421,6 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
         ventasServicios={data.ventasServicios}
       />
 
-      {/* Scanner de tarjeta QR de empleado para fichaje */}
-      {fichajeScannerOpen && (
-        <QREmpleadoScanner
-          isOpen={fichajeScannerOpen}
-          onClose={() => setFichajeScannerOpen(false)}
-          branchId={currentSucursalId}
-          showHoursOnExit={true}
-        />
-      )}
     </div>
   )
 }

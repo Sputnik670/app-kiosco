@@ -23,12 +23,9 @@ import { useState, useEffect, useCallback } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { QRCodeSVG, QRCodeCanvas } from "qrcode.react"
-import { Download, Printer, Loader2, User, ScanLine, Info } from "lucide-react"
+import { Download, Printer, Loader2, User, Info } from "lucide-react"
 import { toast } from "sonner"
-import {
-  listEmployeeQRCardsAction,
-  type ProcessEmployeeQRScanResult,
-} from "@/lib/actions/attendance.actions"
+import { listEmployeeQRCardsAction } from "@/lib/actions/attendance.actions"
 
 interface EmployeeCard {
   user_id: string
@@ -38,11 +35,9 @@ interface EmployeeCard {
   is_active: boolean
 }
 
-interface TarjetasQREmpleadosProps {
-  onOpenScanner?: () => void   // Cuando el dueño abre el scanner de fichaje
-}
-
-export default function TarjetasQREmpleados({ onOpenScanner }: TarjetasQREmpleadosProps) {
+// Este panel solo lista e imprime tarjetas. El fichaje se realiza desde la vista
+// del empleado (vista-empleado.tsx → RelojControl → scanner de su propia tarjeta).
+export default function TarjetasQREmpleados() {
   const [employees, setEmployees] = useState<EmployeeCard[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -261,25 +256,18 @@ export default function TarjetasQREmpleados({ onOpenScanner }: TarjetasQREmplead
 
   return (
     <div className="space-y-6">
-      {/* Header con call-to-action primario: abrir scanner */}
+      {/* Header informativo — el fichaje se hace desde la vista del empleado */}
       <Card className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
         <div className="flex items-start gap-3">
-          <ScanLine className="h-6 w-6 text-blue-600 shrink-0 mt-0.5" />
+          <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
           <div className="flex-1">
-            <h3 className="font-black text-blue-900 text-sm uppercase">Fichaje de empleados</h3>
-            <p className="text-xs text-blue-800 mt-1">
-              Cada empleado tiene una tarjeta QR personal. Para abrir o cerrar su turno,
-              escaneá la tarjeta desde este dispositivo.
+            <h3 className="font-black text-blue-900 text-sm uppercase">Tarjetas QR del equipo</h3>
+            <p className="text-xs text-blue-800 mt-1 leading-relaxed">
+              Imprimí la tarjeta de cada empleado y dejala en el local. Cada empleado
+              escanea su propia tarjeta desde la app tocando <strong>Escanear QR Entrada</strong>{" "}
+              al llegar y <strong>Escanear QR Salida</strong> al irse. Una tarjeta solo funciona
+              para su dueño.
             </p>
-            {onOpenScanner && (
-              <Button
-                onClick={onOpenScanner}
-                className="mt-3 bg-blue-600 hover:bg-blue-700 text-white h-11 font-bold"
-              >
-                <ScanLine className="h-4 w-4 mr-2" />
-                Abrir scanner de fichaje
-              </Button>
-            )}
           </div>
         </div>
       </Card>
@@ -371,6 +359,3 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;")
 }
-
-// Re-export del tipo para consumers
-export type { ProcessEmployeeQRScanResult }

@@ -396,21 +396,23 @@ export interface ProcessEmployeeQRScanResult {
 }
 
 /**
- * Procesa el escaneo de la tarjeta QR de un empleado (nuevo flujo 2026-04-23)
+ * Procesa el escaneo de la tarjeta QR de un empleado.
  *
- * Invertido respecto al flujo viejo: antes el QR era por sucursal y el empleado
- * lo escaneaba desde su celular. Ahora el QR es por empleado y el kiosco (bajo
- * sesión del dueño o manager) lo escanea desde la app.
+ * Modelo (actualizado 2026-04-23): el empleado se loguea en su propio celular
+ * y escanea SU PROPIA tarjeta QR desde vista-empleado para abrir/cerrar turno.
+ * La tarjeta QR funciona como token físico anti-fraude: al requerir la tarjeta
+ * impresa, un empleado no puede fichar desde su casa ni fichar por un compañero.
  *
  * FLUJO:
- * 1. Valida sesión del usuario (el que escanea, típicamente el dueño del kiosco)
- * 2. Resuelve qrCode → membership, validando misma organización
- * 3. Busca fichaje activo del empleado (check_out IS NULL en la org)
- * 4. Si no hay activo → INSERT nuevo fichaje (entrada)
- * 5. Si hay activo → UPDATE check_out = now() + calcula horas trabajadas (salida)
+ * 1. Valida sesión del usuario logueado (el empleado que ficha).
+ * 2. Resuelve qrCode → membership, validando misma organización.
+ * 3. OWNERSHIP: rechaza si el QR no pertenece al usuario logueado.
+ * 4. Busca fichaje activo del empleado (check_out IS NULL en la org).
+ * 5. Si no hay activo → INSERT nuevo fichaje (entrada).
+ * 6. Si hay activo → UPDATE check_out = now() + calcula horas trabajadas (salida).
  *
  * @param qrCode - UUID del qr_code de la tarjeta escaneada
- * @param branchId - Sucursal donde se registra el fichaje (la del kiosco físico)
+ * @param branchId - Sucursal en la que trabaja el empleado (la de su sesión)
  * @returns ProcessEmployeeQRScanResult - action, employeeName, horas si salida
  */
 export async function processEmployeeQRScanAction(
@@ -435,7 +437,7 @@ export async function processEmployeeQRScanAction(
       }
     }
 
-    const { supabase, orgId } = await verifyAuth()
+    const { supabase, user, orgId } = await verifyAuth()
 
     // 1) Resolver QR → membership, validando misma org y empleado activo
     const { data: membership, error: membershipError } = await supabase
@@ -458,6 +460,17 @@ export async function processEmployeeQRScanAction(
         success: false,
         action: null,
         error: 'Tarjeta no encontrada o empleado inactivo en esta organización',
+      }
+    }
+
+    // 1.bis) OWNERSHIP: el empleado solo ficha con SU propia tarjeta.
+    // Si el usuario logueado escanea la tarjeta de otro compañero, se rechaza.
+    // Mantiene limpia la trazabilidad de ventas, misiones y ranking.
+    if (membership.user_id !== user.id) {
+      return {
+        success: false,
+        action: null,
+        error: 'Esta tarjeta no es tuya. Usá tu propia tarjeta para fichar.',
       }
     }
 

@@ -20,9 +20,13 @@ import WidgetServicios from "@/components/widget-servicios"
 import WidgetSube from "@/components/widget-sube"
 import RelojControl from "@/components/reloj-control"
 import MisIncidentes from "@/components/mis-incidentes"
-// QR scanner removido: fichaje se hace al entrar al panel
+import dynamic from "next/dynamic"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
+
+// Scanner de tarjeta QR del empleado (lazy — solo se carga cuando toca FICHAR).
+// Cada empleado escanea SU PROPIA tarjeta; la action valida ownership server-side.
+const QREmpleadoScanner = dynamic(() => import("@/components/qr-empleado-scanner"), { ssr: false })
 
 interface UserProfile {
     id: string
@@ -45,7 +49,7 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
     const [organizationId, setOrganizationId] = useState("")
     const [isClockedIn, setIsClockedIn] = useState(false) 
     const [refreshKey, setRefreshKey] = useState(0)
-    // QR scanner ya no se necesita dentro del panel: el fichaje se hace al escanear QR de acceso
+    const [fichajeScannerOpen, setFichajeScannerOpen] = useState(false)
 
     const fetchContexto = useCallback(async () => {
         try {
@@ -130,13 +134,16 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
             <div className="p-4 space-y-4 -mt-6">
 
                 
-                {/* RelojControl sin QR: el fichaje de entrada ya se hizo al escanear QR de acceso */}
+                {/* RelojControl + scanner QR: el empleado toca el botón y escanea su
+                    propia tarjeta para abrir o cerrar turno. La app valida que el QR
+                    corresponde a su membership (anti-fraude). */}
                 <div className="relative z-20">
                     <RelojControl
                         sucursalId={sucursalId}
                         sucursalNombre={sucursalNombre}
                         organizationId={organizationId}
                         onActionComplete={handleDataUpdated}
+                        onScanQR={() => setFichajeScannerOpen(true)}
                     />
                 </div>
 
@@ -256,6 +263,23 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                     </div>
                 )}
             </div>
+
+            {/* Scanner de tarjeta QR del empleado. Se monta cuando se toca FICHAR.
+                 showHoursOnExit={false}: al empleado no le mostramos sus horas
+                 trabajadas (eso lo ve el dueño en sus reportes). */}
+            {fichajeScannerOpen && (
+                <QREmpleadoScanner
+                    isOpen={fichajeScannerOpen}
+                    onClose={() => setFichajeScannerOpen(false)}
+                    branchId={sucursalId}
+                    showHoursOnExit={false}
+                    onResult={(result) => {
+                        if (result.success) {
+                            handleDataUpdated()
+                        }
+                    }}
+                />
+            )}
         </div>
     )
 }
