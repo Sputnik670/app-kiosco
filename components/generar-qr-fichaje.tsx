@@ -1,5 +1,18 @@
 "use client"
 
+/**
+ * @deprecated 2026-04-23 — Reemplazado por tarjetas-qr-empleados.tsx
+ *
+ * El flujo viejo usaba un QR estático por sucursal (entrada + salida) impreso
+ * en el local. Problema: un empleado le saca foto al QR y puede fichar desde
+ * su casa. El flujo nuevo invierte: cada empleado tiene su propia tarjeta QR
+ * y el kiosco la escanea desde su dispositivo.
+ *
+ * Este componente se mantiene durante el sprint de transición por si algún
+ * local en producción todavía depende del QR viejo. Se retirará en la próxima
+ * sesión si la validación del flujo nuevo sale OK.
+ */
+
 import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"

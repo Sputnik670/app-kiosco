@@ -300,11 +300,49 @@ function HomePageInner() {
 
   // 1. Manejo de Sesión
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-        setSession(session)
-        if (session?.user) fetchProfile(session.user.id)
-        else setLoading(false)
-    })
+    // ─── FIX 2026-04-22: Consumir tokens del hash (implicit flow) ───────────
+    // Supabase manda invites/recovery con tokens en el hash (#access_token=...),
+    // pero @supabase/ssr NO los procesa automáticamente (solo PKCE ?code=).
+    // Consumimos el hash manualmente para establecer la sesión.
+    const consumeAuthHash = async (): Promise<void> => {
+      if (typeof window === 'undefined') return
+      const hash = window.location.hash
+      if (!hash.includes('access_token=')) return
+
+      const hashParams = new URLSearchParams(hash.substring(1))
+      const access_token = hashParams.get('access_token')
+      const refresh_token = hashParams.get('refresh_token')
+      const type = hashParams.get('type') // invite | recovery | magiclink
+
+      if (!access_token || !refresh_token) return
+
+      try {
+        const { error } = await supabase.auth.setSession({ access_token, refresh_token })
+        if (error) {
+          logger.error('page', 'Error estableciendo sesión desde hash', error)
+          return
+        }
+        // Limpiar hash pero preservar query string (invite_token, etc.)
+        window.history.replaceState({}, '', window.location.pathname + window.location.search)
+
+        // Recovery puro (olvidé contraseña): redirigir al form de set-password
+        if (type === 'recovery') {
+          router.replace('/auth/set-password')
+        }
+      } catch (err) {
+        logger.error('page', 'Excepción en setSession desde hash', err instanceof Error ? err : undefined)
+      }
+    }
+
+    const init = async () => {
+      await consumeAuthHash()
+      const { data: { session } } = await supabase.auth.getSession()
+      setSession(session)
+      if (session?.user) fetchProfile(session.user.id)
+      else setLoading(false)
+    }
+
+    init()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)

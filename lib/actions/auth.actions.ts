@@ -592,24 +592,32 @@ export async function inviteEmployeeAction(
     if (inviteError) {
       // Si a pesar del check previo el usuario ya existe en auth pero NO tenía
       // membership (caso edge: usuario registrado que nunca completó setup),
-      // generar recovery link y limpiar el pending_invite huérfano.
+      // generar magiclink que vuelva con el invite_token.
+      //
+      // FIX 2026-04-22: Antes borrábamos el pending_invite y mandábamos a
+      // /auth/set-password, pero accept_invite nunca se llamaba → sin membership.
+      // Ahora PRESERVAMOS el pending_invite y usamos magiclink con redirect a
+      // /?invite_token=xxx → ProfileSetup detecta el token → accept_invite
+      // crea la membership correctamente.
       if (inviteError.message?.includes('already been registered') ||
           inviteError.message?.includes('already exists')) {
 
-        await supabase
-          .from('pending_invites')
-          .delete()
-          .eq('token', invite.token)
-
         const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-          type: 'recovery',
+          type: 'magiclink',
           email: normalizedEmail,
           options: {
-            redirectTo: `${baseUrl}/auth/callback?next=/auth/set-password`,
+            redirectTo: `${baseUrl}/?invite_token=${invite.token}`,
           },
         })
 
         if (linkError || !linkData?.properties?.action_link) {
+          // Si falla la generación del magiclink, sí limpiamos el pending_invite
+          // huérfano para no dejar basura.
+          await supabase
+            .from('pending_invites')
+            .delete()
+            .eq('token', invite.token)
+
           return {
             success: false,
             error: `Error al generar link de acceso: ${linkError?.message || 'No se pudo generar el link'}`,
@@ -618,7 +626,7 @@ export async function inviteEmployeeAction(
 
         return {
           success: true,
-          message: 'El empleado ya tiene cuenta. Compartile este link para que cree su contraseña y pueda entrar siempre:',
+          message: 'El empleado ya tiene cuenta en el sistema. Compartile este link para que se sume a tu organización:',
           inviteLink: linkData.properties.action_link,
         }
       }

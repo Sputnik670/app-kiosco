@@ -7,31 +7,44 @@ import { Page, expect } from '@playwright/test';
 
 /** Selecciona la primera sucursal disponible y entra al dashboard */
 export async function selectFirstBranch(page: Page) {
-  // Esperar a que aparezca el selector de sucursales o ya estemos en el dashboard
+  // Esperar a que termine la hidratación: o estamos en el dashboard
+  // ("Torre de Control") o en el selector ("¿Dónde operamos hoy?").
+  // El heading del selector es más específico que "Sucursal" (que también
+  // aparece en muchas otras vistas) así que lo buscamos como ancla.
   await page.waitForFunction(() => {
     const body = document.body.textContent || '';
     return (
       body.includes('Torre de Control') ||
-      body.includes('Sucursal') ||
+      body.includes('¿Dónde operamos hoy?') ||
       body.includes('Seleccionar')
     );
-  }, { timeout: 15_000 });
+  }, { timeout: 20_000 });
 
   // Si ya estamos en el dashboard, no hacer nada
   const inDashboard = await page.getByText('Torre de Control').isVisible().catch(() => false);
   if (inDashboard) return;
 
-  // Click en la primera sucursal disponible
-  const sucursalCard = page.locator('button, [role="button"], .cursor-pointer')
-    .filter({ hasText: /sucursal/i })
+  // Estamos en el selector. El primer botón que NO es "Actualizar Lista" ni
+  // el botón de Next.js DevTools es la primera sucursal.
+  // Usamos toBeVisible() en vez de isVisible() para que auto-espere la
+  // hidratación de React en dev (isVisible es sync y falla en la race).
+  const selector = page.getByRole('heading', { name: /dónde operamos hoy/i });
+  await expect(selector).toBeVisible({ timeout: 10_000 });
+
+  // La primera sucursal es el primer botón dentro del Card que no sea
+  // "Actualizar Lista". Usamos un selector por rol filtrando por nombre
+  // exclusorio. Alternativa robusta: primer <button> con ArrowRight.
+  const sucursalBtn = page
+    .getByRole('button')
+    .filter({ hasNot: page.getByText(/actualizar lista|open next\.js dev tools/i) })
     .first();
 
-  if (await sucursalCard.isVisible()) {
-    await sucursalCard.click();
-  }
+  await expect(sucursalBtn).toBeVisible({ timeout: 10_000 });
+  await sucursalBtn.click();
 
-  // Esperar a que cargue el dashboard
-  await expect(page.getByText('Torre de Control')).toBeVisible({ timeout: 15_000 });
+  // Esperar a que cargue el dashboard. 30s porque en dev el primer render
+  // compila componentes lazy y Supabase sa-east-1 puede tardar.
+  await expect(page.getByText('Torre de Control')).toBeVisible({ timeout: 30_000 });
 }
 
 /** Navega a un tab específico del dashboard */

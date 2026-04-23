@@ -14,7 +14,7 @@
 
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 export interface OnlineStatus {
   isOnline: boolean
@@ -68,6 +68,15 @@ export function useOnlineStatus(options: UseOnlineStatusOptions = {}): OnlineSta
     onStatusChange,
   } = options
 
+  // Ref para onStatusChange: evita que callbacks inline del consumer generen
+  // renders infinitos. Si ponemos onStatusChange como dep de updateStatus y
+  // el consumer pasa una función inline, la referencia cambia cada render →
+  // updateStatus cambia → useEffect reruns → setStatus → re-render → loop.
+  const onStatusChangeRef = useRef(onStatusChange)
+  useEffect(() => {
+    onStatusChangeRef.current = onStatusChange
+  }, [onStatusChange])
+
   const [status, setStatus] = useState<OnlineStatus>(() => ({
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
     wasOffline: false,
@@ -108,14 +117,14 @@ export function useOnlineStatus(options: UseOnlineStatusOptions = {}): OnlineSta
         lastOfflineAt: !isOnline ? new Date() : prev.lastOfflineAt,
       }
 
-      // Llamar callback si cambió el estado
-      if (prev.isOnline !== isOnline && onStatusChange) {
-        onStatusChange(newStatus)
+      // Llamar callback si cambió el estado (vía ref para no romper estabilidad)
+      if (prev.isOnline !== isOnline && onStatusChangeRef.current) {
+        onStatusChangeRef.current(newStatus)
       }
 
       return newStatus
     })
-  }, [getConnectionInfo, onStatusChange])
+  }, [getConnectionInfo])
 
   // Ping al servidor para verificar conectividad real
   // NOTA: navigator.onLine es unreliable (solo detecta cable desconectado).
