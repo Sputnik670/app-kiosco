@@ -22,7 +22,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { QRCodeSVG } from "qrcode.react"
+import { QRCodeSVG, QRCodeCanvas } from "qrcode.react"
 import { Download, Printer, Loader2, User, ScanLine, Info } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -65,106 +65,103 @@ export default function TarjetasQREmpleados({ onOpenScanner }: TarjetasQREmplead
   }, [cargarEmpleados])
 
   const descargarTarjeta = (emp: EmployeeCard) => {
-    const svgElement = document.querySelector(`#qr-empleado-${emp.user_id}`) as SVGSVGElement | null
-    if (!svgElement) {
-      toast.error("No se encontró el código QR")
+    // Usamos el QRCodeCanvas oculto (alta resolución) en lugar del SVG visible.
+    // Evita el flujo SVG → Blob → Image que es frágil en navegadores móviles
+    // (especialmente iOS Safari) cuando el SVG no trae xmlns al serializar.
+    const qrCanvas = document.querySelector(
+      `#qr-canvas-${emp.user_id}`
+    ) as HTMLCanvasElement | null
+    if (!qrCanvas) {
+      toast.error("No se encontró el código QR", {
+        description: "Recargá la pestaña Equipo y volvé a intentar",
+      })
       return
     }
 
     try {
-      const svgData = new XMLSerializer().serializeToString(svgElement)
+      // Tarjeta de 600x900 (proporción tarjeta + nombre arriba, QR al medio, pie)
+      const W = 600
+      const H = 900
       const canvas = document.createElement("canvas")
+      canvas.width = W
+      canvas.height = H
       const ctx = canvas.getContext("2d")
-      const img = new Image()
-
-      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" })
-      const url = URL.createObjectURL(svgBlob)
-
-      img.onload = () => {
-        // Tarjeta de 600x900 (proporción tarjeta + nombre arriba, QR al medio, pie)
-        const W = 600
-        const H = 900
-        canvas.width = W
-        canvas.height = H
-
-        if (!ctx) {
-          URL.revokeObjectURL(url)
-          toast.error("Navegador no soporta canvas")
-          return
-        }
-
-        // Fondo blanco
-        ctx.fillStyle = "#ffffff"
-        ctx.fillRect(0, 0, W, H)
-
-        // Borde
-        ctx.strokeStyle = "#1e293b"
-        ctx.lineWidth = 4
-        ctx.strokeRect(8, 8, W - 16, H - 16)
-
-        // Encabezado
-        ctx.fillStyle = "#1e293b"
-        ctx.font = "bold 36px system-ui, -apple-system, sans-serif"
-        ctx.textAlign = "center"
-        ctx.fillText("KioscoApp", W / 2, 80)
-
-        ctx.font = "bold 22px system-ui, -apple-system, sans-serif"
-        ctx.fillStyle = "#64748b"
-        ctx.fillText("TARJETA DE FICHAJE", W / 2, 120)
-
-        // Nombre
-        ctx.fillStyle = "#0f172a"
-        ctx.font = "bold 40px system-ui, -apple-system, sans-serif"
-        ctx.fillText(emp.display_name, W / 2, 200)
-
-        // Rol
-        ctx.font = "24px system-ui, -apple-system, sans-serif"
-        ctx.fillStyle = "#475569"
-        ctx.fillText(labelRol(emp.role), W / 2, 240)
-
-        // QR centrado
-        const qrSize = 400
-        const qrX = (W - qrSize) / 2
-        const qrY = 280
-        ctx.drawImage(img, qrX, qrY, qrSize, qrSize)
-
-        // Pie
-        ctx.font = "18px system-ui, -apple-system, sans-serif"
-        ctx.fillStyle = "#64748b"
-        ctx.fillText("Presentá esta tarjeta al iniciar tu turno", W / 2, H - 60)
-        ctx.font = "14px system-ui, -apple-system, sans-serif"
-        ctx.fillStyle = "#94a3b8"
-        ctx.fillText(`ID: ${emp.qr_code.slice(0, 8)}…${emp.qr_code.slice(-4)}`, W / 2, H - 35)
-
-        canvas.toBlob((blob) => {
-          if (!blob) {
-            toast.error("Error al generar imagen")
-            return
-          }
-          const downloadUrl = URL.createObjectURL(blob)
-          const link = document.createElement("a")
-          link.href = downloadUrl
-          link.download = `tarjeta-fichaje-${emp.display_name.replace(/\s+/g, "-").toLowerCase()}.png`
-
-          if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-            window.open(downloadUrl, "_blank")
-            toast.info("Tarjeta abierta", { description: "Guardá la imagen desde ahí" })
-          } else {
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-            toast.success(`Tarjeta de ${emp.display_name} descargada`)
-          }
-
-          URL.revokeObjectURL(downloadUrl)
-        }, "image/png")
-        URL.revokeObjectURL(url)
+      if (!ctx) {
+        toast.error("Navegador no soporta canvas")
+        return
       }
 
-      img.src = url
+      // Fondo blanco
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, W, H)
+
+      // Borde
+      ctx.strokeStyle = "#1e293b"
+      ctx.lineWidth = 4
+      ctx.strokeRect(8, 8, W - 16, H - 16)
+
+      // Encabezado
+      ctx.fillStyle = "#1e293b"
+      ctx.font = "bold 36px system-ui, -apple-system, sans-serif"
+      ctx.textAlign = "center"
+      ctx.fillText("KioscoApp", W / 2, 80)
+
+      ctx.font = "bold 22px system-ui, -apple-system, sans-serif"
+      ctx.fillStyle = "#64748b"
+      ctx.fillText("TARJETA DE FICHAJE", W / 2, 120)
+
+      // Nombre
+      ctx.fillStyle = "#0f172a"
+      ctx.font = "bold 40px system-ui, -apple-system, sans-serif"
+      ctx.fillText(emp.display_name, W / 2, 200)
+
+      // Rol
+      ctx.font = "24px system-ui, -apple-system, sans-serif"
+      ctx.fillStyle = "#475569"
+      ctx.fillText(labelRol(emp.role), W / 2, 240)
+
+      // QR directo desde el canvas oculto (sin async Image loading)
+      const qrSize = 400
+      const qrX = (W - qrSize) / 2
+      const qrY = 280
+      ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize)
+
+      // Pie
+      ctx.font = "18px system-ui, -apple-system, sans-serif"
+      ctx.fillStyle = "#64748b"
+      ctx.fillText("Presentá esta tarjeta al iniciar tu turno", W / 2, H - 60)
+      ctx.font = "14px system-ui, -apple-system, sans-serif"
+      ctx.fillStyle = "#94a3b8"
+      ctx.fillText(`ID: ${emp.qr_code.slice(0, 8)}…${emp.qr_code.slice(-4)}`, W / 2, H - 35)
+
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          toast.error("Error al generar imagen")
+          return
+        }
+        const downloadUrl = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = downloadUrl
+        link.download = `tarjeta-fichaje-${emp.display_name.replace(/\s+/g, "-").toLowerCase()}.png`
+
+        if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+          window.open(downloadUrl, "_blank")
+          toast.info("Tarjeta abierta", { description: "Guardá la imagen desde ahí" })
+        } else {
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          toast.success(`Tarjeta de ${emp.display_name} descargada`)
+        }
+
+        // Dar tiempo al download antes de revocar
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000)
+      }, "image/png")
     } catch (err) {
       console.error("Error descargando tarjeta:", err)
-      toast.error("Error al descargar tarjeta")
+      toast.error("Error al descargar tarjeta", {
+        description: err instanceof Error ? err.message : "Error desconocido",
+      })
     }
   }
 
@@ -313,7 +310,20 @@ export default function TarjetasQREmpleados({ onOpenScanner }: TarjetasQREmplead
                 value={emp.qr_code}
                 size={180}
                 level="H"
-                includeMargin={true}
+                marginSize={4}
+              />
+            </div>
+
+            {/* Canvas oculto de alta resolución usado por descargarTarjeta().
+                Se renderiza fuera de pantalla pero sigue siendo un HTMLCanvasElement
+                real que podemos pasar a ctx.drawImage sin serialización de SVG. */}
+            <div aria-hidden="true" style={{ position: "absolute", left: "-9999px", top: "-9999px" }}>
+              <QRCodeCanvas
+                id={`qr-canvas-${emp.user_id}`}
+                value={emp.qr_code}
+                size={400}
+                level="H"
+                marginSize={4}
               />
             </div>
 
