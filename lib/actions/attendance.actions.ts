@@ -639,35 +639,62 @@ export async function listEmployeeQRCardsAction(): Promise<{
 }
 
 /**
- * Obtiene la sucursal donde el empleado tiene fichaje activo (sin check_out)
+ * Obtiene la sucursal donde el empleado debe trabajar.
  *
- * USO: En page.tsx para restaurar el contexto de sucursal del empleado
- * cuando vuelve a la app sin haber seleccionado sucursal manualmente.
+ * Prioridad:
+ *   1. Si hay turno activo (attendance sin check_out) → devolver esa branch.
+ *   2. Fallback: leer membership.branch_id del empleado (asignada por el dueño
+ *      al crearlo). Con el pivot de fichaje por tarjeta (2026-04-23), el QR
+ *      del local ya no existe — el empleado ya tiene sucursal en membership.
  *
- * @returns GetActiveBranchResult - branch_id activo o null
+ * USO: page.tsx → sincronizarSucursal. Evita que el empleado caiga en la
+ * pantalla vieja "Escanea el QR del local" antes de su primer fichaje.
+ *
+ * @returns GetActiveBranchResult - branch_id o null si tampoco hay asignada
  */
 export async function getActiveBranchAction(): Promise<GetActiveBranchResult> {
   try {
     const { supabase, user } = await verifyAuth()
 
-    const { data, error } = await supabase
+    // 1) Turno activo
+    const { data: activeAttendance, error: attendanceError } = await supabase
       .from('attendance')
       .select('branch_id')
       .eq('user_id', user.id)
       .is('check_out', null)
       .maybeSingle()
 
-    if (error) {
+    if (attendanceError) {
       return {
         success: false,
         branchId: null,
-        error: `Error al consultar fichaje activo: ${error.message}`,
+        error: `Error al consultar fichaje activo: ${attendanceError.message}`,
+      }
+    }
+
+    if (activeAttendance?.branch_id) {
+      return { success: true, branchId: activeAttendance.branch_id }
+    }
+
+    // 2) Fallback: branch asignada en la membership activa del empleado
+    const { data: membership, error: membershipError } = await supabase
+      .from('memberships')
+      .select('branch_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (membershipError) {
+      return {
+        success: false,
+        branchId: null,
+        error: `Error al leer membership: ${membershipError.message}`,
       }
     }
 
     return {
       success: true,
-      branchId: data?.branch_id ?? null,
+      branchId: membership?.branch_id ?? null,
     }
   } catch (error) {
     return {

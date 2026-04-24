@@ -30,156 +30,47 @@ interface UserProfile {
     organization_id: string
 }
 
-function EscanearQRFichaje({ onQRScanned }: { onQRScanned: (data: { sucursal_id: string }) => void }) {
-  const [showScanner, setShowScanner] = useState(false)
-  const [manualUrl, setManualUrl] = useState("")
-  const [showManual, setShowManual] = useState(false)
-  const [procesando, setProcesando] = useState(false)
-  const [fichajeMsg, setFichajeMsg] = useState("")
-
-  // Unificado: escanear QR = fichar entrada + entrar al panel
-  const registrarEntradaYEntrar = async (sucursalId: string) => {
-    setProcesando(true)
-    setFichajeMsg("Registrando entrada...")
-
-    try {
-      const result = await toggleAttendanceAction(sucursalId)
-
-      if (result.success && result.action === 'entrada') {
-        setFichajeMsg("Entrada registrada. Abriendo panel...")
-        toast.success("Entrada registrada")
-      } else if (result.success && result.action === 'salida') {
-        // Si escaneó y ya tenía entrada, se registra salida
-        setFichajeMsg("Salida registrada.")
-        toast.info("Salida registrada")
-      } else if (!result.success) {
-        // Si falla (ya tiene fichaje activo, etc), entrar igual al panel
-        console.warn("Fichaje automático:", result.error)
-      }
-
-      // Siempre entrar al panel (el empleado ya se autenticó con el QR)
-      setTimeout(() => {
-        onQRScanned({ sucursal_id: sucursalId })
-      }, 500)
-    } catch (err) {
-      console.error("Error en fichaje automático:", err)
-      // Entrar al panel de todas formas
-      onQRScanned({ sucursal_id: sucursalId })
-    }
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleQRScanned = (data: any) => {
-    if (data?.sucursal_id) {
-      registrarEntradaYEntrar(data.sucursal_id)
-    }
-  }
-
-  const handleManualUrl = () => {
-    try {
-      const url = new URL(manualUrl, window.location.origin)
-      const sucursalId = url.searchParams.get('sucursal_id')
-
-      if (sucursalId) {
-        registrarEntradaYEntrar(sucursalId)
-      } else {
-        toast.error("URL inválida", { description: "Debe contener sucursal_id" })
-      }
-    } catch {
-      toast.error("URL inválida", { description: "Pega la URL completa del QR de fichaje" })
-    }
-  }
-
-  // Estado procesando: mostrar pantalla de carga
-  if (procesando) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
-        <Card className="w-full max-w-md shadow-2xl border-0 rounded-[2.5rem] overflow-hidden p-12">
-          <div className="text-center space-y-6">
-            <div className="mx-auto w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center">
-              {fichajeMsg.includes("Registrada") || fichajeMsg.includes("registrada") ? (
-                <CheckCircle className="h-12 w-12 text-green-600" />
-              ) : (
-                <Loader2 className="h-12 w-12 text-blue-600 animate-spin" />
-              )}
-            </div>
-            <div>
-              <h2 className="text-xl font-black text-slate-800 uppercase">{fichajeMsg}</h2>
-            </div>
-          </div>
-        </Card>
-      </div>
-    )
-  }
-
+/**
+ * Pantalla de fallback: empleado logueado sin sucursal asignada.
+ *
+ * Con el pivot de fichaje por tarjeta (2026-04-23), el empleado ya no escanea
+ * el QR del local al entrar: la sucursal viene pre-asignada en su membership.
+ * Esta pantalla solo aparece si por alguna razón la membership tiene
+ * branch_id = NULL. En ese caso el único camino sano es que el dueño le
+ * asigne sucursal desde su panel de Equipo.
+ */
+function SinSucursalAsignada() {
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
       <Card className="w-full max-w-md shadow-2xl border-0 rounded-[2.5rem] overflow-hidden">
         <div className="bg-slate-900 p-8 text-white text-center">
-          <div className="bg-blue-500 p-3 rounded-2xl shadow-lg shadow-blue-500/20 inline-block mb-4">
-            <QrCode className="h-8 w-8 text-white" />
+          <div className="bg-amber-500 p-3 rounded-2xl shadow-lg shadow-amber-500/20 inline-block mb-4">
+            <AlertTriangle className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-3xl font-black uppercase tracking-tighter italic mb-2">Kiosco 24hs</h1>
-          <p className="text-blue-400 text-[10px] font-black uppercase tracking-[0.4em]">Sistema de Fichaje</p>
+          <h1 className="text-3xl font-black uppercase tracking-tighter italic mb-2">Sin sucursal</h1>
+          <p className="text-amber-400 text-[10px] font-black uppercase tracking-[0.4em]">Contactá al dueño</p>
         </div>
 
-        <div className="p-8 space-y-6">
-          <div className="text-center space-y-2">
-            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">
-              Escanea el QR del Local
-            </h2>
-            <p className="text-sm font-medium text-slate-400">
-              Al escanear el QR, se registra tu entrada y se abre el panel de ventas automáticamente.
-            </p>
-          </div>
-
-          <Button
-            onClick={() => setShowScanner(true)}
-            className="w-full h-16 text-lg font-black rounded-2xl bg-blue-600 hover:bg-blue-700 shadow-lg"
-          >
-            <QrCode className="mr-2 h-5 w-5" />
-            Escanear QR del Local
-          </Button>
-
-          {/* Fallback: pegar URL manualmente */}
-          <div className="border-t-2 border-dashed border-slate-200 pt-4">
-            <button
-              onClick={() => setShowManual(!showManual)}
-              className="w-full text-center text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors"
+        <div className="p-8 space-y-4 text-center">
+          <p className="text-sm text-slate-600 leading-relaxed">
+            Todavía no tenés una sucursal asignada a tu cuenta.
+          </p>
+          <p className="text-sm text-slate-600 leading-relaxed">
+            Pedile al dueño del kiosco que entre a <strong>Equipo</strong> desde
+            su panel y te asigne una sucursal. Después recargá esta página y vas
+            a poder fichar tu entrada escaneando tu tarjeta.
+          </p>
+          <div className="pt-4">
+            <Button
+              onClick={() => window.location.reload()}
+              variant="outline"
+              className="w-full h-12 font-black rounded-xl"
             >
-              {showManual ? "Ocultar" : "¿La cámara no funciona? Pega el link del QR"}
-            </button>
-            {showManual && (
-              <div className="mt-3 space-y-3">
-                <p className="text-xs text-slate-500 text-center">
-                  Pedile al dueño que te copie el link del QR y pegalo acá:
-                </p>
-                <input
-                  type="url"
-                  value={manualUrl}
-                  onChange={(e) => setManualUrl(e.target.value)}
-                  placeholder="https://app-kiosco-chi.vercel.app/fichaje?..."
-                  className="w-full p-3 border-2 border-slate-200 rounded-xl text-sm font-mono"
-                />
-                <Button
-                  onClick={handleManualUrl}
-                  disabled={!manualUrl.trim()}
-                  variant="outline"
-                  className="w-full h-12 font-black rounded-xl"
-                >
-                  Fichar con Link
-                </Button>
-              </div>
-            )}
+              Recargar
+            </Button>
           </div>
         </div>
       </Card>
-
-      <QRFichajeScanner
-        isOpen={showScanner}
-        onClose={() => setShowScanner(false)}
-        onQRScanned={handleQRScanned}
-      />
     </div>
   )
 }
@@ -424,7 +315,7 @@ function HomePageInner() {
   if (session && userProfile) {
     if (!sucursalId) {
         if (userProfile.rol === "empleado") {
-            return <EscanearQRFichaje onQRScanned={(data) => setSucursalId(data.sucursal_id)} />
+            return <SinSucursalAsignada />
         }
 
         // Dueño sin sucursales → Onboarding Wizard
