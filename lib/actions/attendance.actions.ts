@@ -477,10 +477,13 @@ export async function processEmployeeQRScanAction(
     const employeeUserId = membership.user_id as string
     const employeeName = membership.display_name as string
 
-    // 2) Validar que la sucursal pertenece a la org (defensivo)
+    // 2) Validar que la sucursal pertenece a la org (defensivo).
+    //    OJO: la columna es `name`, no `nombre` — un typo acá hace que el select
+    //    falle y el empleado vea "Sucursal no válida". Solo pedimos `id` porque
+    //    el nombre no se usa después.
     const { data: branch, error: branchError } = await supabase
       .from('branches')
-      .select('id, organization_id, nombre')
+      .select('id')
       .eq('id', branchId)
       .eq('organization_id', orgId)
       .maybeSingle()
@@ -692,6 +695,7 @@ export async function getActiveBranchAction(): Promise<GetActiveBranchResult> {
       }
     }
 
+
     return {
       success: true,
       branchId: membership?.branch_id ?? null,
@@ -700,7 +704,7 @@ export async function getActiveBranchAction(): Promise<GetActiveBranchResult> {
     return {
       success: false,
       branchId: null,
-      error: error instanceof Error ? error.message : 'Error desconocido',
+      error: error instanceof Error ? error.message : 'Error desconocido al obtener sucursal activa',
     }
   }
 }
