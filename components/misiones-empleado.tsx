@@ -225,7 +225,10 @@ export default function MisionesEmpleado({ turnoId, empleadoId, sucursalId, onMi
                                 <div key={item.id} className="flex items-center justify-between p-3 bg-white border-2 rounded-xl">
                                     <div className="flex items-center gap-3">
                                         <span className="text-2xl">{item.emoji_producto}</span>
-                                        <span className="font-black text-xs uppercase text-slate-700">{item.nombre_producto}</span>
+                                        <div className="flex flex-col">
+                                            <span className="font-black text-xs uppercase text-slate-700">{item.nombre_producto}</span>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">{item.cantidad} u. en este lote</span>
+                                        </div>
                                     </div>
                                     <Badge className="bg-red-100 text-red-600 border-0 font-black text-[9px]">VENCE: {format(parseISO(item.fecha_vencimiento), 'dd/MM')}</Badge>
                                 </div>
@@ -234,8 +237,20 @@ export default function MisionesEmpleado({ turnoId, empleadoId, sucursalId, onMi
                     </div>
 
                     <DialogFooter>
+                        {/* El botón muestra UNIDADES (suma de quantity) + LOTES (length) para
+                            que el total matchee el objetivo de la misión, que está expresado
+                                       en unidades. */}
                         <Button onClick={handleMermarStock} disabled={procesando} className="w-full h-14 bg-red-600 hover:bg-red-700 text-white font-black rounded-2xl shadow-xl">
-                            {procesando ? <Loader2 className="animate-spin h-5 w-5" /> : `CONFIRMAR RETIRO DE ${stockParaMermar.length} UNIDADES`}
+                            {procesando ? (
+                                <Loader2 className="animate-spin h-5 w-5" />
+                            ) : (
+                                (() => {
+                                    const totalUnidades = stockParaMermar.reduce((acc, b) => acc + (Number(b.cantidad) || 0), 0)
+                                    const lotesLabel = stockParaMermar.length === 1 ? 'LOTE' : 'LOTES'
+                                    const unidadesLabel = totalUnidades === 1 ? 'UNIDAD' : 'UNIDADES'
+                                    return `CONFIRMAR RETIRO DE ${totalUnidades} ${unidadesLabel} (${stockParaMermar.length} ${lotesLabel})`
+                                })()
+                            )}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

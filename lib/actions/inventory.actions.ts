@@ -643,6 +643,12 @@ export interface CriticalStock {
   emoji_producto: string
   fecha_vencimiento: string
   precio_venta: number
+  /**
+   * Unidades físicas dentro de este lote (stock_batches.quantity).
+   * OJO: `stock` devuelto por esta action es una lista de LOTES, no de unidades.
+   * Para mostrar "retirar N unidades" en la UI hay que sumar quantity de cada lote.
+   */
+  cantidad: number
 }
 
 export interface GetCriticalStockResult {
@@ -673,7 +679,7 @@ export async function getCriticalStockAction(
 
     const { data, error } = await supabase
       .from('stock_batches')
-      .select('id, product_id, expiration_date, products(name, emoji, sale_price)')
+      .select('id, product_id, expiration_date, quantity, products(name, emoji, sale_price)')
       .eq('branch_id', branchId)
       .eq('status', 'available')
       .lt('expiration_date', fechaLimite.toISOString().split('T')[0])
@@ -696,6 +702,7 @@ export async function getCriticalStockAction(
         emoji_producto: product?.emoji || '📦',
         fecha_vencimiento: item.expiration_date,
         precio_venta: product?.sale_price || 0,
+        cantidad: Number(item.quantity) || 0,
       }
     })
 
