@@ -450,6 +450,29 @@ export async function processMermasMissionAction(
 
     const { supabase } = await verifyAuth()
 
+    // PRIMERO: leer las cantidades de cada lote antes de marcarlos como damaged.
+    // La misión se mide en UNIDADES (target_value es la suma de stock crítico),
+    // así que tenemos que sumar las `quantity` de cada batch, no contar los IDs.
+    // Contar stockIds.length contaría LOTES, que es otro nivel de granularidad
+    // y hace que una misión "Retirar 1139 unidades" marque "9/1139" (9 lotes).
+    const { data: batches, error: batchesError } = await supabase
+      .from('stock_batches')
+      .select('quantity')
+      .in('id', stockIds)
+
+    if (batchesError || !batches) {
+      return {
+        success: false,
+        error: `Error al leer stock: ${batchesError?.message || 'sin datos'}`,
+      }
+    }
+
+    // DECIMAL llega como string desde Postgres → Number() siempre.
+    const unidadesMermadas = batches.reduce(
+      (acc, b: { quantity: number | string | null }) => acc + (Number(b.quantity) || 0),
+      0
+    )
+
     // Actualizar stock_batches a 'damaged' (Schema V2)
     const { error: stockError } = await supabase
       .from('stock_batches')
@@ -483,8 +506,7 @@ export async function processMermasMissionAction(
       }
     }
 
-    // Calcular nuevo progreso
-    const unidadesMermadas = stockIds.length
+    // Calcular nuevo progreso (unidades, no lotes)
     const nuevoProgreso = mission.current_value + unidadesMermadas
     const misionCompletada = nuevoProgreso >= mission.target_value
 
