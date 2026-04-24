@@ -138,7 +138,12 @@ export default function VistaEmpleado({ onBack, sucursalId }: VistaEmpleadoProps
                     propia tarjeta para abrir o cerrar turno. La app valida que el QR
                     corresponde a su membership (anti-fraude). */}
                 <div className="relative z-20">
+                    {/* key={refreshKey}: al cerrar el scanner con éxito, handleDataUpdated
+                        incrementa refreshKey y React remonta RelojControl, que vuelve a
+                        leer el estado de fichaje. Sin esto, "Fuera de Servicio" queda
+                        pegado aunque el turno ya esté abierto. */}
                     <RelojControl
+                        key={refreshKey}
                         sucursalId={sucursalId}
                         sucursalNombre={sucursalNombre}
                         organizationId={organizationId}
