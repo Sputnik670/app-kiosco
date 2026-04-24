@@ -62,9 +62,23 @@ interface LocalShift {
 
 export default function ConfiguracionRendimiento({
   branches,
+  section = 'all',
 }: {
   branches: Array<{ id: string; name: string }>
+  /**
+   * Qué bloque renderizar. Permite montar el componente dos veces
+   * (uno para reglas, otro para turnos) dentro de distintos Collapsible
+   * sin mostrar toda la configuración junta.
+   *
+   * - 'all' (default): reglas + turnos (comportamiento histórico).
+   * - 'rules': solo asistencia, caja y misiones.
+   * - 'shifts': solo turnos por sucursal.
+   */
+  section?: 'all' | 'rules' | 'shifts'
 }) {
+  const showRules = section === 'all' || section === 'rules'
+  const showShifts = section === 'all' || section === 'shifts'
+
   const [config, setConfig] = useState<XpConfig | null>(null)
   // Map<branchId, LocalShift[]> — múltiples turnos por sucursal
   const [branchShifts, setBranchShifts] = useState<Map<string, LocalShift[]>>(new Map())
@@ -73,19 +87,21 @@ export default function ConfiguracionRendimiento({
   const [savingSchedule, setSavingSchedule] = useState<string | null>(null)
 
   // ─── Cargar configuración ──────────────────────────────────────────────────
+  // Solo fetchea lo que la sección actual necesita: así el componente
+  // puede montarse dos veces (reglas / turnos) sin duplicar llamadas.
   const loadConfig = useCallback(async () => {
     setLoading(true)
     try {
       const [configResult, schedulesResult] = await Promise.all([
-        getXpConfigAction(),
-        getBranchSchedulesAction(),
+        showRules ? getXpConfigAction() : Promise.resolve(null),
+        showShifts ? getBranchSchedulesAction() : Promise.resolve(null),
       ])
 
-      if (configResult.success) {
+      if (configResult && configResult.success) {
         setConfig(configResult.config)
       }
 
-      if (schedulesResult.success) {
+      if (schedulesResult && schedulesResult.success) {
         // Agrupar turnos por branch_id
         const map = new Map<string, LocalShift[]>()
         for (const s of schedulesResult.schedules) {
@@ -105,7 +121,7 @@ export default function ConfiguracionRendimiento({
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [showRules, showShifts])
 
   useEffect(() => {
     loadConfig()
@@ -253,26 +269,35 @@ export default function ConfiguracionRendimiento({
     )
   }
 
-  if (!config) return null
+  // En modo 'shifts' no hace falta la config de XP; si la pedimos y no cargó,
+  // recién ahí devolvemos null.
+  if (showRules && !config) return null
 
   return (
     <div className="space-y-6">
-      {/* HEADER */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Settings className="h-5 w-5" />
-            Reglas de rendimiento
-          </h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Configurá los premios y penalidades que se aplican automáticamente a tus empleados.
-          </p>
+      {/* HEADER — solo cuando se muestran las reglas (en 'shifts' el header
+          del Collapsible en el dashboard ya aporta el contexto). */}
+      {showRules && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Reglas de rendimiento
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Configurá los premios y penalidades que se aplican automáticamente a tus empleados.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={resetDefaults}>
+            <RotateCcw className="h-4 w-4 mr-1" />
+            Restablecer
+          </Button>
         </div>
-        <Button variant="outline" size="sm" onClick={resetDefaults}>
-          <RotateCcw className="h-4 w-4 mr-1" />
-          Restablecer
-        </Button>
-      </div>
+      )}
+
+      {showRules && config && (
+        <>
+        {/* ↓↓↓ Bloque de reglas original (asistencia, caja, misiones + botón guardar). */}
 
       {/* ASISTENCIA */}
       <Card>
@@ -525,10 +550,14 @@ export default function ConfiguracionRendimiento({
         )}
         Guardar reglas de rendimiento
       </Button>
+        </>
+      )}
 
-      <Separator />
+      {/* Separador solo si se renderizan ambas secciones juntas ('all'). */}
+      {section === 'all' && <Separator />}
 
       {/* HORARIOS POR SUCURSAL — MULTI-TURNO */}
+      {showShifts && (
       <div>
         <h3 className="text-base font-semibold flex items-center gap-2 mb-1">
           <Clock className="h-4 w-4" />
@@ -660,6 +689,7 @@ export default function ConfiguracionRendimiento({
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }

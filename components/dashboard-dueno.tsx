@@ -7,7 +7,20 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { Card } from "@/components/ui/card"
-import { Calendar as CalendarIcon, QrCode, Loader2 } from "lucide-react"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import {
+  Calendar as CalendarIcon,
+  QrCode,
+  Loader2,
+  ChevronDown,
+  UserPlus,
+  SlidersHorizontal,
+  Clock,
+} from "lucide-react"
 import { es } from "date-fns/locale"
 import { format, parseISO } from "date-fns"
 import { toast } from "sonner"
@@ -115,6 +128,74 @@ const ConfiguracionArca = dynamic(() => import("@/components/configuracion-arca"
 import type { TurnoAudit } from "@/types/dashboard.types"
 
 const UMBRAL_STOCK_BAJO = 5
+
+// ─── Sección desplegable para el tab Control de Empleados ──────────────────
+// Colapsa cada bloque largo en un accordion simple. Lazy-mount del contenido:
+// hasta que el usuario lo abra, el componente hijo no se monta (y por ende
+// no dispara sus fetchs ni su JS bundle si viene de `dynamic()`).
+interface SeccionDesplegableProps {
+  icon: React.ReactNode
+  title: string
+  subtitle?: string
+  children: React.ReactNode
+  defaultOpen?: boolean
+}
+
+function SeccionDesplegable({
+  icon,
+  title,
+  subtitle,
+  children,
+  defaultOpen = false,
+}: SeccionDesplegableProps) {
+  const [open, setOpen] = useState(defaultOpen)
+  // Una vez abierta la primera vez, dejamos montado el contenido para no
+  // re-disparar fetchs si el dueño la abre y cierra varias veces.
+  const [mounted, setMounted] = useState(defaultOpen)
+
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v)
+        if (v) setMounted(true)
+      }}
+    >
+      <Card className="border-2 overflow-hidden">
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="w-full flex items-center justify-between gap-3 p-4 hover:bg-slate-50 transition-colors text-left"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="shrink-0">{icon}</div>
+              <div className="min-w-0">
+                <h3 className="text-base sm:text-lg font-black text-slate-800 uppercase truncate">
+                  {title}
+                </h3>
+                {subtitle && (
+                  <p className="text-xs sm:text-sm text-slate-500 truncate">
+                    {subtitle}
+                  </p>
+                )}
+              </div>
+            </div>
+            <ChevronDown
+              className={`h-5 w-5 text-slate-500 shrink-0 transition-transform duration-200 ${
+                open ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="border-t">
+          <div className="p-4 sm:p-5">
+            {mounted ? children : null}
+          </div>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
+  )
+}
 
 interface DashboardDuenoProps {
   onBack: () => void
@@ -344,20 +425,49 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
             </Card>
             <TeamRanking />
             <GestionIncidentes sucursalId={currentSucursalId} organizationId={data.organizationId} />
-            <InvitarEmpleado />
-            <ConfiguracionRendimiento
-              branches={data.sucursales.map(s => ({ id: s.id, name: s.nombre }))}
-            />
-            <Card className="p-6 border-2">
-              <h3 className="text-lg font-black text-slate-800 uppercase mb-4 flex items-center gap-2">
-                <QrCode className="h-5 w-5 text-blue-600" /> Tarjetas QR de Fichaje
-              </h3>
+
+            {/* Desplegables para compactar la vista (mobile-first). */}
+            <SeccionDesplegable
+              icon={<UserPlus className="h-5 w-5 text-indigo-600" />}
+              title="Pendientes de registro"
+              subtitle="Invitaciones enviadas y empleados por activar"
+            >
+              <InvitarEmpleado />
+            </SeccionDesplegable>
+
+            <SeccionDesplegable
+              icon={<SlidersHorizontal className="h-5 w-5 text-violet-600" />}
+              title="Reglas de rendimiento"
+              subtitle="Asistencia, diferencias de caja y misiones incumplidas"
+            >
+              <ConfiguracionRendimiento
+                branches={data.sucursales.map(s => ({ id: s.id, name: s.nombre }))}
+                section="rules"
+              />
+            </SeccionDesplegable>
+
+            <SeccionDesplegable
+              icon={<Clock className="h-5 w-5 text-blue-600" />}
+              title="Turnos por sucursal"
+              subtitle="Horarios y tolerancia de apertura"
+            >
+              <ConfiguracionRendimiento
+                branches={data.sucursales.map(s => ({ id: s.id, name: s.nombre }))}
+                section="shifts"
+              />
+            </SeccionDesplegable>
+
+            <SeccionDesplegable
+              icon={<QrCode className="h-5 w-5 text-blue-600" />}
+              title="Tarjetas QR de fichaje"
+              subtitle="Imprimí la tarjeta personal de cada empleado"
+            >
               <p className="text-sm text-slate-600 mb-4">
                 Cada empleado tiene una tarjeta QR personal. Imprimila y entregala; luego
                 escaneala desde este dispositivo para abrir o cerrar su turno.
               </p>
               <TarjetasQREmpleados />
-            </Card>
+            </SeccionDesplegable>
           </div>
         )}
 
