@@ -26,6 +26,33 @@ import {
   type ResolutionType,
 } from "@/lib/actions/incidents.actions"
 import { getEmployeesForMissionsAction } from "@/lib/actions/missions.actions"
+import { supabase } from "@/lib/supabase"
+
+// Mapper compartido: toma una fila cruda del evento de Realtime y la
+// convierte al shape Incident. El join con memberships (employee_name) no
+// llega por Realtime, así que queda undefined en INSERTs — la UI tiene
+// fallback a 'Empleado'.
+function mapRealtimeRowToIncident(row: any): Incident {
+  return {
+    id: row.id,
+    employee_id: row.employee_id,
+    employee_name: undefined,
+    branch_id: row.branch_id,
+    type: row.type,
+    description: row.description,
+    severity: row.severity,
+    resolution: row.resolution,
+    justification: row.justification,
+    justification_type: row.justification_type,
+    status: row.status,
+    created_at: row.created_at,
+    resolved_at: row.resolved_at,
+    employee_message: row.employee_message || null,
+    resolution_notes: row.resolution_notes || null,
+    resolution_type: row.resolution_type || null,
+    xp_deducted: row.xp_deducted || 0,
+  }
+}
 
 interface GestionIncidentesProps {
   sucursalId: string
@@ -114,6 +141,56 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
     fetchIncidents()
     fetchEmpleados()
   }, [fetchIncidents, fetchEmpleados])
+
+  // ─── Suscripción Realtime ────────────────────────────────────────────────
+  // Escucha cambios en incidents para esta sucursal. El servidor respeta RLS,
+  // así que solo llegan filas que el owner puede leer (misma organización).
+  // El filter por branch_id asegura que si el dueño está viendo una sucursal
+  // en particular, no se mezclan eventos de otras sucursales.
+  useEffect(() => {
+    if (!sucursalId) return
+
+    const channel = supabase
+      .channel(`incidents:branch:${sucursalId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "incidents",
+          filter: `branch_id=eq.${sucursalId}`,
+        },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const incoming = mapRealtimeRowToIncident(payload.new)
+            setIncidents((prev) =>
+              prev.some((i) => i.id === incoming.id) ? prev : [incoming, ...prev]
+            )
+          } else if (payload.eventType === "UPDATE") {
+            const updated = mapRealtimeRowToIncident(payload.new)
+            setIncidents((prev) =>
+              prev.map((i) =>
+                i.id === updated.id
+                  ? // Preservamos employee_name que vino del fetch inicial
+                    // (el payload de Realtime no trae el join con memberships)
+                    { ...updated, employee_name: i.employee_name }
+                  : i
+              )
+            )
+          } else if (payload.eventType === "DELETE") {
+            const oldId = (payload.old as any)?.id
+            if (oldId) {
+              setIncidents((prev) => prev.filter((i) => i.id !== oldId))
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [sucursalId])
 
   const handleCreate = async () => {
     if (!formEmployeeId || !formDescription) {

@@ -18,6 +18,32 @@ import {
   justifyIncidentAction,
   type Incident,
 } from "@/lib/actions/incidents.actions"
+import { supabase } from "@/lib/supabase"
+
+// Status que esta vista muestra (pendientes del empleado). Cuando un incidente
+// pasa a 'resolved' o 'dismissed' se saca del listado local.
+const EMPLOYEE_VISIBLE_STATUSES = new Set(["open", "justified", "awaiting_resolution"])
+
+function mapRealtimeRowToIncident(row: any): Incident {
+  return {
+    id: row.id,
+    employee_id: row.employee_id,
+    branch_id: row.branch_id,
+    type: row.type,
+    description: row.description,
+    severity: row.severity,
+    resolution: row.resolution,
+    justification: row.justification,
+    justification_type: row.justification_type,
+    status: row.status,
+    created_at: row.created_at,
+    resolved_at: row.resolved_at,
+    employee_message: row.employee_message || null,
+    resolution_notes: row.resolution_notes || null,
+    resolution_type: row.resolution_type || null,
+    xp_deducted: row.xp_deducted || 0,
+  }
+}
 
 const SEVERIDADES: Record<string, { label: string; color: string }> = {
   low: { label: 'Leve', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
@@ -70,6 +96,70 @@ export default function MisIncidentes() {
   useEffect(() => {
     fetchIncidents()
   }, [fetchIncidents])
+
+  // ─── Suscripción Realtime ────────────────────────────────────────────────
+  // Filtra por employee_id del usuario logueado — Realtime respeta RLS, pero
+  // filtrar server-side evita que el cliente reciba eventos de incidentes de
+  // otros empleados de la misma organización (la SELECT policy actual deja
+  // ver toda la org, ver AUDIT-FINDINGS.md).
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    let cancelled = false
+
+    supabase.auth.getUser().then(({ data }) => {
+      const userId = data.user?.id
+      if (!userId || cancelled) return
+
+      channel = supabase
+        .channel(`incidents:employee:${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "incidents",
+            filter: `employee_id=eq.${userId}`,
+          },
+          (payload) => {
+            if (payload.eventType === "INSERT") {
+              const incoming = mapRealtimeRowToIncident(payload.new)
+              if (!EMPLOYEE_VISIBLE_STATUSES.has(incoming.status)) return
+              setIncidents((prev) =>
+                prev.some((i) => i.id === incoming.id) ? prev : [incoming, ...prev]
+              )
+            } else if (payload.eventType === "UPDATE") {
+              const updated = mapRealtimeRowToIncident(payload.new)
+              if (!EMPLOYEE_VISIBLE_STATUSES.has(updated.status)) {
+                // El dueño lo resolvió o descartó → se quita de "mis pendientes"
+                setIncidents((prev) => prev.filter((i) => i.id !== updated.id))
+                return
+              }
+              setIncidents((prev) => {
+                const exists = prev.some((i) => i.id === updated.id)
+                if (exists) {
+                  return prev.map((i) => (i.id === updated.id ? updated : i))
+                }
+                // Caso raro: el incidente pasó a un status visible y no estaba
+                // en la lista (ej. recién creado mientras la pestaña estaba
+                // cerrada). Lo agregamos.
+                return [updated, ...prev]
+              })
+            } else if (payload.eventType === "DELETE") {
+              const oldId = (payload.old as any)?.id
+              if (oldId) {
+                setIncidents((prev) => prev.filter((i) => i.id !== oldId))
+              }
+            }
+          }
+        )
+        .subscribe()
+    })
+
+    return () => {
+      cancelled = true
+      if (channel) supabase.removeChannel(channel)
+    }
+  }, [])
 
   const handleJustify = async (incidentId: string) => {
     if (!justifyText.trim() || justifyText.trim().length < 5) {
