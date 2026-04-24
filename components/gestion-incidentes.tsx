@@ -84,10 +84,11 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
   const [formResolution, setFormResolution] = useState("")
   const [creating, setCreating] = useState(false)
 
-  // Resolve state v2
+  // Resolve state v2 — indexed por incident.id para evitar que los cards
+  // compartan el mismo textarea (bug: escribir en uno aparecía en todos).
   const [resolvingId, setResolvingId] = useState<string | null>(null)
-  const [resolveNote, setResolveNote] = useState("")
-  const [resolveType, setResolveType] = useState<ResolutionType>('sin_consecuencias')
+  const [resolveNote, setResolveNote] = useState<Record<string, string>>({})
+  const [resolveType, setResolveType] = useState<Record<string, ResolutionType>>({})
 
   const fetchIncidents = useCallback(async () => {
     try {
@@ -148,7 +149,9 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
   }
 
   const handleResolveV2 = async (id: string) => {
-    if (!resolveNote.trim() || resolveNote.trim().length < 3) {
+    const note = (resolveNote[id] ?? "").trim()
+    const type = resolveType[id] ?? 'sin_consecuencias'
+    if (!note || note.length < 3) {
       toast.error("Las notas de resolución son obligatorias")
       return
     }
@@ -156,20 +159,26 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
     try {
       const result = await resolveIncidentV2Action({
         incidentId: id,
-        resolutionType: resolveType,
-        resolutionNotes: resolveNote.trim(),
+        resolutionType: type,
+        resolutionNotes: note,
       })
       if (!result.success) {
         toast.error("Error", { description: result.error })
         return
       }
-      let msg = `Incidente resuelto: ${RESOLUTION_TYPE_LABELS[resolveType]}`
+      let msg = `Incidente resuelto: ${RESOLUTION_TYPE_LABELS[type]}`
       if (result.xpRestored && result.xpRestored > 0) {
         msg += ` (+${result.xpRestored} puntos devueltos)`
       }
       toast.success(msg)
-      setResolveNote("")
-      setResolveType('sin_consecuencias')
+      setResolveNote(prev => {
+        const { [id]: _omit, ...rest } = prev
+        return rest
+      })
+      setResolveType(prev => {
+        const { [id]: _omit, ...rest } = prev
+        return rest
+      })
       fetchIncidents()
     } catch (err: any) {
       toast.error("Error", { description: err.message })
@@ -182,13 +191,17 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
   const handleResolve = async (id: string, status: 'resolved' | 'dismissed') => {
     setResolvingId(id)
     try {
-      const result = await resolveIncidentAction(id, status, resolveNote || undefined)
+      const note = resolveNote[id] || undefined
+      const result = await resolveIncidentAction(id, status, note)
       if (!result.success) {
         toast.error("Error", { description: result.error })
         return
       }
       toast.success(status === 'resolved' ? "Incidente resuelto" : "Incidente descartado")
-      setResolveNote("")
+      setResolveNote(prev => {
+        const { [id]: _omit, ...rest } = prev
+        return rest
+      })
       fetchIncidents()
     } catch (err: any) {
       toast.error("Error", { description: err.message })
@@ -382,26 +395,31 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
 
                   {/* Tipo de resolución */}
                   <div className="flex gap-1.5 flex-wrap">
-                    {RESOLUTION_TYPES.map(rt => (
-                      <button
-                        key={rt.value}
-                        onClick={() => setResolveType(rt.value)}
-                        className={`text-[9px] font-bold px-2.5 py-1.5 rounded-full border transition-all ${
-                          resolveType === rt.value
-                            ? `${rt.color} text-white border-transparent`
-                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                        }`}
-                      >
-                        {rt.label}
-                      </button>
-                    ))}
+                    {RESOLUTION_TYPES.map(rt => {
+                      const currentType = resolveType[inc.id] ?? 'sin_consecuencias'
+                      return (
+                        <button
+                          key={rt.value}
+                          onClick={() => setResolveType(prev => ({ ...prev, [inc.id]: rt.value }))}
+                          className={`text-[9px] font-bold px-2.5 py-1.5 rounded-full border transition-all ${
+                            currentType === rt.value
+                              ? `${rt.color} text-white border-transparent`
+                              : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                          }`}
+                        >
+                          {rt.label}
+                        </button>
+                      )
+                    })}
                   </div>
 
                   {/* Notas de resolución */}
                   <Textarea
                     placeholder="Notas de la decisión (obligatorio)..."
-                    value={resolveNote}
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setResolveNote(e.target.value)}
+                    value={resolveNote[inc.id] ?? ""}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      setResolveNote(prev => ({ ...prev, [inc.id]: e.target.value }))
+                    }
                     rows={2}
                     className="text-xs"
                   />
