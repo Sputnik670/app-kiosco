@@ -18,6 +18,32 @@ import {
   type MissionData as Mission
 } from "@/lib/actions/missions.actions"
 import { getCriticalStockAction, type CriticalStock } from "@/lib/actions/inventory.actions"
+import { supabase } from "@/lib/supabase"
+
+// Mapea una fila cruda de la tabla missions (payload de Realtime) al shape
+// MissionData que usa la UI (nombres en español, camelCase legacy).
+function mapRealtimeRowToMission(row: any): Mission {
+    return {
+        id: row.id,
+        tipo: row.type,
+        descripcion: row.description || '',
+        objetivo_unidades: row.target_value,
+        unidades_completadas: row.current_value,
+        es_completada: row.is_completed,
+        puntos: row.points,
+        caja_diaria_id: row.cash_register_id,
+        created_at: row.created_at,
+    }
+}
+
+// Replica la misma lógica de filtrado que hace getEmployeeMissionsAction:
+// una misión aparece si es del turno actual, O si es global (sin turno) y
+// no está completada.
+function missionBelongsToCurrentView(m: Mission, turnoId: string): boolean {
+    if (m.caja_diaria_id === turnoId) return true
+    if (!m.caja_diaria_id && !m.es_completada) return true
+    return false
+}
 
 interface MisionesEmpleadoProps {
     turnoId: string
@@ -133,6 +159,75 @@ export default function MisionesEmpleado({ turnoId, empleadoId, sucursalId, onMi
     useEffect(() => {
         if (turnoId && empleadoId) fetchMisiones()
     }, [turnoId, empleadoId, fetchMisiones])
+
+    // ─── Suscripción Realtime ────────────────────────────────────────────
+    // Escucha cambios en missions para este empleado. Cubre:
+    //   • El dueño asigna una misión nueva → el empleado la ve aparecer.
+    //   • El dueño la elimina → desaparece en vivo.
+    //   • El progreso de la misión actualiza (ej. mermas cargadas desde
+    //     otro dispositivo del mismo empleado).
+    // El filter server-side (user_id) es lo único que Realtime soporta acá;
+    // el match por turno se hace en el handler con missionBelongsToCurrentView.
+    useEffect(() => {
+        if (!empleadoId || !turnoId) return
+
+        const channel = supabase
+            .channel(`missions:employee:${empleadoId}:turno:${turnoId}`)
+            .on(
+                "postgres_changes",
+                {
+                    event: "*",
+                    schema: "public",
+                    table: "missions",
+                    filter: `user_id=eq.${empleadoId}`,
+                },
+                (payload) => {
+                    if (payload.eventType === "INSERT") {
+                        const incoming = mapRealtimeRowToMission(payload.new)
+                        if (!missionBelongsToCurrentView(incoming, turnoId)) return
+                        setMisiones((prev) =>
+                            prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming]
+                        )
+                        if (incoming.tipo === 'vencimiento') {
+                            setMisionVencimiento(incoming)
+                        }
+                    } else if (payload.eventType === "UPDATE") {
+                        const updated = mapRealtimeRowToMission(payload.new)
+                        setMisiones((prev) => {
+                            const existsInList = prev.some((m) => m.id === updated.id)
+                            const shouldShow = missionBelongsToCurrentView(updated, turnoId)
+                            if (existsInList && !shouldShow) {
+                                // Cambió de turno o se completó una global → remover
+                                return prev.filter((m) => m.id !== updated.id)
+                            }
+                            if (existsInList) {
+                                return prev.map((m) => (m.id === updated.id ? updated : m))
+                            }
+                            if (shouldShow) {
+                                return [...prev, updated]
+                            }
+                            return prev
+                        })
+                        if (updated.tipo === 'vencimiento') {
+                            setMisionVencimiento(
+                                missionBelongsToCurrentView(updated, turnoId) ? updated : null
+                            )
+                        }
+                    } else if (payload.eventType === "DELETE") {
+                        const oldId = (payload.old as any)?.id
+                        if (oldId) {
+                            setMisiones((prev) => prev.filter((m) => m.id !== oldId))
+                            setMisionVencimiento((prev) => (prev?.id === oldId ? null : prev))
+                        }
+                    }
+                }
+            )
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [empleadoId, turnoId])
 
     const getMissionStatus = (m: Mission) => {
         if (m.es_completada) return { label: "Completada", color: "text-emerald-600", icon: CheckCheck, bg: "bg-emerald-50 border-emerald-200" }

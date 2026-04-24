@@ -22,6 +22,7 @@
 import { createClient } from '@/lib/supabase-server'
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 import { ROLES } from '@/lib/constants/roles'
+import { addXpEventAction } from '@/lib/actions/xp.actions'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -347,19 +348,44 @@ export async function completeManualMissionAction(
       }
     }
 
-    const { supabase } = await verifyAuth()
+    const { supabase, user } = await verifyAuth()
+
+    // SEGURIDAD: solo el empleado dueño de la misión puede completarla.
+    // (Un dueño siempre puede usar este action si es él mismo el empleado.)
+    if (user.id !== empleadoId) {
+      return {
+        success: false,
+        error: 'No podés completar misiones de otro empleado',
+      }
+    }
 
     // Obtener datos de la misión (Schema V2)
     const { data: mission, error: missionError } = await supabase
       .from('missions')
-      .select('points, cash_register_id, organization_id')
+      .select('points, cash_register_id, organization_id, description, is_completed')
       .eq('id', misionId)
-      .single<{ points: number; cash_register_id: string | null; organization_id: string }>()
+      .single<{
+        points: number
+        cash_register_id: string | null
+        organization_id: string
+        description: string | null
+        is_completed: boolean
+      }>()
 
     if (missionError || !mission) {
       return {
         success: false,
         error: 'Misión no encontrada',
+      }
+    }
+
+    // Idempotencia: si ya estaba completada, no volvemos a sumar XP.
+    // Evita que tocar dos veces el botón duplique el premio.
+    if (mission.is_completed) {
+      return {
+        success: true,
+        xpGanado: 0,
+        misionCompletada: true,
       }
     }
 
@@ -385,24 +411,32 @@ export async function completeManualMissionAction(
       }
     }
 
-    // Sumar XP al membership (Schema V2)
-    const { data: membership } = await supabase
-      .from('memberships')
-      .select('xp')
-      .eq('user_id', empleadoId)
-      .eq('organization_id', mission.organization_id)
-      .single<{ xp: number | null }>()
+    // Sumar XP usando addXpEventAction (el ÚNICO punto de escritura de XP).
+    // Este helper usa supabaseAdmin para bypass RLS + registra el evento
+    // en xp_events. Antes de este fix se hacía UPDATE directo a
+    // memberships.xp, que la RLS del empleado bloqueaba silenciosamente.
+    const xpResult = await addXpEventAction({
+      organizationId: mission.organization_id,
+      branchId: null, // missions no tiene branch_id directo; cash_register lo tiene pero no lo necesitamos acá
+      userId: empleadoId,
+      eventType: 'mision_completada',
+      points: mission.points,
+      description: mission.description
+        ? `Misión completada: ${mission.description}`
+        : 'Misión completada',
+      cashRegisterId: mission.cash_register_id || turnoId,
+      createdBy: user.id,
+    })
 
-    const nuevoXP = (membership?.xp || 0) + mission.points
-
-    const { error: xpError } = await supabase
-      .from('memberships')
-      .update({ xp: nuevoXP })
-      .eq('user_id', empleadoId)
-      .eq('organization_id', mission.organization_id)
-
-    if (xpError) {
-      console.error('Error al sumar XP:', xpError)
+    if (!xpResult.success) {
+      // La misión ya quedó marcada completada. Reportamos el error de XP
+      // pero no hacemos rollback — la misión efectivamente se hizo.
+      return {
+        success: false,
+        misionCompletada: true,
+        xpGanado: 0,
+        error: xpResult.error || 'Misión completada pero no se pudo sumar XP',
+      }
     }
 
     return {
@@ -448,7 +482,17 @@ export async function processMermasMissionAction(
       }
     }
 
-    const { supabase } = await verifyAuth()
+    const { supabase, user } = await verifyAuth()
+
+    // SEGURIDAD: las mermas las registra el empleado que está en turno.
+    // Igual que en completeManualMissionAction, no queremos que alguien
+    // procese mermas "en nombre" de otro empleado.
+    if (user.id !== empleadoId) {
+      return {
+        success: false,
+        error: 'No podés procesar mermas de otro empleado',
+      }
+    }
 
     // PRIMERO: leer las cantidades de cada lote antes de marcarlos como damaged.
     // La misión se mide en UNIDADES (target_value es la suma de stock crítico),
@@ -489,7 +533,7 @@ export async function processMermasMissionAction(
     // Obtener misión actual (Schema V2)
     const { data: mission, error: missionError } = await supabase
       .from('missions')
-      .select('current_value, target_value, points, cash_register_id, organization_id')
+      .select('current_value, target_value, points, cash_register_id, organization_id, description, is_completed')
       .eq('id', misionId)
       .single<{
         current_value: number
@@ -497,6 +541,8 @@ export async function processMermasMissionAction(
         points: number
         cash_register_id: string | null
         organization_id: string
+        description: string | null
+        is_completed: boolean
       }>()
 
     if (missionError || !mission) {
@@ -539,29 +585,31 @@ export async function processMermasMissionAction(
       }
     }
 
-    // Sumar XP si la misión se completó
+    // Sumar XP si la misión se completó JUSTO AHORA (no si ya estaba completa).
+    // Idempotencia: si la misión venía con is_completed=true, no sumamos
+    // otra vez (caso raro — el UPDATE de arriba no la hubiera tocado, pero
+    // por defensa en profundidad).
     let xpGanado = 0
 
-    if (misionCompletada) {
-      const { data: membership } = await supabase
-        .from('memberships')
-        .select('xp')
-        .eq('user_id', empleadoId)
-        .eq('organization_id', mission.organization_id)
-        .single<{ xp: number | null }>()
+    if (misionCompletada && !mission.is_completed) {
+      const xpResult = await addXpEventAction({
+        organizationId: mission.organization_id,
+        branchId: null,
+        userId: empleadoId,
+        eventType: 'mision_completada',
+        points: mission.points,
+        description: mission.description
+          ? `Misión completada (mermas): ${mission.description}`
+          : 'Misión de mermas completada',
+        cashRegisterId: mission.cash_register_id || turnoId,
+        createdBy: user.id,
+      })
 
-      const nuevoXP = (membership?.xp || 0) + mission.points
-
-      const { error: xpError } = await supabase
-        .from('memberships')
-        .update({ xp: nuevoXP })
-        .eq('user_id', empleadoId)
-        .eq('organization_id', mission.organization_id)
-
-      if (xpError) {
-        console.error('Error al sumar XP:', xpError)
-      } else {
+      if (xpResult.success) {
         xpGanado = mission.points
+      } else {
+        // Log pero no fallamos: las mermas ya se registraron en stock_batches.
+        console.error('[processMermasMissionAction] Error al sumar XP:', xpResult.error)
       }
     }
 
