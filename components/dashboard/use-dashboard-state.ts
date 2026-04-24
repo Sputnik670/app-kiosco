@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { DateRange } from "react-day-picker"
 import { startOfDay, endOfDay, subDays, format } from "date-fns"
 import { es } from "date-fns/locale"
@@ -9,6 +9,37 @@ import type {
   ProductoDashboard,
   HistorialPrecio,
 } from "@/types/dashboard.types"
+
+// ─── Persistencia del tab activo ──────────────────────────────────────────────
+// Guardamos el tab activo en sessionStorage para que, si por cualquier motivo
+// el componente se re-monta (cambio de pestaña del navegador, refresh del
+// service worker, etc.), no perdamos la vista donde estaba trabajando el usuario.
+// sessionStorage (no localStorage) porque si cierra el tab del navegador
+// queremos volver al default "ventas" en la próxima sesión.
+const TAB_STORAGE_KEY = "kiosco:dashboard:activeTab"
+
+const VALID_TABS: DashboardTab[] = [
+  "stock",
+  "ventas",
+  "proveedores",
+  "equipo",
+  "historial",
+  "analisis",
+  "ajustes",
+]
+
+function getInitialTab(): DashboardTab {
+  if (typeof window === "undefined") return "ventas"
+  try {
+    const stored = window.sessionStorage.getItem(TAB_STORAGE_KEY)
+    if (stored && VALID_TABS.includes(stored as DashboardTab)) {
+      return stored as DashboardTab
+    }
+  } catch {
+    // sessionStorage puede fallar en modo privado en algunos browsers
+  }
+  return "ventas"
+}
 
 export interface DashboardState {
   // UI
@@ -52,8 +83,8 @@ const defaultDateRange: DateRange = {
 }
 
 export function useDashboardState() {
-  // UI State
-  const [activeTab, setActiveTab] = useState<DashboardTab>("ventas")
+  // UI State — activeTab se inicializa desde sessionStorage si existe
+  const [activeTab, setActiveTab] = useState<DashboardTab>(getInitialTab)
   const [searchQuery, setSearchQuery] = useState("")
   const [dateRange, setDateRange] = useState<DateRange | undefined>(defaultDateRange)
   const [loading, setLoading] = useState(false)
@@ -66,6 +97,16 @@ export function useDashboardState() {
   const [showSalesDetail, setShowSalesDetail] = useState(false)
   const [showPriceHistoryModal, setShowPriceHistoryModal] = useState(false)
   const [historyData, setHistoryData] = useState<HistorialPrecio[]>([])
+
+  // Persistir cambios del tab activo en sessionStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      window.sessionStorage.setItem(TAB_STORAGE_KEY, activeTab)
+    } catch {
+      // Ignorar errores de sessionStorage (modo privado, quota, etc.)
+    }
+  }, [activeTab])
 
   // Computed
   const dateRangeLabel = useMemo(() => {
