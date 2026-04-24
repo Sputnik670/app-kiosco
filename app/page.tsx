@@ -235,16 +235,31 @@ function HomePageInner() {
 
     init()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (session?.user) fetchProfile(session.user.id)
-      else {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      // Ignorar eventos que no representan un cambio real de usuario.
+      // TOKEN_REFRESHED se dispara cuando el cliente de Supabase refresca el JWT
+      // en background (ocurre al volver a la pestaña con alt+tab, cada ~1h, etc).
+      // INITIAL_SESSION se dispara al montar (ya lo manejamos en init()).
+      // Propagarlos re-seteaba session → rerender de toda la app → se perdían
+      // estados de UI como tabs activos, textareas a medio escribir, dialogs.
+      // El cliente de Supabase mantiene el token fresco internamente igual, así
+      // que las llamadas al backend siguen funcionando sin tocar React.
+      if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') return
+
+      if (!newSession?.user) {
+        // SIGNED_OUT
+        setSession(null)
         setLoading(false)
         setUserProfile(null)
         setHasProfile(false)
         setSucursalId(null)
         setHasBranches(null)
+        return
       }
+
+      // SIGNED_IN / USER_UPDATED / PASSWORD_RECOVERY
+      setSession(newSession)
+      fetchProfile(newSession.user.id)
     })
 
     return () => subscription.unsubscribe()
@@ -328,6 +343,72 @@ function HomePageInner() {
                   // Recargar perfil para detectar nuevas sucursales
                   fetchProfile(userProfile.id)
                 }}
+              />
+            )
+        }
+
+        // Dueño con sucursales → Selector de sucursal (KPIs se ven DENTRO del dashboard, no antes)
+        return (
+            <SeleccionarSucursal
+                organizationId={userProfile.organization_id}
+                userId={userProfile.id}
+                userRol={userProfile.rol}
+                onSelect={(id) => setSucursalId(id)}
+            />
+        )
+    }
+
+    return <AppRouter userProfile={userProfile} onLogout={handleLogout} sucursalId={sucursalId} />
+  }
+
+  return null
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    }>
+      <HomePageInner />
+    </Suspense>
+  )
+}
+        }}
+              />
+            )
+        }
+
+        // Dueño con sucursales → Selector de sucursal (KPIs se ven DENTRO del dashboard, no antes)
+        return (
+            <SeleccionarSucursal
+                organizationId={userProfile.organization_id}
+                userId={userProfile.id}
+                userRol={userProfile.rol}
+                onSelect={(id) => setSucursalId(id)}
+            />
+        )
+    }
+
+    return <AppRouter userProfile={userProfile} onLogout={handleLogout} sucursalId={sucursalId} />
+  }
+
+  return null
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    }>
+      <HomePageInner />
+    </Suspense>
+  )
+}
+        }}
               />
             )
         }
