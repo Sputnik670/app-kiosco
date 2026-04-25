@@ -341,7 +341,7 @@ export async function applyHappyHourDiscountAction(
       }
     }
 
-    const { supabase, user, orgId } = await verifyAuth()
+    const { supabase, orgId } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 2: Obtener precio actual del producto
@@ -395,23 +395,9 @@ export async function applyHappyHourDiscountAction(
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 5: Registrar en historial de precios
     // ───────────────────────────────────────────────────────────────────────────
-
-    const { error: historialError } = await supabase
-      .from('price_history')
-      .insert({
-        organization_id: orgId,
-        product_id: productoId,
-        old_price: precioAnterior,
-        new_price: precioNuevo,
-        old_cost: producto.cost || 0,
-        new_cost: producto.cost || 0,
-        changed_by: user.id,
-      })
-
-    if (historialError) {
-      // No bloqueamos la operación, pero registramos el error
-      console.error('Error al registrar historial de precios:', historialError)
-    }
+    // Nota: NO se inserta manualmente en `price_history`. El trigger de DB
+    // `trigger_log_price_change` ya registra el cambio cuando el UPDATE de arriba
+    // modifica `sale_price`. Insertar acá genera registros duplicados.
 
     // ───────────────────────────────────────────────────────────────────────────
     // RETORNO EXITOSO
@@ -475,7 +461,7 @@ export async function updateProductAction(
       }
     }
 
-    const { supabase, user, orgId } = await verifyOwner()
+    const { supabase, orgId } = await verifyOwner()
 
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 2: Obtener precios anteriores (para historial)
@@ -522,31 +508,9 @@ export async function updateProductAction(
     // ───────────────────────────────────────────────────────────────────────────
     // PASO 4: Registrar en historial si cambió precio o costo
     // ───────────────────────────────────────────────────────────────────────────
-
-    // DECIMAL columns arrive as strings from Supabase, must cast to Number
-    const oldSalePrice = Number(oldProduct.sale_price) || 0
-    const oldCost = Number(oldProduct.cost) || 0
-    const precioChanged = Math.abs(oldSalePrice - Number(data.precio_venta)) > 0.01
-    const costoChanged = Math.abs(oldCost - Number(data.costo)) > 0.01
-
-    if (precioChanged || costoChanged) {
-      const { error: historialError } = await supabase
-        .from('price_history')
-        .insert({
-          organization_id: orgId,
-          product_id: productId,
-          old_price: oldProduct.sale_price,
-          new_price: data.precio_venta,
-          old_cost: oldProduct.cost,
-          new_cost: data.costo,
-          changed_by: user.id,
-        })
-
-      if (historialError) {
-        // No bloqueamos la operación, pero registramos el error
-        console.error('Error al registrar historial de precios:', historialError)
-      }
-    }
+    // Nota: NO se inserta manualmente en `price_history`. El trigger de DB
+    // `trigger_log_price_change` detecta cambios de `sale_price` o `cost` en el
+    // UPDATE anterior y crea el registro automáticamente. Insertar acá duplica.
 
     // ───────────────────────────────────────────────────────────────────────────
     // RETORNO EXITOSO

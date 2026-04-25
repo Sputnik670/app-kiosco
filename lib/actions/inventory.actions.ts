@@ -226,7 +226,7 @@ export async function processComplexStockEntry(
       return { success: false, error: getZodError(parsed) }
     }
 
-    const { supabase, user, orgId: organizationId } = await verifyAuth()
+    const { supabase, orgId: organizationId } = await verifyAuth()
 
     const costoNum = params.costoUnitario ?? 0
 
@@ -255,31 +255,19 @@ export async function processComplexStockEntry(
       // IMPORTANTE: Usar supabase del server action (no el del repositorio que usa el cliente)
       const { data: productoActual, error: productoError } = await supabase
         .from('products')
-        .select('cost, sale_price')
+        .select('cost')
         .eq('id', params.productoId)
-        .single<{ cost: number | null; sale_price: number | null }>()
+        .single<{ cost: number | null }>()
 
       if (!productoError && productoActual) {
         const costoAnterior = Number(productoActual.cost) || 0
-        const precioVentaActual = Number(productoActual.sale_price) || 0
 
         if (Math.abs(costoAnterior - costoNum) > 0.01) {
-          // Registrar en historial de precios
-          const { error: histError } = await supabase.from('price_history').insert({
-            organization_id: organizationId,
-            product_id: params.productoId,
-            old_cost: costoAnterior,
-            new_cost: costoNum,
-            old_price: precioVentaActual,
-            new_price: precioVentaActual,
-            changed_by: user.id,
-          })
-
-          if (histError) {
-            console.error('Error registrando historial de precios:', histError.message)
-          }
-
-          // Actualizar costo del producto
+          // Actualizar costo del producto.
+          // Nota: NO se inserta manualmente en `price_history`: el trigger de DB
+          // `trigger_log_price_change` (migración 00001) lo hace automáticamente
+          // cuando cambia `products.cost` o `products.sale_price`. Hacerlo acá
+          // también genera registros duplicados en el historial.
           const { error: updateError } = await supabase
             .from('products')
             .update({ cost: costoNum })
