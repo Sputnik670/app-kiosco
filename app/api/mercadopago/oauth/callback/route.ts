@@ -49,7 +49,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (errorParam) {
       logger.warn('MPOAuthCallback', 'MP retornó error', { error: errorParam })
       return NextResponse.redirect(
-        new URL('/dashboard?tab=ajustes&mp_error=access_denied', request.url)
+        new URL('/?tab=ajustes&mp_error=access_denied', request.url)
       )
     }
 
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         hasState: !!state,
       })
       return NextResponse.redirect(
-        new URL('/dashboard?tab=ajustes&mp_error=invalid_request', request.url)
+        new URL('/?tab=ajustes&mp_error=invalid_request', request.url)
       )
     }
 
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         matches: savedState === state,
       })
       return NextResponse.redirect(
-        new URL('/dashboard?tab=ajustes&mp_error=csrf_failed', request.url)
+        new URL('/?tab=ajustes&mp_error=csrf_failed', request.url)
       )
     }
 
@@ -103,7 +103,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!membership || !membership.organization_id) {
       logger.error('MPOAuthCallback', 'Usuario sin membresía activa', new Error(`userId: ${user.id}`))
       return NextResponse.redirect(
-        new URL('/dashboard?tab=ajustes&mp_error=no_org', request.url)
+        new URL('/?tab=ajustes&mp_error=no_org', request.url)
       )
     }
 
@@ -113,7 +113,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         role: membership.role,
       })
       return NextResponse.redirect(
-        new URL('/dashboard?tab=ajustes&mp_error=not_owner', request.url)
+        new URL('/?tab=ajustes&mp_error=not_owner', request.url)
       )
     }
 
@@ -128,7 +128,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!appId || !clientSecret || !redirectUri) {
       logger.error('MPOAuthCallback', 'Variables de entorno MP faltantes')
       return NextResponse.redirect(
-        new URL('/dashboard?tab=ajustes&mp_error=server_config', request.url)
+        new URL('/?tab=ajustes&mp_error=server_config', request.url)
       )
     }
 
@@ -148,7 +148,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const errorData = await tokenResponse.json().catch(() => ({}))
       logger.error('MPOAuthCallback', 'Error intercambiando code por token', new Error(`Status ${tokenResponse.status}: ${errorData.message || errorData.error}`))
       return NextResponse.redirect(
-        new URL('/dashboard?tab=ajustes&mp_error=token_exchange', request.url)
+        new URL('/?tab=ajustes&mp_error=token_exchange', request.url)
       )
     }
 
@@ -166,7 +166,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!accessToken) {
       logger.error('MPOAuthCallback', 'Token response sin access_token', new Error(`keys: ${Object.keys(tokenData).join(',')}`))
       return NextResponse.redirect(
-        new URL('/dashboard?tab=ajustes&mp_error=no_token', request.url)
+        new URL('/?tab=ajustes&mp_error=no_token', request.url)
       )
     }
 
@@ -211,7 +211,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (upsertError) {
       logger.error('MPOAuthCallback', 'Error guardando credenciales', upsertError)
       return NextResponse.redirect(
-        new URL('/dashboard?tab=ajustes&mp_error=save_failed', request.url)
+        new URL('/?tab=ajustes&mp_error=save_failed', request.url)
       )
     }
 
@@ -225,7 +225,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // ─────────────────────────────────────────────────────────────────────────
 
     const response = NextResponse.redirect(
-      new URL('/dashboard?tab=ajustes&mp_success=connected', request.url)
+      new URL('/?tab=ajustes&mp_success=connected', request.url)
     )
 
     // Limpiar cookie de state
@@ -242,7 +242,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('MPOAuthCallback', 'Error inesperado en callback', err)
     return NextResponse.redirect(
-      new URL('/dashboard?tab=ajustes&mp_error=unexpected', request.url)
+      new URL('/?tab=ajustes&mp_error=unexpected', request.url)
     )
   }
 }
