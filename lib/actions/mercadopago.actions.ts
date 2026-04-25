@@ -440,7 +440,11 @@ export async function createMercadoPagoOrderAction(
       .insert({
         organization_id: orgId,
         branch_id: branchId,
-        sale_id: saleId,
+        // sale_id: la venta real todavía no existe en `sales` cuando se genera el QR.
+        // El link se hace después con linkSaleToMercadoPagoOrderAction() vía external_reference.
+        // Pasar saleId acá rompía el INSERT porque saleId es un string tipo "temp_<ts>_<rand>"
+        // y la columna sale_id es UUID con FK a sales(id).
+        sale_id: null,
         external_reference: saleId,
         amount: Number(amount),
         currency: 'ARS',
