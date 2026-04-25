@@ -383,6 +383,22 @@ export async function createMercadoPagoOrderAction(
     //
     // Idempotencia sigue garantizada por external_reference = saleId.
 
+    // notification_url: derivar de MP_REDIRECT_URI para reusar la base.
+    // CRÍTICO: en Preferences API con OAuth, MP no siempre honra la URL
+    // configurada en el panel de developers. Hay que pasarla en el body.
+    // Sin esto, los webhooks de payment.created/updated no llegan y la
+    // orden queda en `pending` para siempre, aunque el pago haya entrado.
+    let notificationUrl: string | undefined
+    try {
+      const redirectUri = process.env.MP_REDIRECT_URI
+      if (redirectUri) {
+        notificationUrl = `${new URL(redirectUri).origin}/api/mercadopago/webhook`
+      }
+    } catch {
+      // Si MP_REDIRECT_URI no es URL válida, dejamos notification_url undefined
+      // y MP usará la del panel de developers como fallback.
+    }
+
     const mpRequestBody = {
       external_reference: saleId, // CRÍTICO: idempotencia
       items: [
@@ -400,8 +416,7 @@ export async function createMercadoPagoOrderAction(
       expiration_date_to: new Date(
         Date.now() + QR_EXPIRY_MINUTES * 60 * 1000
       ).toISOString(),
-      // El webhook global de la app captura las notificaciones — no es necesario
-      // setear notification_url por preference.
+      ...(notificationUrl ? { notification_url: notificationUrl } : {}),
     }
 
     logger.debug('createMercadoPagoOrderAction', 'Llamando API de MP (Preferences)', {
