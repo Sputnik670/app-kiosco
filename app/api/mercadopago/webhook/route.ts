@@ -129,6 +129,21 @@ export async function POST(request: Request): Promise<Response> {
       return jsonResponse({ error: 'Headers requeridos faltantes' }, 400)
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Extraer data.id del QUERY PARAM (no del body).
+    // Según docs MP, el template HMAC usa el data.id que viene en la URL.
+    // Si es alfanumérico, debe ir en lowercase.
+    // Ref: https://www.mercadopago.com.ar/developers/en/docs/your-integrations/notifications/webhooks
+    // ─────────────────────────────────────────────────────────────────────────
+    const requestUrl = new URL(request.url)
+    const dataIdRaw =
+      requestUrl.searchParams.get('data.id') ||
+      requestUrl.searchParams.get('id') ||
+      ''
+    const dataIdForSignature = /^[a-zA-Z0-9]+$/.test(dataIdRaw)
+      ? dataIdRaw.toLowerCase()
+      : dataIdRaw
+
     let payload: MercadoPagoWebhookPayload
     try {
       payload = await request.json()
@@ -152,8 +167,11 @@ export async function POST(request: Request): Promise<Response> {
     // PASO 3: Validar timestamp (replay attack prevention)
     // ─────────────────────────────────────────────────────────────────────────
 
+    // signature.ts de MP viene en SEGUNDOS (Unix epoch). Lo convertimos a ms
+    // para comparar con Date.now().
     const now = Date.now()
-    const age = now - signature.ts
+    const tsMs = signature.ts * 1000
+    const age = now - tsMs
 
     if (age > MAX_SIGNATURE_AGE_MS) {
       logger.warn('MercadoPagoWebhook', 'Timestamp expirado', {
@@ -196,7 +214,7 @@ export async function POST(request: Request): Promise<Response> {
     const isSignatureValid = verifyMercadoPagoSignature(
       signature.ts,
       requestIdHeader,
-      payload,
+      dataIdForSignature,
       webhookSecret,
       signature.v1
     )
@@ -573,17 +591,20 @@ function parseSignatureHeader(header: string): SignatureHeader | null {
 /**
  * Verificar firma HMAC-SHA256 de Mercado Pago
  *
- * ALGORITMO:
- * 1. Template: {id}|{ts}|{requestId}
- * 2. HMAC-SHA256(template, webhook_secret)
- * 3. Comparar resultado con v1 recibido
+ * ALGORITMO (per docs oficiales):
+ * 1. Template: id:[data.id];request-id:[xRequestId];ts:[ts];
+ *    - data.id sale del QUERY PARAM (no del body), lowercased si es alfanumérico
+ *    - separador `;` y prefijos `id:` `request-id:` `ts:` son obligatorios
+ *    - punto y coma final también
+ * 2. HMAC-SHA256(template, webhook_secret) → hex
+ * 3. Comparar (timing-safe) con v1 recibido en header x-signature
  *
  * Referencia:
- * https://www.mercadopago.com.ar/developers/es/docs/your-integrations/notifications/webhooks
+ * https://www.mercadopago.com.ar/developers/en/docs/your-integrations/notifications/webhooks
  *
- * @param timestamp - Timestamp del header
+ * @param timestamp - Timestamp del header (segundos)
  * @param requestId - X-Request-ID del header
- * @param payload - Body del webhook (para extraer ID)
+ * @param dataId - data.id extraído del query param (lowercased)
  * @param webhookSecret - Secret de Mercado Pago
  * @param receivedV1 - Firma recibida en header
  * @returns true si firma es válida
@@ -591,18 +612,23 @@ function parseSignatureHeader(header: string): SignatureHeader | null {
 function verifyMercadoPagoSignature(
   timestamp: number,
   requestId: string,
-  payload: MercadoPagoWebhookPayload,
+  dataId: string,
   webhookSecret: string,
   receivedV1: string
 ): boolean {
   try {
-    // Template según MP docs
-    const template = `${payload.id}|${timestamp}|${requestId}`
+    // Template oficial MP — `;` final incluido, prefijos id:/request-id:/ts: obligatorios
+    const template = `id:${dataId};request-id:${requestId};ts:${timestamp};`
 
     // Generar HMAC-SHA256
     const hmac = crypto.createHmac('sha256', webhookSecret)
     hmac.update(template)
     const computed = hmac.digest('hex')
+
+    // Si las longitudes difieren, timingSafeEqual tira → comparación rápida primero
+    if (computed.length !== receivedV1.length) {
+      return false
+    }
 
     // Comparación timing-safe para evitar timing attacks
     const isValid = crypto.timingSafeEqual(
