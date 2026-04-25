@@ -1,7 +1,7 @@
 # Estado del Proyecto — App Kiosco
 
 > **Este es tu mapa. Cuando te sientas perdido, vení acá.**
-> Última actualización: 30 de marzo de 2026
+> Última actualización: 24 de abril de 2026
 
 ---
 
@@ -33,15 +33,19 @@ SaaS de gestión para cadenas de kioscos en Argentina. Cloud, mobile-first, con 
 | **Servicios Virtuales** | SUBE + recargas con comisión configurable | `widget-sube.tsx` / `service.actions.ts` |
 | **Facturación interna** | Comprobantes internos (NO fiscal) | `facturacion/` / `invoicing.actions.ts` |
 
-### IMPLEMENTADO — PENDIENTE TESTEO EN PRODUCCIÓN
+### IMPLEMENTADO — FUNCIONANDO, FALTA TESTEO FINAL EN PRODUCCIÓN
 
 | Módulo | Qué hace | Archivos clave | Estado |
 |--------|----------|----------------|--------|
-| **Sistema XP automático** | Apertura puntual (+20), cierre limpio (+30), tardanza (-25/-50), diferencia caja (-40), misiones incumplidas (-10) | `xp.actions.ts` | Backend + UI completos, compila OK |
-| **Descargo de empleado** | Empleado justifica tardanza/error, dueño resuelve con tipo formal | `incidents.actions.ts` + `mis-incidentes.tsx` | Flujo completo implementado |
+| **Sistema XP automático** | Apertura puntual (+20), cierre limpio (+30), tardanza (-25/-50), diferencia caja (-40), misiones incumplidas (-10) | `xp.actions.ts` | Backend + UI + RLS fix 21-abr |
+| **Descargo de empleado** | Empleado justifica tardanza/error, dueño resuelve con tipo formal | `incidents.actions.ts` + `mis-incidentes.tsx` | Flujo completo + Realtime 20-abr |
 | **Ajuste manual XP** | Dueño da premio o sanción con mensaje obligatorio | `ajuste-manual-xp.tsx` + `xp.actions.ts` | UI integrada en dashboard |
 | **Analytics de rendimiento** | Resumen diario/semanal/mensual por empleado | `xp-analytics.tsx` + `xp.actions.ts` | UI integrada en dashboard |
 | **Configuración de rendimiento** | Dueño configura valores XP + horarios de sucursal | `configuracion-rendimiento.tsx` | UI integrada en dashboard |
+| **Realtime bidireccional** | Incidents y misiones se actualizan sin F5 para dueño y empleado | `gestion-incidentes.tsx`, `mis-incidentes.tsx`, `misiones-empleado.tsx` | Commits `bd3c0ab` + `bbd6e4b` |
+| **Fichaje QR por empleado (v2)** | Tarjeta QR individual, canvas oculto, bypass del scanner viejo | `generar-qr-fichaje.tsx`, migración `00009` | Pivot 23-abr, funcionando |
+| **PWA + Offline sync** | Manifest, SW de 31KB, IndexedDB, sync endpoints para ventas y asistencia | `/lib/offline/*`, `/public/sw.js`, `/api/ventas/sync`, `/api/asistencia/sync` | Instalable en iOS/Android |
+| **Métodos de cobro ampliados (Posnet / QR fijo / Alias)** | Los 3 métodos típicos de kioscos 24h con reja. Migración `00010`, bucket `payment-assets`, UI de config + dialog de cobro manual | `lib/actions/payment-methods.actions.ts`, `components/configuracion-metodos-cobro.tsx`, `components/dialog-cobro-manual.tsx` | Commit pendiente (24-abr) |
 
 ### EN DESARROLLO
 
@@ -54,7 +58,8 @@ SaaS de gestión para cadenas de kioscos en Argentina. Cloud, mobile-first, con 
 
 | Módulo | Prioridad | Nota |
 |--------|-----------|------|
-| **Modo offline / PWA** | Alta | Docs de implementación listos en `.skills/pwa-implementation/` |
+| **Publicación en App Store y Play Store** | Media | Ver sección "Viabilidad App Store / Play Store" más abajo. PWA base lista, falta wrapper + contenido legal. |
+| **Modo offline — endurecer** | Media | Base ya funcionando con sync endpoints. Falta cobertura de conflictos y UI de "pendiente de sincronizar" en todas las pantallas. |
 
 ### DESCARTADO
 
@@ -114,28 +119,4 @@ SaaS de gestión para cadenas de kioscos en Argentina. Cloud, mobile-first, con 
 ## Pendientes Concretos (en orden de prioridad)
 
 ### Para el piloto
-1. **Testear sistema de XP/gamificación** — configurar horarios de sucursal, probar apertura→misiones→cierre→incidents→descargo
-2. Testear Mercado Pago QR en producción con pago real
-3. Probar con el primer cliente real
-
-### Para después del piloto
-4. Modo offline / PWA con sync
-5. Evaluar cuentas corrientes (fiado) si hay demanda
-6. Evaluar integración con facturación fiscal si hay demanda
-
-### Infraestructura
-7. Comprar dominio propio
-8. Email profesional (soporte@)
-9. Definir nombre de marca
-
----
-
-## Competidor Principal
-
-**Sistar Simple** (sistar.com.ar) — Cloud, multi-sucursal. Tiene AFIP y fiado, no tiene servicios virtuales ni gamificación. Precio estimado $15k/mes por sucursal vs nuestros $199/mes por toda la cadena.
-
-Análisis completo en: `.skills/competitive-research/reports/`
-
----
-
-> Si algo de acá no está claro o no coincide con la realidad, decile a Claude que lo actualice.
+1. **Testear sistema de XP/gamificación end-to-end** — configurar horar

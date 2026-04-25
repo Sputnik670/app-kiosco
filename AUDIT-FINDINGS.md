@@ -1,120 +1,115 @@
-# Auditoría de Seguridad y Performance — Marzo 2026
+# Auditoría de Seguridad y Performance — App Kiosco
 
-## SEGURIDAD DE BASE DE DATOS
-
-### Estado general: BUENO
-- 27 tablas, TODAS con RLS activado
-- 0 tablas con RLS activado sin políticas (no hay tablas "bloqueadas")
-- Todas las funciones SECURITY DEFINER tienen `SET search_path TO 'public'` ✅
-
-### Hallazgos de seguridad
-
-#### CRÍTICO: 2 tablas con políticas demasiado permisivas
-
-1. **`incidents`** — Política `incidents_org_policy` usa `FOR ALL` con rol `public`
-   - Problema: Cualquier usuario autenticado de la org puede crear, editar y eliminar incidentes de otros
-   - Fix: Separar en SELECT/INSERT/UPDATE/DELETE con restricciones:
-     - INSERT: solo dueño (`is_owner()`)
-     - UPDATE: empleado solo su justificación, dueño puede resolver
-     - DELETE: solo dueño
-     - SELECT: toda la org
-
-2. **`owner_notes`** — Política `owner_notes_org_access` usa `FOR ALL` con rol `public`
-   - Problema: Un empleado de la org podría leer/modificar/eliminar las notas del dueño
-   - Fix: Agregar `AND is_owner()` para INSERT/UPDATE/DELETE
-
-#### MEDIO: Funciones SECURITY DEFINER sin search_path
-
-1. **`expire_pending_mp_orders()`** — Falta `SET search_path`
-2. **`process_sale()`** — Falta `SET search_path`
-   - Riesgo: search_path poisoning teórico (bajo riesgo práctico en Supabase)
-   - Fix: Agregar `SET search_path TO 'public'` a ambas
-
-#### MEDIO: Tablas sensibles sin restricción de escritura por rol
-
-1. **`mercadopago_credentials`** — Cualquier miembro puede INSERT/UPDATE/DELETE credenciales
-   - Fix: Restringir INSERT/UPDATE/DELETE a `is_owner()`
-
-2. **`service_sales`** — Sin políticas de UPDATE ni DELETE
-   - Actualmente solo tiene INSERT y SELECT, lo cual está bien para inmutabilidad
-   - Pero no hay política explícita bloqueando DELETE/UPDATE (un cliente malicioso podría intentar)
-   - Fix: Agregar políticas `DELETE false` y `UPDATE false`
-
-3. **`service_purchases`** — Falta política de UPDATE
-   - Fix: Agregar `UPDATE false` o restringir a owner
-
-#### BAJO: Observaciones menores
-
-- `arca_config` y `arca_invoices` usan rol `public` en vez de `authenticated` (funciona, pero `authenticated` es más explícito)
-- `memberships` no permite DELETE (correcto, protege integridad), pero no hay forma de desactivar desde RLS (se hace via `is_active = false` en UPDATE)
+> Última revisión: 24 de abril de 2026
+> Auditoría original: marzo 2026
+> Este archivo refleja el estado REAL hoy, no la foto histórica. Para ver el detalle histórico ver `agents/reportes/seguridad-auditoria.md`.
 
 ---
 
-## PERFORMANCE FRONTEND
+## Estado general
 
-### Hallazgos críticos
-
-1. **Dashboard carga 8+ queries simultáneas al abrir**
-   - `useDashboardData` dispara ventas, productos, servicios, turnos, asistencias, etc. todo junto
-   - Fix: Diferir queries no-críticas (asistencias, turnos) a lazy load cuando se abre el tab "equipo"
-
-2. **Reports/PDF/Excel no usan dynamic import a nivel componente**
-   - jspdf (~200KB), xlsx (~1.2MB) se bundlean aunque el usuario no vaya a generar reportes
-   - Fix: `next/dynamic(() => import('@/components/reports'), { ssr: false })`
-
-3. **Recharts importado siempre en TabSales**
-   - ~50KB de librería que solo se usa en una pestaña
-   - Fix: Dynamic import del chart component
-
-### Hallazgos medios
-
-4. **Todos los componentes de tabs se importan eagerly en dashboard-dueno**
-   - 10+ componentes importados al top del archivo, solo 1 visible a la vez
-   - Fix: `next/dynamic` para cada tab content
-
-5. **VistaEmpleado carga 9 componentes aunque el empleado no haya fichado**
-   - CajaVentas, WidgetServicios, WidgetSube, etc. se importan incluso con interfaz bloqueada
-   - Fix: Dynamic import condicional
-
-6. **`formatMoney` se re-crea en cada render del dashboard**
-   - Fix: useCallback o extraer fuera del componente
-
-### Hallazgos bajos
-
-7. Sin Next.js Image component (no hay imágenes actualmente, solo SVG/emoji)
-8. PWA bien configurada, podría agregar preload de chunks críticos
-9. Sin Web Vitals monitoring custom
+- **Seguridad DB:** BUENO. 27 tablas con RLS. Sin tablas bloqueadas. Todas las políticas críticas están separadas por operación.
+- **Performance frontend:** BUENO. Dynamic imports aplicados en reports, MP, ARCA, recharts y tab components.
+- **Hallazgos abiertos hoy:** 2 menores + 1 parcialmente pendiente.
 
 ---
 
-## PLAN DE ACCIÓN
+## Hallazgos abiertos (24 de abril)
 
-### Prioridad 1 — Seguridad DB ✅ COMPLETADO
-- [x] Fix RLS de `incidents`: separar políticas por operación → migración 00007
-- [x] Fix RLS de `owner_notes`: restringir a owner → migración 00007
-- [x] Fix RLS de `mercadopago_credentials`: restringir escritura a owner → migración 00007
-- [x] Agregar DELETE/UPDATE false a `service_sales` → migración 00008
-- [x] Agregar `SET search_path` a `expire_pending_mp_orders` y `process_sale` → migración 00008
-- [x] Fix bug OR sin paréntesis en verificación de migración 00007
+### BAJO — `product_catalog` con INSERT policy `WITH CHECK (true)`
 
-### Prioridad 2 — Performance (quick wins) ✅ COMPLETADO
-- [x] Dynamic import de Reports, ConfiguracionMercadoPago, ConfiguracionArca → `dashboard-dueno.tsx`
-- [x] Dynamic import de Recharts en TabSales → `tab-sales.tsx`
-- [x] Memoizar formatMoney con useCallback → extraído fuera del componente
+- Advisor Supabase `rls_policy_always_true` lo flagea.
+- Es **intencional**: `product_catalog` es una tabla cross-organización pensada para que cualquier usuario autenticado contribuya cuando escanea un producto nuevo (efecto red).
+- Riesgo real: usuario malicioso podría spamear el catálogo con barcodes falsos.
+- Mitigación recomendada: endurecer la policy para obligar `contributed_by = auth.uid()` en el INSERT:
+  ```sql
+  WITH CHECK (contributed_by = auth.uid())
+  ```
+  Esto permite sumar al catálogo pero ata la contribución al user real, y en el futuro se puede rate-limitar o revertir vandalismos.
 
-### Prioridad 3 — Performance (medio plazo) — PARCIAL
-- [x] Lazy-load todos los tab components con next/dynamic → `dashboard-dueno.tsx`
-- [ ] Diferir queries no-críticas en useDashboardData
-- [ ] Dynamic imports en VistaEmpleado para componentes post-fichaje
+### BAJO — `mercadopago_credentials` SELECT abierto a toda la org
 
-### Completado (sesión 19 marzo 2026)
-- [x] Políticas de uso para clientes → `docs/comercial/documentacion-legal.docx`
-- [x] Precio definido: $199/mes por cadena, primer mes gratis
-- [x] Legales (términos, privacidad, SLA) → `docs/comercial/documentacion-legal.docx`
-- [x] Filter injection en ventas.actions.ts → sanitizado `.replace(/[,()]/g, '')`
-- [x] BranchId validation en reports.actions.ts → `validateBranchOwnership()`
-- [x] Console.log con datos de usuario en user.actions.ts → eliminados
-- [x] Dashboard margen hardcodeado → lee unit_cost real de sale_items
-- [x] N+1 queries en tab-historial.tsx → batch con .in() + Promise.all
-- [x] Touch targets en tab-timeline.tsx → mínimo 36px
-- [x] Código muerto de actualización masiva → 420 líneas eliminadas
+- Políticas INSERT/UPDATE/DELETE restringidas a `is_owner()` ✅
+- Política SELECT (`mp_creds_select`) sólo filtra por `organization_id = get_my_org_id()` — cualquier miembro de la org puede leer las credenciales.
+- Los tokens sensibles no llegan al cliente (se usan server-side), pero es más higiénico restringir también SELECT a owner.
+- Fix propuesto:
+  ```sql
+  ALTER POLICY mp_creds_select ON mercadopago_credentials
+  USING ((organization_id = get_my_org_id()) AND is_owner());
+  ```
+
+### MEDIO — Auth leaked password protection deshabilitado
+
+- Requiere plan Pro de Supabase.
+- No accionable hasta upgrade. Sin acción.
+
+### MEDIO — Queries no-críticas de `useDashboardData`
+
+- Ventas, productos, servicios, turnos y asistencias se cargan juntas al abrir el dashboard.
+- Pendiente diferir turnos/asistencias a cuando se abre el tab "Equipo".
+- Prioridad: baja (no hay reportes de lentitud del cliente).
+
+### MEDIO — `VistaEmpleado` importa 9 componentes siempre
+
+- CajaVentas, WidgetServicios, WidgetSube etc. se importan aunque el empleado no haya fichado.
+- Pendiente dynamic import condicional.
+- Prioridad: baja.
+
+---
+
+## Hallazgos resueltos entre marzo y abril
+
+### Seguridad DB — RESUELTO en migración 00007–00008 (confirmado 24-abr)
+
+- `incidents` — 7 políticas separadas por operación. INSERT/DELETE solo `is_owner()`; UPDATE diferenciado entre empleado (sólo su justificación, estados abiertos/justificados) y owner.
+- `owner_notes` — políticas separadas, todas con `is_owner()`.
+- `mercadopago_credentials` — INSERT/UPDATE/DELETE restringidos a `is_owner()` (SELECT sigue abierto — ver abiertos).
+- `service_sales` — inmutabilidad protegida (sin UPDATE/DELETE policy = denegadas por default).
+- `expire_pending_mp_orders()` y `process_sale()` — `SET search_path TO 'public'` aplicado.
+
+### Soft-delete de proveedores — RESUELTO (29-mar, commit `9575012`)
+
+- Causa: SELECT policy `is_active = true` rechazaba el RETURNING del UPDATE.
+- Fix: función `deactivate_supplier(uuid)` SECURITY DEFINER.
+
+### Vistas y funciones con search_path — RESUELTO (29-mar)
+
+- `v_products_with_stock` y `v_expiring_stock` → `security_invoker = on`.
+- `update_mp_creds_updated_at()`, `update_owner_notes_updated_at()` → `SET search_path TO 'public'`.
+
+### Performance frontend — RESUELTO
+
+- Dynamic import de Reports, ConfiguracionMercadoPago, ConfiguracionArca en `dashboard-dueno.tsx`.
+- Dynamic import de Recharts en `tab-sales.tsx`.
+- `formatMoney` extraído fuera del componente.
+- Lazy-load de todos los tab components con `next/dynamic`.
+
+### Validaciones server-side — RESUELTO
+
+- `validateBranchOwnership()` aplicado en reports.actions.ts.
+- Sanitización de `.or()` con `.replace(/[,()]/g, '')` en ventas.actions.ts.
+- Console.log de emails/IDs eliminados de user.actions.ts.
+
+### Dashboard — RESUELTO
+
+- Margen real con `unit_cost` de `sale_items`.
+- N+1 queries en `tab-historial.tsx` batchadas con `.in()` + `Promise.all()`.
+- Touch targets ≥ 36px en tab-timeline.
+
+### Realtime bidireccional — RESUELTO (13-abr, commits `bd3c0ab` y `bbd6e4b`)
+
+- `incidents`: suscripción `postgres_changes` filtrada por `branch_id` / `employee_id`. Dueño y empleado ven cambios sin F5.
+- `missions`: mismo patrón + fix de RLS silenciosa que impedía sumar XP.
+
+---
+
+## Observaciones
+
+- `arca_config` y `arca_invoices` usan rol `public` en lugar de `authenticated` (funciona pero es menos explícito). No urgente.
+- `memberships` no permite DELETE por diseño (desactivación vía `is_active = false`).
+
+---
+
+## Policy
+
+Cuando aparezca un hallazgo nuevo, se agrega en "Hallazgos abiertos". Cuando se resuelve, se mueve a "Resueltos" con fecha y commit. No se borra — es el registro que protege del mismo bug dos veces.
