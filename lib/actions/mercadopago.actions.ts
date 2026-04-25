@@ -370,61 +370,55 @@ export async function createMercadoPagoOrderAction(
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // ASEGURAR QUE EXISTAN STORE + POS EN MP (lazy init)
+    // LLAMAR API DE MERCADO PAGO — Checkout Preferences
     // ───────────────────────────────────────────────────────────────────────────
-    // MP requiere un POS registrado para crear QRs dinámicos. Si esta es la
-    // primera vez que la org cobra, los creamos por API. Después se cachean
-    // en mercadopago_credentials.
-
-    let externalPosId: string
-    try {
-      externalPosId = await ensureStoreAndPOS(supabase, orgId, config)
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err))
-      logger.error('createMercadoPagoOrderAction', 'Error registrando Store/POS en MP', error)
-      return {
-        success: false,
-        error: 'No se pudo configurar punto de venta en Mercado Pago. Reintentá.',
-        retryable: true,
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // LLAMAR API DE MERCADO PAGO
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const mpPath = `/instore/orders/qr/seller/collectors/${config.collecterId}/pos/${externalPosId}/qrs`
+    // Usamos /checkout/preferences en lugar de /instore/orders/qr/.../pos/.../qrs
+    // porque la API de QR in-store requiere registro de Store + POS en la cuenta
+    // del kiosquero, lo cual no está disponible para apps OAuth recién creadas.
+    //
+    // Preferences crea un init_point URL que metemos en un QR. Al escanear:
+    //   - MP app: abre checkout MP nativo
+    //   - Otras billeteras (Naranja X, Brubank, MODO): abren el URL en browser,
+    //     que va al checkout web de MP. Funcional, un par de taps extra.
+    //
+    // Idempotencia sigue garantizada por external_reference = saleId.
 
     const mpRequestBody = {
       external_reference: saleId, // CRÍTICO: idempotencia
-      title: 'Venta en Kiosco',
-      description: description || 'Venta desde kiosco',
-      total_amount: Number(amount),
       items: [
         {
           title: description || 'Venta en Kiosco',
+          description: 'Venta desde kiosco',
           quantity: 1,
           unit_price: Number(amount),
-          total_amount: Number(amount),
+          currency_id: 'ARS',
         },
       ],
+      // Vence la preferencia para que el QR no quede vivo eternamente
+      expires: true,
+      expiration_date_from: new Date().toISOString(),
+      expiration_date_to: new Date(
+        Date.now() + QR_EXPIRY_MINUTES * 60 * 1000
+      ).toISOString(),
+      // El webhook global de la app captura las notificaciones — no es necesario
+      // setear notification_url por preference.
     }
 
-    logger.debug('createMercadoPagoOrderAction', 'Llamando API de MP', {
+    logger.debug('createMercadoPagoOrderAction', 'Llamando API de MP (Preferences)', {
       saleId,
       amount,
       collecterId: config.collecterId,
     })
 
     const mpResponse = await callMercadoPagoAPI(
-      'PUT',
-      mpPath,
+      'POST',
+      '/checkout/preferences',
       mpRequestBody,
       config.accessToken
     )
 
-    if (!mpResponse || !mpResponse.qr_data) {
-      logger.warn('createMercadoPagoOrderAction', 'MP API no retornó qr_data', {
+    if (!mpResponse || !mpResponse.init_point) {
+      logger.warn('createMercadoPagoOrderAction', 'MP API no retornó init_point', {
         saleId,
         mpResponse: mpResponse ? Object.keys(mpResponse) : null,
       })
@@ -450,7 +444,10 @@ export async function createMercadoPagoOrderAction(
         external_reference: saleId,
         amount: Number(amount),
         currency: 'ARS',
-        qr_data: mpResponse.qr_data,
+        // qr_data ahora guarda el init_point URL de la preferencia.
+        // El frontend lo encodea como QR y al escanearlo se abre el checkout MP.
+        qr_data: mpResponse.init_point,
+        mp_order_id: mpResponse.id,
         status: 'pending',
         created_at: new Date().toISOString(),
         expires_at: expiresAt,
@@ -1060,160 +1057,3 @@ async function validateMercadoPagoToken(
   }
 }
 
-/**
- * Asegurar que la organización tenga un Store y POS registrados en MP.
- *
- * MP requiere que cada cuenta tenga registrado un Store + POS para poder
- * crear QRs dinámicos in-store. Como pedirle al kiosquero que lo configure
- * a mano sería terrible, lo hacemos automáticamente acá la primera vez
- * que va a cobrar con QR. Después se cachea en mercadopago_credentials.
- *
- * Es idempotente: si MP responde "ya existe un Store/POS con ese external_id",
- * lo manejamos y guardamos lo que tengamos.
- *
- * @param supabase - Cliente Supabase autenticado
- * @param orgId - ID de la organización
- * @param config - Configuración de MP desencriptada (con accessToken y collectorId)
- * @returns external_pos_id que se usa en el path de creación de QR
- */
-async function ensureStoreAndPOS(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  orgId: string,
-  config: MercadoPagoConfig
-): Promise<string> {
-  // ─────────────────────────────────────────────────────────────────────────
-  // 1) Si ya tenemos external_pos_id cacheado, devolverlo
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const { data: cached } = await supabase
-    .from('mercadopago_credentials')
-    .select('mp_store_id, mp_pos_external_id')
-    .eq('organization_id', orgId)
-    .single<{ mp_store_id: string | null; mp_pos_external_id: string | null }>()
-
-  if (cached?.mp_pos_external_id) {
-    return cached.mp_pos_external_id
-  }
-
-  logger.info('ensureStoreAndPOS', 'Registrando Store + POS en MP por primera vez', {
-    orgId: orgId.substring(0, 8),
-    collectorId: config.collecterId,
-  })
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // 2) Crear Store en MP
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const orgIdShort = orgId.substring(0, 8)
-  const storeExternalId = `store-${orgIdShort}`
-  const posExternalId = `pos-${orgIdShort}`
-
-  let storeId: string | null = cached?.mp_store_id || null
-
-  if (!storeId) {
-    const storeBody = {
-      name: 'Sucursal Principal',
-      external_id: storeExternalId,
-      // MP exige location aunque no la usemos para nada — valores genéricos.
-      location: {
-        street_number: '0',
-        street_name: 'No especificada',
-        city_name: 'Buenos Aires',
-        state_name: 'Buenos Aires',
-        country: 'AR',
-        latitude: 0,
-        longitude: 0,
-        reference: '',
-        zip_code: '0000',
-      },
-    }
-
-    const storeResp = await callMercadoPagoAPI(
-      'POST',
-      `/users/${config.collecterId}/stores`,
-      storeBody,
-      config.accessToken
-    )
-
-    if (storeResp && storeResp.id) {
-      storeId = String(storeResp.id)
-    } else {
-      // Fallback: tal vez ya existe un Store con ese external_id (ej. corrida anterior).
-      // Buscarlo y usarlo.
-      const existingStores = await callMercadoPagoAPI(
-        'GET',
-        `/users/${config.collecterId}/stores/search?external_id=${encodeURIComponent(storeExternalId)}`,
-        undefined,
-        config.accessToken
-      )
-      const found = existingStores?.results?.[0]
-      if (found?.id) {
-        storeId = String(found.id)
-        logger.info('ensureStoreAndPOS', 'Store ya existía, reutilizando', {
-          storeId,
-        })
-      } else {
-        throw new Error('No se pudo crear Store en Mercado Pago')
-      }
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // 3) Crear POS en MP
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const posBody = {
-    name: 'Caja Principal',
-    fixed_amount: false,
-    store_id: storeId,
-    external_id: posExternalId,
-    // category numérico para "Servicios generales" — MP lo requiere
-    category: 621102,
-  }
-
-  const posResp = await callMercadoPagoAPI('POST', '/pos', posBody, config.accessToken)
-
-  if (!posResp || (!posResp.id && !posResp.external_id)) {
-    // Fallback: tal vez ya existe un POS con ese external_id.
-    const existingPos = await callMercadoPagoAPI(
-      'GET',
-      `/pos?external_id=${encodeURIComponent(posExternalId)}`,
-      undefined,
-      config.accessToken
-    )
-    const found = existingPos?.results?.[0]
-    if (!found?.external_id) {
-      throw new Error('No se pudo crear POS en Mercado Pago')
-    }
-    logger.info('ensureStoreAndPOS', 'POS ya existía, reutilizando', {
-      posExternalId,
-    })
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // 4) Guardar IDs en Supabase para próximas veces
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const { error: updateError } = await supabase
-    .from('mercadopago_credentials')
-    .update({
-      mp_store_id: storeId,
-      mp_pos_external_id: posExternalId,
-    })
-    .eq('organization_id', orgId)
-
-  if (updateError) {
-    logger.warn('ensureStoreAndPOS', 'No se pudieron cachear IDs (no bloqueante)', {
-      error: updateError.message,
-    })
-    // No es crítico — el QR se puede crear igual, sólo no cacheamos.
-  }
-
-  logger.info('ensureStoreAndPOS', 'Store + POS registrados exitosamente', {
-    orgId: orgId.substring(0, 8),
-    storeId,
-    posExternalId,
-  })
-
-  return posExternalId
-}

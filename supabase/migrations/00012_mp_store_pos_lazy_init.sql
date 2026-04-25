@@ -1,14 +1,18 @@
 -- ============================================================================
--- MERCADO PAGO: Cache de Store + POS para lazy init
+-- MERCADO PAGO: Columnas legacy reservadas (Store + POS)
 -- ============================================================================
 --
--- Contexto: Para crear QRs dinámicos in-store, MP requiere que cada cuenta
--- tenga registrado un Store y un POS. En vez de pedírselo al kiosquero
--- manualmente, el código los crea automáticamente la primera vez que se
--- intenta cobrar con QR. Estos campos guardan los IDs para no recrearlos.
+-- Contexto: La idea original era crear QRs dinámicos in-store con el endpoint
+-- /instore/orders/qr/seller/.../pos/.../qrs, que requiere registrar Store + POS
+-- por API. Probamos auto-registrarlos en runtime (helper ensureStoreAndPOS) y
+-- la API de MP rechazaba los POST /users/{id}/stores en cuentas de apps recién
+-- creadas, probablemente por permisos OAuth insuficientes.
 --
--- Si ambos están NULL, el helper ensureStoreAndPOS() los crea.
--- Si están seteados, se usan directamente.
+-- Pivot (2026-04-25): pasamos a /checkout/preferences. El QR encodea un
+-- init_point URL en vez de un EMVCo string. Funciona con cualquier OAuth.
+--
+-- Estas columnas existen en la DB pero por ahora no se usan. Las dejamos para
+-- no hacer DROP en prod y por si en el futuro reactivamos el camino in-store.
 -- ============================================================================
 
 ALTER TABLE mercadopago_credentials
@@ -16,6 +20,6 @@ ALTER TABLE mercadopago_credentials
   ADD COLUMN IF NOT EXISTS mp_pos_external_id text;
 
 COMMENT ON COLUMN mercadopago_credentials.mp_store_id IS
-  'ID del Store creado en MP (lazy init). Si NULL, hay que crearlo.';
+  'LEGACY (no usado): ID del Store de MP. Reservado para futura reactivación del camino in-store QR.';
 COMMENT ON COLUMN mercadopago_credentials.mp_pos_external_id IS
-  'external_id del POS registrado en MP. Se usa en la URL del endpoint QR.';
+  'LEGACY (no usado): external_id del POS de MP. Reservado para futura reactivación del camino in-store QR.';
