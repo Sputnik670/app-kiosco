@@ -464,28 +464,17 @@ export async function updateProductAction(
     const { supabase, orgId } = await verifyOwner()
 
     // ───────────────────────────────────────────────────────────────────────────
-    // PASO 2: Obtener precios anteriores (para historial)
+    // PASO 2: Actualizar producto
     // ───────────────────────────────────────────────────────────────────────────
+    // El `.select('id')` al final fuerza a que la respuesta incluya las filas
+    // afectadas. Así detectamos el caso en que el productId no existe o no
+    // pertenece a la organización del usuario (en ese caso devuelve []).
+    //
+    // Nota: NO se inserta manualmente en `price_history`. El trigger de DB
+    // `trigger_log_price_change` detecta cambios de `sale_price` o `cost` y
+    // crea el registro automáticamente. Insertar acá duplicaría.
 
-    const { data: oldProduct, error: fetchError } = await supabase
-      .from('products')
-      .select('sale_price, cost')
-      .eq('id', productId)
-      .eq('organization_id', orgId)
-      .single<{ sale_price: number; cost: number }>()
-
-    if (fetchError) {
-      return {
-        success: false,
-        error: `Error al obtener producto: ${fetchError.message}`,
-      }
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 3: Actualizar producto
-    // ───────────────────────────────────────────────────────────────────────────
-
-    const { error: updateError } = await supabase
+    const { data: updatedRows, error: updateError } = await supabase
       .from('products')
       .update({
         name: data.nombre,
@@ -497,6 +486,7 @@ export async function updateProductAction(
       })
       .eq('id', productId)
       .eq('organization_id', orgId)
+      .select('id')
 
     if (updateError) {
       return {
@@ -505,12 +495,12 @@ export async function updateProductAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // PASO 4: Registrar en historial si cambió precio o costo
-    // ───────────────────────────────────────────────────────────────────────────
-    // Nota: NO se inserta manualmente en `price_history`. El trigger de DB
-    // `trigger_log_price_change` detecta cambios de `sale_price` o `cost` en el
-    // UPDATE anterior y crea el registro automáticamente. Insertar acá duplica.
+    if (!updatedRows || updatedRows.length === 0) {
+      return {
+        success: false,
+        error: 'Producto no encontrado o no pertenece a tu organización',
+      }
+    }
 
     // ───────────────────────────────────────────────────────────────────────────
     // RETORNO EXITOSO

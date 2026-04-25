@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { supabase } from "@/lib/supabase"
 import { CalendarIcon, PlusIcon, MinusIcon, PackagePlus, DollarSign, Loader2, AlertCircle } from "lucide-react"
 import { format, addDays } from "date-fns"
@@ -30,7 +30,12 @@ interface AgregarStockProps {
 export function AgregarStock({ producto, onStockAdded, sucursalId }: AgregarStockProps) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  
+  // Guarda sincrónica contra doble-invocación: `disabled={loading}` del botón
+  // llega tarde porque setLoading es async (React programa el re-render).
+  // Esta ref se setea antes del primer await y bloquea clicks que hayan
+  // quedado "en el aire" antes de que el botón quede disabled en el DOM.
+  const inFlightRef = useRef(false)
+
   const [cantidad, setCantidad] = useState(1)
   const [fechaVencimientoProd, setFechaVencimientoProd] = useState<Date | undefined>(undefined)
   
@@ -56,9 +61,12 @@ export function AgregarStock({ producto, onStockAdded, sucursalId }: AgregarStoc
   const decrementar = () => setCantidad((prev) => (prev > 1 ? prev - 1 : 1))
 
   const handleGuardar = async () => {
+    // Guard sincrónico contra doble-invocación (ver comentario en inFlightRef)
+    if (inFlightRef.current) return
     if (!sucursalId) return toast.error("Error: No se seleccionó sucursal")
     if (!fechaVencimientoProd) return toast.error("Falta fecha de vencimiento del producto")
 
+    inFlightRef.current = true
     setLoading(true)
 
     try {
@@ -86,6 +94,7 @@ export function AgregarStock({ producto, onStockAdded, sucursalId }: AgregarStoc
       toast.error("Error al guardar", { description: error.message })
     } finally {
       setLoading(false)
+      inFlightRef.current = false
     }
   }
 
