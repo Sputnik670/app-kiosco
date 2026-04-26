@@ -188,6 +188,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ? new Date(Date.now() + expiresIn * 1000).toISOString()
       : null
 
+    // IMPORTANTE: NO incluir webhook_secret_encrypted en este upsert.
+    // OAuth devuelve access_token + refresh_token + collector_id pero NO el
+    // webhook secret — ese es independiente y se obtiene del panel de
+    // developers MP. El user lo pega via configuracion-mercadopago.tsx.
+    //
+    // Si lo seteamos a null acá, sobreescribimos el secret que el user ya
+    // habia guardado, rompiendo la verificación HMAC del webhook. Al omitir
+    // la columna del upsert, Supabase la deja intacta en UPDATE y la deja
+    // NULL en INSERT (la columna es nullable). El user completa el secret
+    // por separado en el form de configuración.
     const { error: upsertError } = await supabase
       .from('mercadopago_credentials')
       .upsert(
@@ -195,7 +205,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           organization_id: membership.organization_id,
           access_token_encrypted: encryptedToken,
           refresh_token_encrypted: encryptedRefreshToken,
-          webhook_secret_encrypted: null, // OAuth no necesita webhook secret manual
           collector_id: String(mpUserId),
           public_key: publicKey || '',
           is_sandbox: false,
