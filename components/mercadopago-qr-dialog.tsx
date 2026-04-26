@@ -11,7 +11,8 @@ import {
   XCircle,
   Timer,
   X,
-  RefreshCw
+  RefreshCw,
+  Info,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -24,7 +25,23 @@ import {
 // TIPOS
 // ───────────────────────────────────────────────────────────────────────────────
 
-type MercadoPagoQRState = "loading" | "waiting" | "confirmed" | "failed" | "expired" | "error"
+/**
+ * Estados del dialog de cobro QR.
+ *
+ * Diferencia importante entre `local_timeout` y `expired`:
+ *   - `local_timeout`: pasaron N minutos en NUESTRO timer (el cashier necesita seguir).
+ *     El QR de MP sigue válido hasta los 30 min y el webhook puede crear la sale igual.
+ *   - `expired`: MP marca la orden como expirada (después de los 30 min reales del QR).
+ *     Acá sí el QR está muerto y hay que generar uno nuevo.
+ */
+type MercadoPagoQRState =
+  | "loading"
+  | "waiting"
+  | "confirmed"
+  | "failed"
+  | "expired"
+  | "local_timeout"
+  | "error"
 
 /**
  * Item del carrito en el formato que espera el RPC `process_sale_from_webhook`.
@@ -55,7 +72,11 @@ interface MercadoPagoQRDialogProps {
 // ───────────────────────────────────────────────────────────────────────────────
 
 const POLLING_INTERVAL_MS = 2000 // 2 segundos
-const TOTAL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutos
+// 10 min — balance entre dejar al cashier seguir atendiendo y darle margen al cliente.
+// El QR real de MP es válido hasta 30 min: si paga después de los 10 min, el webhook
+// igual crea la sale a partir de cart_snapshot. NO cancelamos la orden cuando expira
+// este timer local — MP sigue siendo la fuente de verdad.
+const TOTAL_TIMEOUT_MS = 10 * 60 * 1000
 const AUTO_CLOSE_DELAY_MS = 3000 // 3 segundos para cierre automático
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -123,13 +144,21 @@ export function MercadoPagoQRDialog({
       setState("waiting")
       startTimeRef.current = Date.now()
 
-      // Iniciar timeout de 5 min
+      // Iniciar timeout local (10 min).
+      // IMPORTANTE: NO cancelamos la orden cuando expira este timer.
+      // Razones:
+      //   1. El QR real de MP sigue válido hasta los 30 min — el cliente puede estar
+      //      todavía pagando.
+      //   2. Si llamamos cancelOrder y el webhook arriba justo después, marcamos
+      //      la orden como cancelled y peleamos contra el confirmed que arma la sale.
+      //   3. Si pasan 30 min sin pago, MP devuelve expired en el polling y el cron
+      //      `expire_pending_mp_orders()` la limpia server-side.
+      // Acá sólo paramos el polling local y mostramos un cartel informativo —
+      // el cashier puede cerrar y atender al siguiente cliente; si el pago llega,
+      // la sale aparece sola en el libro de ventas (Plan B).
       timeoutRef.current = setTimeout(() => {
-        if (orderId) {
-          cancelOrder(orderId)
-        }
-        setState("expired")
-        setErrorMessage("El código QR expiró. Por favor, intenta nuevamente.")
+        if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current)
+        setState("local_timeout")
       }, TOTAL_TIMEOUT_MS)
 
       // Iniciar polling de estado
@@ -148,19 +177,22 @@ export function MercadoPagoQRDialog({
     }
   }, [open, saleId, amount, branchId])
 
-  // Timer countdown
+  // Timer countdown — basado en TOTAL_TIMEOUT_MS local, no en expiresAt de MP.
+  // El QR real de MP vive 30 min, pero nuestro timer en pantalla es de 10 min para
+  // alinearse con el momento en que pasamos al estado `local_timeout`. Si mostramos
+  // 30 min, el cashier asumiría que la UI lo va a esperar todo ese tiempo.
   useEffect(() => {
-    if (state !== "waiting" || !expiresAt) return
+    if (state !== "waiting") return
 
     const updateTimer = () => {
       const now = Date.now()
-      const expiryTime = new Date(expiresAt).getTime()
-      const remaining = Math.max(0, expiryTime - now)
+      const elapsed = now - startTimeRef.current
+      const remaining = Math.max(0, TOTAL_TIMEOUT_MS - elapsed)
 
       setTimeRemaining(remaining)
 
       if (remaining <= 0) {
-        if (timerRef.current) clearTimeout(timerRef.current)
+        if (timerRef.current) clearInterval(timerRef.current)
       }
     }
 
@@ -170,7 +202,7 @@ export function MercadoPagoQRDialog({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
     }
-  }, [state, expiresAt])
+  }, [state])
 
   // ───────────────────────────────────────────────────────────────────────────────
   // FUNCIONES
@@ -234,6 +266,24 @@ export function MercadoPagoQRDialog({
   const handleRetry = () => {
     onOpenChange(false)
     onPaymentFailed()
+  }
+
+  /**
+   * Cerrar el dialog desde el estado `local_timeout` sin marcar la venta como
+   * fallada. El pago puede seguir llegando (el QR de MP sigue válido) y el
+   * webhook va a crear la sale a partir del cart_snapshot.
+   *
+   * No llamamos onPaymentFailed acá porque ese callback en caja-ventas muestra
+   * "Pago cancelado o rechazado", lo cual sería engañoso. Tampoco limpiamos el
+   * cart: si el cliente nunca paga, el cashier puede reintentar sin re-armar la
+   * venta.
+   */
+  const handleCloseAfterLocalTimeout = () => {
+    toast.info("Esperando confirmación de Mercado Pago", {
+      description:
+        "Si el cliente pagó, la venta aparece sola en el libro. Si no, podés generar otro QR.",
+    })
+    onOpenChange(false)
   }
 
   // ───────────────────────────────────────────────────────────────────────────────
@@ -331,6 +381,28 @@ export function MercadoPagoQRDialog({
                 {formatAmount(amount)} - Procesando...
               </p>
             </div>
+          </div>
+        )
+
+      case "local_timeout":
+        return (
+          <div className="flex flex-col items-center justify-center py-8 sm:py-12 gap-4 sm:gap-6 px-6">
+            <Info className="h-12 w-12 sm:h-16 sm:w-16 text-blue-500" />
+            <div className="text-center space-y-2">
+              <p className="text-sm sm:text-base font-black text-slate-900 uppercase">
+                Esperando confirmación
+              </p>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                Pasaron 10 minutos. Si el cliente igual paga, la venta aparece sola
+                en el libro. Podés cerrar y atender al siguiente.
+              </p>
+            </div>
+            <Button
+              onClick={handleCloseAfterLocalTimeout}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold uppercase text-sm min-h-[44px]"
+            >
+              Cerrar
+            </Button>
           </div>
         )
 
