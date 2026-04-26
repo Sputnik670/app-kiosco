@@ -1,6 +1,6 @@
 # App Kiosco — Instrucciones del Proyecto
 
-> Última actualización: 25 de marzo de 2026
+> Última actualización: 26 de abril de 2026
 
 ## Qué es esto
 
@@ -14,7 +14,7 @@ SaaS de gestión para cadenas de kioscos en Argentina. El objetivo es convertir 
 
 - No es desarrollador. Claude actúa como tech-leader.
 - Trabaja en **VSCode** con terminal **PowerShell** en Windows. Los comandos git deben ser compatibles con PowerShell (no usar `&&`, poner espacio en `git commit -m`).
-- Trabaja desde **dos computadoras** (notebook y desktop). Usar skill `git-sync` al inicio de cada sesión.
+- Trabaja desde **una sola PC**, pero con **dos cuentas de Claude Code** simultáneas. Cada sesión arranca fría leyendo el repo: el repo es la fuente de verdad compartida entre ambas — todo cambio de schema o convención debe quedar versionado, no aplicado solo en runtime.
 - Revisa y aprueba antes de implementar. No se meten features sin su visto bueno.
 - Ofrece onboarding personalizado a clientes ("te ayudo a cargar el stock y manejar la app").
 
@@ -118,7 +118,7 @@ App-kiosco-main/
 │   └── archivo/            → 17 agentes viejos (archivados)
 ├── .skills/                → Skills del proyecto
 │   ├── competitive-research/ → Análisis de competidores
-│   ├── git-sync/            → Sincronización multi-PC
+│   ├── git-sync/            → Sincronización al inicio de sesión (pull antes de empezar)
 │   └── pwa-implementation/  → Docs para implementar offline
 ├── docs/
 │   ├── comercial/          → Guión demo, ventajas, legales (.docx)
@@ -182,10 +182,11 @@ App-kiosco-main/
 
 ## Pendientes Prioritarios de Seguridad
 
-Ver `AUDIT-FINDINGS.md` para la lista completa. Los más importantes:
-- Fix RLS de `incidents` y `owner_notes` (políticas demasiado permisivas)
-- Restringir `mercadopago_credentials` a owner
-- Agregar `SET search_path` a 2 funciones SECURITY DEFINER
+Ver `AUDIT-FINDINGS.md` para la lista completa. Al 26-abr-2026 todos los pendientes críticos están cerrados. Los abiertos son no-accionables o de baja prioridad:
+- Auth leaked password protection deshabilitado (requiere plan Pro de Supabase).
+- Dos optimizaciones de performance frontend (queries no-críticas en dashboard, dynamic imports en VistaEmpleado).
+
+Próximo deploy: bajar `SKIP_SIGNATURE_HARDCODE = true` a `false` en `app/api/mercadopago/webhook/route.ts:268` después de pegar el webhook secret de MP en el form de configuración. Hoy está en bypass porque la fila de `mercadopago_credentials.webhook_secret_encrypted` quedó NULL por un bug del callback OAuth (ya fixeado en `app/api/mercadopago/oauth/callback/route.ts`, pero el secret hay que volver a pegarlo manualmente).
 
 ## Ventajas Competitivas
 

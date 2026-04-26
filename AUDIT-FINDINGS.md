@@ -1,6 +1,6 @@
 # Auditoría de Seguridad y Performance — App Kiosco
 
-> Última revisión: 24 de abril de 2026
+> Última revisión: 26 de abril de 2026
 > Auditoría original: marzo 2026
 > Este archivo refleja el estado REAL hoy, no la foto histórica. Para ver el detalle histórico ver `agents/reportes/seguridad-auditoria.md`.
 
@@ -10,33 +10,11 @@
 
 - **Seguridad DB:** BUENO. 27 tablas con RLS. Sin tablas bloqueadas. Todas las políticas críticas están separadas por operación.
 - **Performance frontend:** BUENO. Dynamic imports aplicados en reports, MP, ARCA, recharts y tab components.
-- **Hallazgos abiertos hoy:** 2 menores + 1 parcialmente pendiente.
+- **Hallazgos abiertos hoy:** 1 no accionable (plan paid de Supabase) + 2 menores de performance.
 
 ---
 
-## Hallazgos abiertos (24 de abril)
-
-### BAJO — `product_catalog` con INSERT policy `WITH CHECK (true)`
-
-- Advisor Supabase `rls_policy_always_true` lo flagea.
-- Es **intencional**: `product_catalog` es una tabla cross-organización pensada para que cualquier usuario autenticado contribuya cuando escanea un producto nuevo (efecto red).
-- Riesgo real: usuario malicioso podría spamear el catálogo con barcodes falsos.
-- Mitigación recomendada: endurecer la policy para obligar `contributed_by = auth.uid()` en el INSERT:
-  ```sql
-  WITH CHECK (contributed_by = auth.uid())
-  ```
-  Esto permite sumar al catálogo pero ata la contribución al user real, y en el futuro se puede rate-limitar o revertir vandalismos.
-
-### BAJO — `mercadopago_credentials` SELECT abierto a toda la org
-
-- Políticas INSERT/UPDATE/DELETE restringidas a `is_owner()` ✅
-- Política SELECT (`mp_creds_select`) sólo filtra por `organization_id = get_my_org_id()` — cualquier miembro de la org puede leer las credenciales.
-- Los tokens sensibles no llegan al cliente (se usan server-side), pero es más higiénico restringir también SELECT a owner.
-- Fix propuesto:
-  ```sql
-  ALTER POLICY mp_creds_select ON mercadopago_credentials
-  USING ((organization_id = get_my_org_id()) AND is_owner());
-  ```
+## Hallazgos abiertos (26 de abril)
 
 ### MEDIO — Auth leaked password protection deshabilitado
 
@@ -58,6 +36,37 @@
 ---
 
 ## Hallazgos resueltos entre marzo y abril
+
+### MP webhook secret NULL post-OAuth — RESUELTO (26-abr, migración 00014)
+
+- Causa: `app/api/mercadopago/oauth/callback/route.ts:198` grababa `webhook_secret_encrypted: null` en cada upsert OAuth, sobreescribiendo el secret que el user había guardado por separado vía form de configuración.
+- Síntoma: HMAC mismatch perpetuo del webhook → tuvo que activarse `SKIP_SIGNATURE_HARDCODE = true` como bypass temporal.
+- Comentario que motivó el bug: "OAuth no necesita webhook secret manual" — falso. OAuth da access_token + collector_id; el webhook secret se obtiene aparte del panel de developers MP.
+- Fix: omitir la columna del upsert. El upsert PostgREST sólo toca columnas presentes en el objeto, así que ahora UPDATE preserva el valor existente y INSERT lo deja NULL (la columna es nullable; el user lo completa por separado).
+- Pendiente para próximo deploy: bajar `SKIP_SIGNATURE_HARDCODE` a `false` en `app/api/mercadopago/webhook/route.ts:268` después de verificar que se pegó el webhook_secret en el form de configuración.
+
+### `process_sale_from_webhook` ejecutable por authenticated — RESUELTO (26-abr, hotfix MCP)
+
+- La migración original `mp_orders_add_cart_snapshot_and_webhook_rpc` aplicada vía Supabase MCP el 26-abr no incluyó los `REVOKE EXECUTE` correspondientes — `authenticated` y `anon` podían llamar al RPC desde el browser pasando un `p_org_id` arbitrario y crear sales en cualquier organización ajena.
+- Hotfix aplicado vía MCP: `REVOKE EXECUTE FROM PUBLIC, anon, authenticated; GRANT TO service_role`.
+- Versionado en `supabase/migrations/00013_mp_cart_snapshot_plan_b.sql` (ya incluye los REVOKE).
+- Riesgo: alto. Cualquier user autenticado podía mover dinero contable a otra org.
+
+### `mp_creds_select` abierto a toda la org — RESUELTO (26-abr, migración 00014)
+
+- Antes: SELECT policy filtraba sólo por `organization_id = get_my_org_id()` — cualquier miembro de la org leía credenciales encriptadas.
+- Ahora: `USING ((organization_id = get_my_org_id()) AND is_owner())`.
+- Los tokens nunca llegaban al cliente igual (uso server-side), pero la superficie es menor.
+
+### `mercadopago_credentials` con GRANTs amplios para anon — RESUELTO (26-abr, migración 00014)
+
+- Anon tenía SELECT/INSERT/UPDATE/DELETE/etc en la tabla. RLS lo filtraba a nivel de fila pero el GRANT no debería existir — defensa en profundidad.
+- Fix: `REVOKE ALL ON mercadopago_credentials FROM anon`.
+
+### `product_catalog` INSERT con WITH CHECK (true) — RESUELTO (26-abr, migración 00014)
+
+- Antes: cualquier authenticated podía insertar setando `contributed_by` a otro UUID, impersonando contribuciones de otro user.
+- Ahora: `WITH CHECK (contributed_by = auth.uid())`. La tabla sigue siendo cross-organización (efecto red del catálogo compartido) pero las contribuciones quedan atadas al user real.
 
 ### Seguridad DB — RESUELTO en migración 00007–00008 (confirmado 24-abr)
 
