@@ -210,66 +210,77 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PASO 4: Obtener webhook_secret desde BD (con fallback a env)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    let webhookSecret: string | null = null
-
-    try {
-      webhookSecret = await getWebhookSecretForPayload(payload)
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error))
-      logger.error('MercadoPagoWebhook', 'Error obteniendo webhook_secret', err)
-    }
-
-    // Fallback a env var (útil para setup inicial)
-    if (!webhookSecret) {
-      webhookSecret = process.env.MP_WEBHOOK_SECRET || null
-    }
-
-    if (!webhookSecret) {
-      logger.warn('MercadoPagoWebhook', 'webhook_secret no disponible', {
-        externalRef: payload.data?.external_reference?.substring(0, 8),
-      })
-      // Retornamos 200 para que MP no reintente (nosotros no tenemos el secret)
-      return jsonResponse({ error: 'Servidor no configurado' }, 200)
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // PASO 5: Verificar firma HMAC-SHA256
+    // PASO 4: Decidir si vamos a verificar firma
     // ─────────────────────────────────────────────────────────────────────────
     //
     // BYPASS TEMPORAL: bajar SKIP_SIGNATURE_HARDCODE a `false` cuando el
-    // webhook_secret esté pegado en mercadopago_credentials. Hoy queda en
-    // `true` porque el callback OAuth rompió el secret (ya fixeado, pero
-    // hay que volver a pegarlo manualmente en el form de configuración).
-    // Mientras esté en `true`, cualquiera que conozca la URL del webhook
-    // puede mandar updates falsos — riesgo aceptado para piloto con 1
-    // cliente, NO para multi-tenant.
-    const SKIP_SIGNATURE_HARDCODE = true // ⚠️ bajar a false post-pegar-secret
+    // webhook_secret esté pegado en mercadopago_credentials. Mientras esté
+    // en `true`, cualquiera que conozca la URL del webhook puede mandar
+    // updates falsos — riesgo aceptado para piloto con 1 cliente, NO para
+    // multi-tenant.
+    //
+    // ATENCIÓN: el bypass via env (`MP_WEBHOOK_SKIP_SIGNATURE=true`) está
+    // hard-bloqueado en production para evitar que se active por error. Si
+    // necesitás bypass en prod, bajá el flag de código y deployá.
+    const SKIP_SIGNATURE_HARDCODE = false // ⚠️ subir a true sólo si volvés al estado de bypass
+    const envBypassAllowed = process.env.NODE_ENV !== 'production'
     const skipSignatureCheck =
       SKIP_SIGNATURE_HARDCODE ||
-      process.env.MP_WEBHOOK_SKIP_SIGNATURE === 'true'
-
-    const isSignatureValid = skipSignatureCheck
-      ? true
-      : verifyMercadoPagoSignature(
-          signature.ts,
-          requestIdHeader,
-          dataIdForSignature,
-          webhookSecret,
-          signature.v1
-        )
+      (envBypassAllowed && process.env.MP_WEBHOOK_SKIP_SIGNATURE === 'true')
 
     if (skipSignatureCheck) {
-      logger.warn('MercadoPagoWebhook', 'Firma HMAC NO verificada (bypass activo)')
+      // Log a nivel error (no warn) para que aparezca en alertas — nadie
+      // debería estar en bypass en prod sin saberlo.
+      logger.error(
+        'MercadoPagoWebhook',
+        'BYPASS de firma HMAC activo — webhook procesado sin verificar',
+        new Error('signature_bypass_active')
+      )
     }
 
-    if (!isSignatureValid) {
-      logger.warn('MercadoPagoWebhook', 'Firma HMAC inválida', {
-        v1Start: signature.v1.substring(0, 10) + '...',
-      })
-      return jsonResponse({ error: 'Firma inválida' }, 401)
+    // ─────────────────────────────────────────────────────────────────────────
+    // PASO 5: Verificar firma HMAC-SHA256 (sólo si no bypaseamos)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    if (!skipSignatureCheck) {
+      let webhookSecret: string | null = null
+      try {
+        webhookSecret = await getWebhookSecretForPayload(payload)
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error))
+        logger.error('MercadoPagoWebhook', 'Error obteniendo webhook_secret', err)
+      }
+
+      // Fallback a env var (útil para setup inicial / single-tenant)
+      if (!webhookSecret) {
+        webhookSecret = process.env.MP_WEBHOOK_SECRET || null
+      }
+
+      if (!webhookSecret) {
+        logger.error(
+          'MercadoPagoWebhook',
+          'webhook_secret no disponible — descartando evento',
+          new Error('webhook_secret_missing')
+        )
+        // Retornamos 200 para que MP no reintente (nosotros no tenemos el secret).
+        // ESTE PATH ES PÉRDIDA SILENCIOSA DE EVENTO — auditear logs si aparece.
+        return jsonResponse({ error: 'Servidor no configurado' }, 200)
+      }
+
+      const isSignatureValid = verifyMercadoPagoSignature(
+        signature.ts,
+        requestIdHeader,
+        dataIdForSignature,
+        webhookSecret,
+        signature.v1
+      )
+
+      if (!isSignatureValid) {
+        logger.warn('MercadoPagoWebhook', 'Firma HMAC inválida', {
+          v1Start: signature.v1.substring(0, 10) + '...',
+        })
+        return jsonResponse({ error: 'Firma inválida' }, 401)
+      }
     }
 
     logger.info('MercadoPagoWebhook', 'Firma verificada correctamente', {
@@ -326,10 +337,14 @@ export async function POST(request: Request): Promise<Response> {
 /**
  * Obtener webhook_secret desde Supabase basándose en el payload
  *
- * Estrategia:
- * 1. Intentar obtener organization_id desde external_reference (sale_id)
- * 2. Si no está en datos, buscar por mp_payment_id o mp_order_id
- * 3. Desencriptar webhook_secret desde mercadopago_credentials
+ * Estrategia (en orden de preferencia):
+ * 1. **collector_id (= payload.user_id)** — siempre viene en webhooks de pago.
+ *    Hace match directo contra `mercadopago_credentials.collector_id`. Es el
+ *    path correcto y funciona desde el primer webhook (no requiere que la
+ *    orden ya exista en DB).
+ * 2. external_reference — fallback para webhooks `order.updated` que pueden
+ *    no traer `user_id`.
+ * 3. mp_payment_id — último fallback para webhooks reentrantes.
  *
  * @param payload - Webhook payload
  * @returns webhook_secret desencriptado o null si no se encuentra
@@ -337,44 +352,55 @@ export async function POST(request: Request): Promise<Response> {
 async function getWebhookSecretForPayload(
   payload: MercadoPagoWebhookPayload
 ): Promise<string | null> {
-  const { data } = payload
+  const { data, user_id } = payload
   const supabase = createServiceRoleClient()
 
-  // Obtener external_reference
-  const externalReference = data.external_reference
+  // PRIMARIO: por collector_id (siempre disponible en webhooks de pago).
+  if (user_id) {
+    const collectorId = String(user_id)
+    const { data: cred } = await supabase
+      .from('mercadopago_credentials')
+      .select('webhook_secret_encrypted')
+      .eq('collector_id', collectorId)
+      .eq('is_active', true)
+      .maybeSingle()
 
+    if (cred && (cred as any).webhook_secret_encrypted) {
+      const decrypted = decryptString((cred as any).webhook_secret_encrypted)
+      if (decrypted) return decrypted
+    }
+  }
+
+  // FALLBACK 1: external_reference → resolver org por orden existente.
+  const externalReference = data.external_reference
   if (externalReference) {
-    // Buscar en mercadopago_orders por external_reference
-    const { data: order, error: orderError } = await supabase
+    const { data: order } = await supabase
       .from('mercadopago_orders')
       .select('organization_id')
       .eq('external_reference', externalReference)
-      .single()
+      .maybeSingle()
 
-    if (orderError) {
-      logger.debug('GetWebhookSecret', 'No se encontró orden por external_reference', {
-        externalRef: externalReference.substring(0, 8),
-      })
-    } else if (order) {
+    if (order) {
       return await getDecryptedWebhookSecret(supabase, (order as any).organization_id)
     }
   }
 
-  // Fallback: buscar por mp_payment_id (data.id)
-  const mpPaymentId = String(data.id)
+  // FALLBACK 2: mp_payment_id (sólo viable en webhooks reentrantes).
+  const mpPaymentId = String(data.id || '')
   if (mpPaymentId) {
-    const { data: order, error: orderError } = await supabase
+    const { data: order } = await supabase
       .from('mercadopago_orders')
       .select('organization_id')
       .eq('mp_payment_id', mpPaymentId)
       .maybeSingle()
 
-    if (!orderError && order) {
+    if (order) {
       return await getDecryptedWebhookSecret(supabase, (order as any).organization_id)
     }
   }
 
   logger.warn('GetWebhookSecret', 'No se pudo determinar organización', {
+    collectorId: user_id ? String(user_id).substring(0, 6) : null,
     externalRef: externalReference?.substring(0, 8),
     paymentId: mpPaymentId?.substring(0, 8),
   })
@@ -721,23 +747,32 @@ async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Pr
       return
     }
 
-    // Idempotencia: si ya está confirmed con webhook recibido, no re-procesar.
-    // Caso común: MP manda payment.created y payment.updated muy seguidos.
+    // Pre-check informativo: si la orden ya está confirmed con webhook recibido,
+    // probablemente sea duplicado. NO confiamos en este check para idempotencia
+    // (race window entre read y write); el UPDATE optimista de abajo es la
+    // verdadera barrera. Esto sólo evita gastar el RPC si ya sabemos.
     if (orderRow.status === 'confirmed' && orderRow.webhook_received_at) {
-      logger.info('HandlePaymentNotification', 'Orden ya confirmada, skip', {
+      logger.info('HandlePaymentNotification', 'Orden ya confirmada (pre-check), skip', {
         orderId: orderRow.id.substring(0, 8),
       })
       return
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // PASO 4: UPDATE
+    // PASO 4: UPDATE OPTIMISTA
+    //
+    // Race condition real: MP manda payment.created y payment.updated casi
+    // simultáneos. Sin este patrón, los dos handlers leen status=pending,
+    // los dos escriben, y los dos llaman ensureSaleForConfirmedOrder → 2 sales.
+    //
+    // Con `webhook_received_at IS NULL` en el WHERE, sólo UN webhook gana el
+    // UPDATE. El otro recibe data=null y corta sin tocar nada.
     // ────────────────────────────────────────────────────────────────────────
     const confirmedAt = mpStatus === 'approved'
       ? (paymentDetails.date_approved || new Date().toISOString())
       : null
 
-    const { error: updateError } = await supabase
+    const { data: claimed, error: updateError } = await supabase
       .from('mercadopago_orders')
       .update({
         status: mappedStatus,
@@ -747,9 +782,21 @@ async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Pr
         notes: paymentDetails.status_detail ? `MP: ${paymentDetails.status_detail}` : null,
       })
       .eq('id', orderRow.id)
+      .is('webhook_received_at', null) // ⬅️ optimista: sólo si nadie procesó antes
+      .select('id')
+      .maybeSingle()
 
     if (updateError) {
       logger.error('HandlePaymentNotification', 'Error actualizando orden', updateError as Error)
+      return
+    }
+
+    if (!claimed) {
+      // Otro webhook ganó la carrera (típico con payment.created+updated
+      // simultáneos). Es comportamiento esperado, no error.
+      logger.info('HandlePaymentNotification', 'Orden ya procesada por otro webhook, skip', {
+        orderId: orderRow.id.substring(0, 8),
+      })
       return
     }
 
@@ -760,9 +807,9 @@ async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Pr
     })
 
     // ────────────────────────────────────────────────────────────────────────
-    // PASO 5 (Plan B): si la orden quedó confirmed, crear la sale server-side
-    // a partir de cart_snapshot. Esto desacopla el registro de venta de la UI
-    // — aunque el dialog se haya cerrado, la sale igual queda registrada.
+    // PASO 5 (Plan B): si la orden quedó confirmed, crear la sale server-side.
+    // Sólo llegamos acá si ganamos el UPDATE optimista, así que ningún otro
+    // webhook va a invocar este path para esta orden.
     // ────────────────────────────────────────────────────────────────────────
     if (mappedStatus === 'confirmed') {
       await ensureSaleForConfirmedOrder(orderRow.id)

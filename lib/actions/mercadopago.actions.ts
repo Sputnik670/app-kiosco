@@ -106,11 +106,16 @@ export interface CheckPaymentStatusResult {
 }
 
 /**
- * Resultado de obtener configuración de MP
+ * Resultado de obtener configuración de MP.
+ * `hasWebhookSecret` se expone como booleano para que la UI pueda mostrar
+ * estado "configurado / falta cargar" sin exponer el secret en sí.
  */
 export interface GetMercadoPagoConfigResult {
   success: boolean
-  config?: Partial<MercadoPagoConfig> & { connectedVia?: string }
+  config?: Partial<MercadoPagoConfig> & {
+    connectedVia?: string
+    hasWebhookSecret?: boolean
+  }
   error?: string
 }
 
@@ -153,6 +158,16 @@ export interface GetMercadoPagoOrderDetailResult {
  * Resultado de cancelar orden
  */
 export interface CancelMercadoPagoOrderResult {
+  success: boolean
+  error?: string
+}
+
+/**
+ * Resultado de actualizar solo el webhook secret (sin tocar access_token).
+ * Útil cuando la org está conectada por OAuth y el access_token vive encriptado
+ * en DB sin que el usuario lo tenga en claro: necesita pegar SOLO el secret.
+ */
+export interface UpdateWebhookSecretResult {
   success: boolean
   error?: string
 }
@@ -203,7 +218,9 @@ export async function getMercadoPagoConfigAction(): Promise<GetMercadoPagoConfig
       }
     }
 
-    // Retornar sin exponer el access token completo
+    // Retornar sin exponer el access token completo ni el webhook secret.
+    // hasWebhookSecret le permite a la UI mostrar "ya configurado" sin
+    // necesidad de enviar el valor al cliente.
     return {
       success: true,
       config: {
@@ -212,6 +229,7 @@ export async function getMercadoPagoConfigAction(): Promise<GetMercadoPagoConfig
         isSandbox: config.isSandbox,
         accessToken: `****${config.accessToken.slice(-4)}`, // Enmascarado
         connectedVia: config.connectedVia || 'manual',
+        hasWebhookSecret: Boolean(config.webhookSecret && config.webhookSecret.length > 0),
       },
     }
   } catch (error) {
@@ -844,6 +862,96 @@ export async function disconnectMercadoPagoAction(): Promise<DisconnectMercadoPa
 
     return { success: true }
   } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
+ * 🔐 Actualizar SOLO el webhook secret de Mercado Pago.
+ *
+ * Caso de uso: la organización ya está conectada (OAuth o manual) y necesita
+ * cargar/rotar el webhook secret sin tocar el access_token. El form principal
+ * (`saveMercadoPagoCredentialsAction`) requiere ambos campos y valida el token
+ * contra MP API: si el token está encriptado en DB (OAuth) el dueño no lo
+ * tiene en claro y no puede usar ese flujo.
+ *
+ * VALIDACIÓN:
+ * - Solo OWNER puede hacer esto.
+ * - Tiene que existir una fila previa en mercadopago_credentials (no creamos
+ *   credenciales completas desde acá: para conexión inicial está OAuth o el
+ *   form completo).
+ *
+ * SEGURIDAD:
+ * - Encriptamos con AES-256-GCM antes de guardar (mismo helper que el flujo
+ *   completo).
+ * - No logueamos el valor del secret.
+ *
+ * @param webhookSecret - Webhook secret tal cual lo da MP en el panel de
+ *   developers. Se encripta antes de persistirlo.
+ */
+export async function updateMercadoPagoWebhookSecretAction(
+  webhookSecret: string
+): Promise<UpdateWebhookSecretResult> {
+  try {
+    if (!webhookSecret || webhookSecret.trim().length === 0) {
+      return { success: false, error: 'El webhook secret no puede estar vacío' }
+    }
+
+    // Sanity check: los secrets de MP típicamente tienen >= 16 chars.
+    // No es validación de formato (cualquier string sirve si MP lo emite así),
+    // solo evita pegues accidentales tipo "asd".
+    if (webhookSecret.trim().length < 8) {
+      return {
+        success: false,
+        error: 'El webhook secret parece muy corto. Verificá el valor de MP.',
+      }
+    }
+
+    const { supabase, orgId, user } = await verifyOwner()
+
+    // Verificar que existe la fila — no creamos credenciales desde acá.
+    const { data: existing, error: fetchError } = await supabase
+      .from('mercadopago_credentials')
+      .select('id')
+      .eq('organization_id', orgId)
+      .maybeSingle()
+
+    if (fetchError || !existing) {
+      return {
+        success: false,
+        error:
+          'No hay credenciales de Mercado Pago todavía. Conectá tu cuenta antes de cargar el webhook secret.',
+      }
+    }
+
+    const encryptedSecret = encrypt(webhookSecret.trim())
+
+    const { error: updateError } = await supabase
+      .from('mercadopago_credentials')
+      .update({ webhook_secret_encrypted: encryptedSecret })
+      .eq('organization_id', orgId)
+
+    if (updateError) {
+      logger.error(
+        'updateMercadoPagoWebhookSecretAction',
+        'Error guardando webhook secret',
+        updateError
+      )
+      return { success: false, error: 'No se pudo guardar el webhook secret' }
+    }
+
+    logger.info('updateMercadoPagoWebhookSecretAction', 'Webhook secret actualizado', {
+      orgId,
+      userId: user.id,
+    })
+
+    return { success: true }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('updateMercadoPagoWebhookSecretAction', 'Error inesperado', err)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido',

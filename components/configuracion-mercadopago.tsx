@@ -29,6 +29,7 @@ import {
   saveMercadoPagoCredentialsAction,
   getOAuthUrlAction,
   disconnectMercadoPagoAction,
+  updateMercadoPagoWebhookSecretAction,
 } from '@/lib/actions/mercadopago.actions'
 
 /**
@@ -56,6 +57,7 @@ interface ConfigData {
   collecterId?: string
   isSandbox?: boolean
   connectedVia?: string
+  hasWebhookSecret?: boolean
 }
 
 export default function ConfiguracionMercadoPago() {
@@ -78,6 +80,14 @@ export default function ConfiguracionMercadoPago() {
   const [showSecret, setShowSecret] = useState(false)
   const [saving, setSaving] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
+
+  // Carga/rotación del webhook secret cuando ya hay credenciales conectadas
+  // (típicamente vía OAuth, donde el access_token vive encriptado en DB y el
+  // dueño no lo tiene en claro, pero igual necesita pegar el webhook secret).
+  const [showWebhookForm, setShowWebhookForm] = useState(false)
+  const [webhookSecretOnly, setWebhookSecretOnly] = useState('')
+  const [showWebhookSecretInput, setShowWebhookSecretInput] = useState(false)
+  const [savingWebhookSecret, setSavingWebhookSecret] = useState(false)
 
   // URL params (para detectar retorno de OAuth)
   const searchParams = useSearchParams()
@@ -214,6 +224,35 @@ export default function ConfiguracionMercadoPago() {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
+  // GUARDAR / ROTAR SOLO WEBHOOK SECRET
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const handleSaveWebhookSecret = async () => {
+    if (!webhookSecretOnly.trim()) {
+      toast.error('El webhook secret no puede estar vacío')
+      return
+    }
+
+    setSavingWebhookSecret(true)
+    const result = await updateMercadoPagoWebhookSecretAction(webhookSecretOnly.trim())
+
+    if (result.success) {
+      toast.success('Webhook secret guardado', {
+        description: 'Mercado Pago ya puede verificar firmas de webhook.',
+      })
+      setWebhookSecretOnly('')
+      setShowWebhookForm(false)
+      setShowWebhookSecretInput(false)
+      // Recargar config para que el badge "Configurado" se actualice
+      setTimeout(() => fetchConfig(), 500)
+    } else {
+      toast.error('No se pudo guardar', { description: result.error })
+    }
+
+    setSavingWebhookSecret(false)
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
   // COPIAR WEBHOOK URL
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -287,6 +326,116 @@ export default function ConfiguracionMercadoPago() {
                 </p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* WEBHOOK SECRET — carga/rotación independiente del access_token */}
+        <Card
+          className={
+            config.hasWebhookSecret
+              ? 'border-emerald-200'
+              : 'border-amber-300 bg-amber-50/50'
+          }
+        >
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <CardTitle className="text-base flex items-center gap-2">
+                  Webhook secret
+                  {config.hasWebhookSecret ? (
+                    <Badge className="bg-emerald-600 hover:bg-emerald-700 text-xs">
+                      <CheckCircle2 className="mr-1 h-3 w-3" />
+                      Configurado
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-amber-700 border-amber-400 text-xs">
+                      <AlertTriangle className="mr-1 h-3 w-3" />
+                      Pendiente
+                    </Badge>
+                  )}
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  {config.hasWebhookSecret
+                    ? 'Mercado Pago verifica las firmas de los webhooks. Si rotás el secret en MP, actualizalo acá.'
+                    : 'Sin esto, los webhooks de Mercado Pago entran sin verificar la firma. Pegá el secret del panel de developers de MP para activar la verificación.'}
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="space-y-3">
+            {/* Mostrar el form si: (a) falta el secret, o (b) usuario hizo click en "Actualizar" */}
+            {(!config.hasWebhookSecret || showWebhookForm) ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="webhookSecretOnly" className="text-xs">
+                    Webhook secret de Mercado Pago
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="webhookSecretOnly"
+                      type={showWebhookSecretInput ? 'text' : 'password'}
+                      placeholder="Pegá el secret del panel de developers de MP"
+                      value={webhookSecretOnly}
+                      onChange={(e) => setWebhookSecretOnly(e.target.value)}
+                      className="pr-10 text-sm"
+                      disabled={savingWebhookSecret}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowWebhookSecretInput(!showWebhookSecretInput)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      tabIndex={-1}
+                    >
+                      {showWebhookSecretInput ? (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-tight">
+                    Lo encontrás en Mercado Pago → Tu integración → Webhooks → Mostrar firma secreta.
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleSaveWebhookSecret}
+                    disabled={savingWebhookSecret || !webhookSecretOnly.trim()}
+                    className="flex-1"
+                    size="sm"
+                  >
+                    {savingWebhookSecret ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    {config.hasWebhookSecret ? 'Actualizar secret' : 'Guardar webhook secret'}
+                  </Button>
+                  {config.hasWebhookSecret && showWebhookForm && (
+                    <Button
+                      onClick={() => {
+                        setShowWebhookForm(false)
+                        setWebhookSecretOnly('')
+                      }}
+                      variant="outline"
+                      size="sm"
+                      disabled={savingWebhookSecret}
+                    >
+                      Cancelar
+                    </Button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <Button
+                onClick={() => setShowWebhookForm(true)}
+                variant="outline"
+                size="sm"
+                className="w-full"
+              >
+                Rotar / actualizar webhook secret
+              </Button>
+            )}
           </CardContent>
         </Card>
 
