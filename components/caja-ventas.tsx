@@ -13,7 +13,6 @@ import { useOfflineVentas } from "@/hooks/use-offline-ventas"
 import { useCart } from "@/hooks/use-cart"
 import { BarcodeScanner } from "@/components/barcode-scanner"
 import { MercadoPagoQRDialog } from "@/components/mercadopago-qr-dialog"
-import { linkSaleToMercadoPagoOrderAction } from "@/lib/actions/mercadopago.actions"
 import { SyncStatusIndicator, SyncBadge } from "@/components/pwa"
 import type { ProductoVenta } from "@/lib/actions/ventas.actions"
 import { getTopProductsAction } from "@/lib/actions/ventas.actions"
@@ -257,33 +256,14 @@ export default function CajaVentas({
   }
 
   const handleMercadoPagoPaymentConfirmed = async () => {
-    // Una vez confirmado el pago, procesar la venta con método mercadopago
-    setProcesandoVenta(true)
+    // PLAN B: la sale ya la creó el webhook server-side al recibir la
+    // confirmación de MP, leyendo cart_snapshot de mercadopago_orders.
+    // Este handler ahora SOLO se encarga del UX local: ticket + toast + clear cart.
+    //
+    // Esto significa que aunque el dialog se cierre antes de que el polling
+    // detecte el confirmed, la venta igual se registra. La UI ya no es el
+    // único camino para crear la sale.
     try {
-      const items = cart.items.map((item) => ({
-        producto_id: item.id,
-        cantidad: item.cantidad,
-        precio_unitario: item.price,
-        nombre: item.name,
-      }))
-
-      const result = await processVenta({
-        items,
-        metodoPago: "mercadopago",
-        montoTotal: cart.getTotal()
-      })
-
-      if (!result.success) {
-        throw new Error(result.error || 'Error al procesar venta')
-      }
-
-      // Vincular la venta con la orden de Mercado Pago
-      if (result.ventaId && mercadoPagoTempSaleId) {
-        linkSaleToMercadoPagoOrderAction(result.ventaId, mercadoPagoTempSaleId)
-          .catch((err) => console.error('Error vinculando venta a MP:', err))
-      }
-
-      // Generación de ticket
       if (imprimirTicket) {
         await generarTicketVenta({
           organizacion: "Kiosco 24hs",
@@ -297,20 +277,20 @@ export default function CajaVentas({
           total: cart.getTotal(),
           metodoPago: "mercadopago",
           vendedor: empleadoNombre,
-          offlinePending: result.isOffline,
-          localId: result.isOffline ? result.ventaId : undefined,
         })
       }
 
-      toast.success(result.isOffline ? "Venta guardada (offline)" : "Venta Exitosa")
+      toast.success("Venta Exitosa")
       cart.clearCart()
       if (onVentaCompletada) onVentaCompletada()
     } catch (error) {
-      toast.error("Error", {
-        description: error instanceof Error ? error.message : 'Error al procesar venta después del pago'
+      // Si falla el ticket, la venta YA quedó registrada por el webhook —
+      // sólo informamos el problema del comprobante, no perdemos la venta.
+      toast.warning("Venta registrada, falló el ticket", {
+        description: error instanceof Error ? error.message : 'Error generando comprobante',
       })
-    } finally {
-      setProcesandoVenta(false)
+      cart.clearCart()
+      if (onVentaCompletada) onVentaCompletada()
     }
   }
 
@@ -567,6 +547,13 @@ export default function CajaVentas({
         saleId={mercadoPagoTempSaleId}
         amount={cart.getTotal()}
         branchId={sucursalId}
+        cashRegisterId={turnoId}
+        cartItems={cart.items.map((i) => ({
+          product_id: i.id,
+          quantity: i.cantidad,
+          unit_price: i.price,
+          subtotal: i.price * i.cantidad,
+        }))}
         onPaymentConfirmed={handleMercadoPagoPaymentConfirmed}
         onPaymentFailed={handleMercadoPagoPaymentFailed}
       />

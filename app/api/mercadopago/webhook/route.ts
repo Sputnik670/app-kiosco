@@ -42,6 +42,10 @@ import {
   MercadoPagoPaymentStatus,
   MercadoPagoOrderStatus,
 } from '@/types/mercadopago.types'
+import {
+  parseSignatureHeader,
+  verifyMercadoPagoSignature,
+} from '@/lib/mercadopago/webhook-signature'
 
 // ───────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -91,14 +95,9 @@ interface MercadoPagoPaymentDetails {
   date_approved?: string | null
 }
 
-/**
- * Estructura del header x-signature
- * Ejemplo: ts=1234567890,v1=abc123...
- */
-interface SignatureHeader {
-  ts: number
-  v1: string
-}
+// (SignatureHeader, parseSignatureHeader, verifyMercadoPagoSignature
+// se importan de @/lib/mercadopago/webhook-signature — extraidos para
+// poder testearlos unitariamente sin levantar Next.js.)
 
 // ───────────────────────────────────────────────────────────────────────────
 // CONSTANTES
@@ -182,17 +181,6 @@ export async function POST(request: Request): Promise<Response> {
       ? dataIdRaw.toLowerCase()
       : dataIdRaw
 
-    // Log incondicional con prefijo único — fácil de buscar en Vercel logs.
-    console.log('[MP_HMAC_DEBUG] inbound', {
-      url: request.url,
-      hasQueryDataId: !!(requestUrl.searchParams.get('data.id') || requestUrl.searchParams.get('id')),
-      dataIdRaw,
-      dataIdForSignature,
-      bodyDataId: payload?.data?.id,
-      action: payload?.action,
-      requestId: request.headers.get('x-request-id'),
-    })
-
     // ─────────────────────────────────────────────────────────────────────────
     // PASO 2: Extraer y validar firma
     // ─────────────────────────────────────────────────────────────────────────
@@ -251,21 +239,14 @@ export async function POST(request: Request): Promise<Response> {
     // PASO 5: Verificar firma HMAC-SHA256
     // ─────────────────────────────────────────────────────────────────────────
     //
-    // BYPASS TEMPORAL — Hardcoded + env var MP_WEBHOOK_SKIP_SIGNATURE.
-    // ─────────────────────────────────────────────────────────────────────────
-    // ⚠️  REVERTIR ANTES DE PROD MULTI-TENANT (cambiar HARDCODE a false).
-    //
-    // Mientras debuggeamos por qué el simulador del panel MP devuelve siempre
-    // 401, dejamos un escape hatch para validar el resto del flujo (orden →
-    // confirmed → polling detecta → venta registrada). Cuando arreglemos el
-    // HMAC con datos reales de webhooks de prod, ponemos HARDCODE = false
-    // y removemos esta env var.
-    //
-    // RIESGO ACEPTADO: cualquiera que conozca la URL del webhook puede
-    // dispararnos updates fake. La URL no es pública pero tampoco es secreta.
-    // Para piloto interno con 1 cliente está OK; para multi-tenant se rompe.
-    // ─────────────────────────────────────────────────────────────────────────
-    const SKIP_SIGNATURE_HARDCODE = true // ⚠️ TEMP — bajar a false cuando HMAC ande
+    // BYPASS TEMPORAL: bajar SKIP_SIGNATURE_HARDCODE a `false` cuando el
+    // webhook_secret esté pegado en mercadopago_credentials. Hoy queda en
+    // `true` porque el callback OAuth rompió el secret (ya fixeado, pero
+    // hay que volver a pegarlo manualmente en el form de configuración).
+    // Mientras esté en `true`, cualquiera que conozca la URL del webhook
+    // puede mandar updates falsos — riesgo aceptado para piloto con 1
+    // cliente, NO para multi-tenant.
+    const SKIP_SIGNATURE_HARDCODE = true // ⚠️ bajar a false post-pegar-secret
     const skipSignatureCheck =
       SKIP_SIGNATURE_HARDCODE ||
       process.env.MP_WEBHOOK_SKIP_SIGNATURE === 'true'
@@ -281,28 +262,11 @@ export async function POST(request: Request): Promise<Response> {
         )
 
     if (skipSignatureCheck) {
-      console.warn('[MP_WEBHOOK] ⚠️ Firma HMAC NO verificada (MP_WEBHOOK_SKIP_SIGNATURE=true). Sólo para debugging.')
+      logger.warn('MercadoPagoWebhook', 'Firma HMAC NO verificada (bypass activo)')
     }
 
     if (!isSignatureValid) {
-      // Debug temporal: imprimir lo que firmamos para comparar con lo que MP firmó.
-      // NO loggeamos el secret completo, sólo prefijo (no compromete seguridad).
-      // Ver Vercel logs y comparar template/dataId/requestId con la doc oficial MP.
-      // Quitar este bloque cuando el HMAC quede estable.
-      const debugTemplate = `id:${dataIdForSignature};request-id:${requestIdHeader};ts:${signature.ts};`
-      console.error('MP webhook signature mismatch', {
-        template: debugTemplate,
-        dataIdRaw: dataIdRaw,
-        dataIdForSignature: dataIdForSignature,
-        requestId: requestIdHeader,
-        ts: signature.ts,
-        v1Received: signature.v1,
-        secretSource: webhookSecret === process.env.MP_WEBHOOK_SECRET ? 'env' : 'db',
-        secretLen: webhookSecret.length,
-        secretFirst4: webhookSecret.substring(0, 4),
-        secretLast4: webhookSecret.substring(webhookSecret.length - 4),
-      })
-      logger.error('MercadoPagoWebhook', 'Firma HMAC inválida', undefined, {
+      logger.warn('MercadoPagoWebhook', 'Firma HMAC inválida', {
         v1Start: signature.v1.substring(0, 10) + '...',
       })
       return jsonResponse({ error: 'Firma inválida' }, 401)
@@ -794,6 +758,15 @@ async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Pr
       newStatus: mappedStatus,
       mpStatus,
     })
+
+    // ────────────────────────────────────────────────────────────────────────
+    // PASO 5 (Plan B): si la orden quedó confirmed, crear la sale server-side
+    // a partir de cart_snapshot. Esto desacopla el registro de venta de la UI
+    // — aunque el dialog se haya cerrado, la sale igual queda registrada.
+    // ────────────────────────────────────────────────────────────────────────
+    if (mappedStatus === 'confirmed') {
+      await ensureSaleForConfirmedOrder(orderRow.id)
+    }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('HandlePaymentNotification', 'Error procesando pago', err)
@@ -833,13 +806,15 @@ async function handleOrderNotification(payload: MercadoPagoWebhookPayload): Prom
 
     const supabase = createServiceRoleClient()
 
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('mercadopago_orders')
       .update({
         status: newStatus,
         webhook_received_at: new Date().toISOString(),
       })
       .eq('external_reference', externalReference)
+      .select('id')
+      .maybeSingle()
 
     if (updateError) {
       logger.error('HandleOrderNotification', 'Error actualizando orden', updateError as Error)
@@ -850,6 +825,12 @@ async function handleOrderNotification(payload: MercadoPagoWebhookPayload): Prom
       externalRef: externalReference.substring(0, 8),
       newStatus,
     })
+
+    // Plan B: si quedó confirmed, garantizar que la sale exista server-side
+    // a partir de cart_snapshot (idempotente).
+    if (newStatus === 'confirmed' && updated && (updated as any).id) {
+      await ensureSaleForConfirmedOrder((updated as any).id)
+    }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('HandleOrderNotification', 'Error procesando orden', err)
@@ -857,65 +838,147 @@ async function handleOrderNotification(payload: MercadoPagoWebhookPayload): Prom
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// FUNCIONES DE SEGURIDAD
+// PLAN B: CREACIÓN DE VENTA DESDE EL WEBHOOK
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Parsear el header x-signature de Mercado Pago. Formato: ts={ts},v1={sig}
+ * Garantiza que exista una sale para una orden MP confirmada.
+ *
+ * Plan B: cuando el webhook marca la orden como `confirmed`, la sale se crea
+ * server-side acá usando `cart_snapshot`. Esto desacopla el registro de la
+ * venta de la UI: el dialog puede cerrarse, el celular dormirse, perderse
+ * conexión justo después del QR — la venta igual queda registrada cuando
+ * MP confirme el pago.
+ *
+ * Idempotente:
+ *   - Si la orden no está `confirmed` → no hace nada.
+ *   - Si la orden ya tiene `sale_id` → no hace nada (webhook duplicado o
+ *     creada por otro path).
+ *   - Si `cart_snapshot` está vacío/null → log warning y skip (caso edge:
+ *     orden creada con código viejo, antes de la migración Plan B).
+ *
+ * Usa service role (bypass RLS) y un RPC `process_sale_from_webhook` que
+ * recibe `p_org_id` explícito (a diferencia de `process_sale` que deriva
+ * la organización de `auth.uid()` y por eso falla desde el webhook).
  */
-function parseSignatureHeader(header: string): SignatureHeader | null {
+async function ensureSaleForConfirmedOrder(orderId: string): Promise<void> {
   try {
-    const parts = header.split(',')
-    const tsMatch = parts.find(p => p.startsWith('ts='))
-    const v1Match = parts.find(p => p.startsWith('v1='))
+    const supabase = createServiceRoleClient()
 
-    if (!tsMatch || !v1Match) return null
+    const { data: order, error: fetchError } = await supabase
+      .from('mercadopago_orders')
+      .select('id, organization_id, branch_id, cash_register_id, sale_id, cart_snapshot, amount, status, external_reference')
+      .eq('id', orderId)
+      .single()
 
-    const ts = parseInt(tsMatch.substring(3), 10)
-    const v1 = v1Match.substring(3)
-
-    if (isNaN(ts)) return null
-
-    return { ts, v1 }
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error))
-    logger.error('ParseSignatureHeader', 'Error parseando signature header', err)
-    return null
-  }
-}
-
-/**
- * Verificar firma HMAC-SHA256 de Mercado Pago.
- * Template oficial: id:[data.id];request-id:[xRequestId];ts:[ts];
- */
-function verifyMercadoPagoSignature(
-  timestamp: number,
-  requestId: string,
-  dataId: string,
-  webhookSecret: string,
-  receivedV1: string
-): boolean {
-  try {
-    const template = `id:${dataId};request-id:${requestId};ts:${timestamp};`
-
-    const hmac = crypto.createHmac('sha256', webhookSecret)
-    hmac.update(template)
-    const computed = hmac.digest('hex')
-
-    if (computed.length !== receivedV1.length) {
-      return false
+    if (fetchError || !order) {
+      logger.error(
+        'EnsureSaleForConfirmedOrder',
+        'No se encontró la orden',
+        (fetchError as unknown as Error) || new Error('order is null')
+      )
+      return
     }
 
-    const isValid = crypto.timingSafeEqual(
-      Buffer.from(computed, 'hex'),
-      Buffer.from(receivedV1, 'hex')
+    const orderRow = order as any
+
+    if (orderRow.status !== 'confirmed') {
+      // Sólo creamos sale para órdenes confirmadas.
+      return
+    }
+
+    if (orderRow.sale_id) {
+      // Idempotencia: ya existe la sale (webhook duplicado o doble entrada).
+      logger.info('EnsureSaleForConfirmedOrder', 'Sale ya creada, skip', {
+        orderId: orderId.substring(0, 8),
+        saleId: String(orderRow.sale_id).substring(0, 8),
+      })
+      return
+    }
+
+    const cartSnapshot = orderRow.cart_snapshot
+    if (!cartSnapshot || !Array.isArray(cartSnapshot) || cartSnapshot.length === 0) {
+      logger.warn(
+        'EnsureSaleForConfirmedOrder',
+        'cart_snapshot vacío o ausente — no se puede crear sale',
+        {
+          orderId: orderId.substring(0, 8),
+          externalRef: String(orderRow.external_reference || '').substring(0, 8),
+        }
+      )
+      return
+    }
+
+    if (!orderRow.cash_register_id) {
+      logger.warn(
+        'EnsureSaleForConfirmedOrder',
+        'cash_register_id ausente — no se puede crear sale (NOT NULL en sales)',
+        { orderId: orderId.substring(0, 8) }
+      )
+      return
+    }
+
+    // Llamamos al RPC paralelo que acepta org_id explícito.
+    const { data: rpcResult, error: rpcError } = await supabase.rpc(
+      'process_sale_from_webhook',
+      {
+        p_org_id: orderRow.organization_id,
+        p_branch_id: orderRow.branch_id,
+        p_cash_register_id: orderRow.cash_register_id,
+        p_items: cartSnapshot,
+        p_payment_method: 'mercadopago',
+        p_total: Number(orderRow.amount),
+        p_notes: `MP order ${orderId}`,
+      }
     )
 
-    return isValid
+    if (rpcError) {
+      logger.error(
+        'EnsureSaleForConfirmedOrder',
+        'Error en RPC process_sale_from_webhook',
+        rpcError as unknown as Error
+      )
+      return
+    }
+
+    // El RPC puede devolver el UUID directo o { sale_id: uuid }.
+    const newSaleId =
+      typeof rpcResult === 'string'
+        ? rpcResult
+        : (rpcResult as any)?.sale_id || (rpcResult as any)?.id || null
+
+    if (!newSaleId) {
+      logger.error(
+        'EnsureSaleForConfirmedOrder',
+        'RPC no devolvió sale_id reconocible',
+        new Error(`rpcResult=${JSON.stringify(rpcResult)}`)
+      )
+      return
+    }
+
+    // Linkear el sale_id en la orden para futura idempotencia.
+    const { error: linkError } = await supabase
+      .from('mercadopago_orders')
+      .update({ sale_id: newSaleId })
+      .eq('id', orderId)
+
+    if (linkError) {
+      logger.error(
+        'EnsureSaleForConfirmedOrder',
+        'Error linkeando sale_id en la orden',
+        linkError as unknown as Error
+      )
+      // No re-tirar: la sale igual quedó creada; sólo el link falló.
+      return
+    }
+
+    logger.info('EnsureSaleForConfirmedOrder', 'Sale creada y linkeada', {
+      orderId: orderId.substring(0, 8),
+      saleId: String(newSaleId).substring(0, 8),
+    })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
-    logger.error('VerifyMercadoPagoSignature', 'Error verificando firma', err)
-    return false
+    logger.error('EnsureSaleForConfirmedOrder', 'Error inesperado', err)
   }
 }
 
