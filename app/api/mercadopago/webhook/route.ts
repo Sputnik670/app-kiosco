@@ -220,6 +220,23 @@ export async function POST(request: Request): Promise<Response> {
     )
 
     if (!isSignatureValid) {
+      // Debug temporal: imprimir lo que firmamos para comparar con lo que MP firmó.
+      // NO loggeamos el secret completo, sólo prefijo (no compromete seguridad).
+      // Ver Vercel logs y comparar template/dataId/requestId con la doc oficial MP.
+      // Quitar este bloque cuando el HMAC quede estable.
+      const debugTemplate = `id:${dataIdForSignature};request-id:${requestIdHeader};ts:${signature.ts};`
+      console.error('MP webhook signature mismatch', {
+        template: debugTemplate,
+        dataIdRaw: dataIdRaw,
+        dataIdForSignature: dataIdForSignature,
+        requestId: requestIdHeader,
+        ts: signature.ts,
+        v1Received: signature.v1,
+        secretSource: webhookSecret === process.env.MP_WEBHOOK_SECRET ? 'env' : 'db',
+        secretLen: webhookSecret.length,
+        secretFirst4: webhookSecret.substring(0, 4),
+        secretLast4: webhookSecret.substring(webhookSecret.length - 4),
+      })
       logger.error('MercadoPagoWebhook', 'Firma HMAC inválida', undefined, {
         v1Start: signature.v1.substring(0, 10) + '...',
       })
