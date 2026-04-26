@@ -26,12 +26,26 @@ import {
 
 type MercadoPagoQRState = "loading" | "waiting" | "confirmed" | "failed" | "expired" | "error"
 
+/**
+ * Item del carrito en el formato que espera el RPC `process_sale_from_webhook`.
+ * Se persiste como `cart_snapshot` en `mercadopago_orders` al generar el QR
+ * para que el webhook pueda crear la sale aunque el dialog se cierre antes.
+ */
+export interface MPCartItem {
+  product_id: string
+  quantity: number
+  unit_price: number
+  subtotal: number
+}
+
 interface MercadoPagoQRDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   saleId: string
   amount: number
   branchId: string
+  cashRegisterId: string
+  cartItems: MPCartItem[]
   onPaymentConfirmed: () => void
   onPaymentFailed: () => void
 }
@@ -54,6 +68,8 @@ export function MercadoPagoQRDialog({
   saleId,
   amount,
   branchId,
+  cashRegisterId,
+  cartItems,
   onPaymentConfirmed,
   onPaymentFailed,
 }: MercadoPagoQRDialogProps) {
@@ -90,7 +106,9 @@ export function MercadoPagoQRDialog({
         saleId,
         amount,
         "Venta kiosco",
-        branchId
+        branchId,
+        cashRegisterId,
+        cartItems
       )
 
       if (!result.success) {

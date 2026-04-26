@@ -346,10 +346,19 @@ export async function createMercadoPagoOrderAction(
   saleId: string,
   amount: number,
   description: string,
-  branchId: string
+  branchId: string,
+  cashRegisterId: string,
+  items: Array<{
+    product_id: string
+    quantity: number
+    unit_price: number
+    subtotal: number
+  }>
 ): Promise<CreateMercadoPagoOrderResult> {
   try {
-    const parsed = createMPOrderSchema.safeParse({ saleId, amount, description, branchId })
+    const parsed = createMPOrderSchema.safeParse({
+      saleId, amount, description, branchId, cashRegisterId, items,
+    })
     if (!parsed.success) {
       return { success: false, error: getZodError(parsed), retryable: false }
     }
@@ -455,19 +464,22 @@ export async function createMercadoPagoOrderAction(
       .insert({
         organization_id: orgId,
         branch_id: branchId,
-        // sale_id: la venta real todavía no existe en `sales` cuando se genera el QR.
-        // El link se hace después con linkSaleToMercadoPagoOrderAction() vía external_reference.
-        // Pasar saleId acá rompía el INSERT porque saleId es un string tipo "temp_<ts>_<rand>"
-        // y la columna sale_id es UUID con FK a sales(id).
+        cash_register_id: cashRegisterId,
+        // sale_id: la sale real la crea el WEBHOOK cuando MP confirma el pago,
+        // usando cart_snapshot. Hasta entonces, sale_id queda null.
         sale_id: null,
         external_reference: saleId,
         amount: Number(amount),
         currency: 'ARS',
-        // qr_data ahora guarda el init_point URL de la preferencia.
-        // El frontend lo encodea como QR y al escanearlo se abre el checkout MP.
+        // qr_data guarda el init_point URL de la preferencia. El frontend lo
+        // encodea como QR y al escanearlo se abre el checkout MP.
         qr_data: mpResponse.init_point,
         mp_order_id: mpResponse.id,
         status: 'pending',
+        // cart_snapshot: items tal cual los espera el RPC process_sale_from_webhook.
+        // Si la caja se cierra antes de que MP confirme, el webhook igual puede
+        // crear la sale a partir de este snapshot.
+        cart_snapshot: items,
         created_at: new Date().toISOString(),
         expires_at: expiresAt,
       })
