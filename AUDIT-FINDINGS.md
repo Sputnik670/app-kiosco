@@ -52,11 +52,13 @@
 - Versionado en `supabase/migrations/00013_mp_cart_snapshot_plan_b.sql` (ya incluye los REVOKE).
 - Riesgo: alto. Cualquier user autenticado podía mover dinero contable a otra org.
 
-### `mp_creds_select` abierto a toda la org — RESUELTO (26-abr, migración 00014)
+### `mp_creds_select` endurecido y revertido — DECISIÓN final (26-abr, migración 00015)
 
-- Antes: SELECT policy filtraba sólo por `organization_id = get_my_org_id()` — cualquier miembro de la org leía credenciales encriptadas.
-- Ahora: `USING ((organization_id = get_my_org_id()) AND is_owner())`.
-- Los tokens nunca llegaban al cliente igual (uso server-side), pero la superficie es menor.
+- 00014 lo endureció a `USING (... AND is_owner())` pensando que era mejora.
+- Eso rompe el flujo principal del POS: cualquier empleado opera la caja y necesita generar QR de Mercado Pago. El server action `createMercadoPagoOrderAction` lee la fila con el contexto del user logueado (RLS aplica), entonces si el user es `employee` no ve la fila → "Credenciales no configuradas".
+- 00015 revierte a `USING (organization_id = get_my_org_id())`.
+- Justificación de seguridad: los tokens están encriptados con AES-256-GCM + `MP_ENCRYPTION_KEY` (env var de Vercel). La fila por sí sola no entrega los tokens en claro — sólo el server action que tiene la key puede desencriptar. INSERT/UPDATE/DELETE siguen restringidos a `is_owner()` (rotar credenciales sigue siendo del dueño).
+- Lección aprendida: las recomendaciones de "más higiénico restringir SELECT" tienen que validarse contra el flujo operacional real. Un empleado leyendo una fila encriptada no es lo mismo que leyendo tokens en claro.
 
 ### `mercadopago_credentials` con GRANTs amplios para anon — RESUELTO (26-abr, migración 00014)
 
