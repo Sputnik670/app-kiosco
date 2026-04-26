@@ -130,20 +130,8 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Extraer data.id del QUERY PARAM (no del body).
-    // Según docs MP, el template HMAC usa el data.id que viene en la URL.
-    // Si es alfanumérico, debe ir en lowercase.
-    // Ref: https://www.mercadopago.com.ar/developers/en/docs/your-integrations/notifications/webhooks
+    // Parsear body PRIMERO (lo necesitamos para fallback del data.id).
     // ─────────────────────────────────────────────────────────────────────────
-    const requestUrl = new URL(request.url)
-    const dataIdRaw =
-      requestUrl.searchParams.get('data.id') ||
-      requestUrl.searchParams.get('id') ||
-      ''
-    const dataIdForSignature = /^[a-zA-Z0-9]+$/.test(dataIdRaw)
-      ? dataIdRaw.toLowerCase()
-      : dataIdRaw
-
     let payload: MercadoPagoWebhookPayload
     try {
       payload = await request.json()
@@ -152,6 +140,35 @@ export async function POST(request: Request): Promise<Response> {
       logger.error('MercadoPagoWebhook', 'Error parseando JSON', err)
       return jsonResponse({ error: 'JSON inválido' }, 400)
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Extraer data.id: primero del QUERY PARAM, fallback al BODY.
+    // - Webhooks reales de MP en prod: vienen como ?data.id=xxx&type=...
+    // - Simulador "Probar webhook" del panel developers: NO manda query string,
+    //   sólo body. Probamos query y caemos al body si está vacío.
+    // - Si es alfanumérico, lowercase (regla MP).
+    // Ref: https://www.mercadopago.com.ar/developers/en/docs/your-integrations/notifications/webhooks
+    // ─────────────────────────────────────────────────────────────────────────
+    const requestUrl = new URL(request.url)
+    const dataIdRaw =
+      requestUrl.searchParams.get('data.id') ||
+      requestUrl.searchParams.get('id') ||
+      String(payload?.data?.id || '') ||
+      ''
+    const dataIdForSignature = /^[a-zA-Z0-9]+$/.test(dataIdRaw)
+      ? dataIdRaw.toLowerCase()
+      : dataIdRaw
+
+    // Log incondicional con prefijo único — fácil de buscar en Vercel logs.
+    console.log('[MP_HMAC_DEBUG] inbound', {
+      url: request.url,
+      hasQueryDataId: !!(requestUrl.searchParams.get('data.id') || requestUrl.searchParams.get('id')),
+      dataIdRaw,
+      dataIdForSignature,
+      bodyDataId: payload?.data?.id,
+      action: payload?.action,
+      requestId: request.headers.get('x-request-id'),
+    })
 
     // ─────────────────────────────────────────────────────────────────────────
     // PASO 2: Extraer y validar firma
