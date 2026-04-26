@@ -49,13 +49,22 @@ import {
 
 /**
  * Payload de webhook de Mercado Pago
+ *
+ * IMPORTANTE: en webhooks de tipo `payment`, MP envía sólo `data.id` (= payment_id).
+ * NO envía `external_reference`, `status`, `transaction_amount`, etc. en el body.
+ * Esos campos hay que ir a buscarlos haciendo GET /v1/payments/{id} con el
+ * access_token del kiosquero. El `user_id` del payload es el `collector_id` que
+ * nos permite identificar de qué kiosquero (= organización) viene el cobro.
  */
 interface MercadoPagoWebhookPayload {
   id: string
   type: string
   action: 'payment.created' | 'payment.updated' | 'order.updated'
+  /** collector_id del kiosquero que recibió el cobro (vía OAuth). */
+  user_id?: number | string
   data: {
     id: string
+    /** Los campos abajo SÓLO vienen en `order.updated`, no en `payment.*`. */
     status?: string
     status_detail?: string
     transaction_amount?: number
@@ -66,6 +75,20 @@ interface MercadoPagoWebhookPayload {
       email?: string
     }
   }
+}
+
+/**
+ * Respuesta de GET /v1/payments/{id} en MP.
+ * Sólo tipamos los campos que usamos.
+ */
+interface MercadoPagoPaymentDetails {
+  id: number | string
+  status: string // approved | rejected | pending | in_process | cancelled | refunded
+  status_detail?: string
+  transaction_amount?: number
+  external_reference?: string | null
+  payment_method_id?: string
+  date_approved?: string | null
 }
 
 /**
@@ -464,81 +487,302 @@ async function getDecryptedWebhookSecret(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// FUNCIONES DE RESOLUCIÓN DE CREDENCIALES Y FETCH A MP
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resuelve credenciales de MP para una organización a partir del collector_id
+ * que viene en el webhook como `user_id`.
+ *
+ * Devuelve `accessToken` desencriptado + `organizationId`. null si no encuentra.
+ *
+ * @param collectorId - user_id del payload del webhook
+ */
+async function getCredentialsByCollectorId(
+  collectorId: string
+): Promise<{ accessToken: string; organizationId: string } | null> {
+  try {
+    const supabase = createServiceRoleClient()
+
+    const { data, error } = await supabase
+      .from('mercadopago_credentials')
+      .select('access_token_encrypted, organization_id')
+      .eq('collector_id', collectorId)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (error || !data?.access_token_encrypted) {
+      logger.warn('GetCredentialsByCollectorId', 'Credenciales no encontradas', {
+        collectorId: collectorId.substring(0, 6),
+      })
+      return null
+    }
+
+    const accessToken = decryptString(data.access_token_encrypted)
+    if (!accessToken) return null
+
+    return {
+      accessToken,
+      organizationId: (data as any).organization_id,
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('GetCredentialsByCollectorId', 'Error resolviendo credenciales', err)
+    return null
+  }
+}
+
+/**
+ * Hace GET /v1/payments/{id} a MP API y devuelve el detalle del pago.
+ *
+ * MP no manda `external_reference` en webhooks de tipo payment, así que SIEMPRE
+ * hay que pegarle a esta URL para obtener los datos reales del cobro.
+ *
+ * @returns null si la respuesta no es 200 o si el body no tiene `id`.
+ */
+async function fetchPaymentDetails(
+  paymentId: string,
+  accessToken: string
+): Promise<MercadoPagoPaymentDetails | null> {
+  const url = `https://api.mercadopago.com/v1/payments/${paymentId}`
+
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10_000)
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      // 404 = payment_id ficticio (típico del simulador del panel developers).
+      // 401 = access_token revocado. No retryeable, log warn y seguir.
+      logger.warn('FetchPaymentDetails', 'MP API respondió no-OK', {
+        paymentId: paymentId.substring(0, 6),
+        status: response.status,
+      })
+      return null
+    }
+
+    const body = (await response.json()) as MercadoPagoPaymentDetails
+    if (!body || !body.id) {
+      logger.warn('FetchPaymentDetails', 'Body sin id', { paymentId: paymentId.substring(0, 6) })
+      return null
+    }
+
+    return body
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('FetchPaymentDetails', 'Error pegándole a MP API', err)
+    return null
+  }
+}
+
+/**
+ * Helper local para desencriptar AES-256-GCM con MP_ENCRYPTION_KEY.
+ * Mismo formato que `mercadopago.actions.ts#encrypt()`: iv:authTag:encrypted (hex).
+ *
+ * Duplicado intencional — no podemos importar desde server actions a una API
+ * route sin arrastrar todo el bundle 'use server'.
+ */
+function decryptString(encrypted: string): string | null {
+  try {
+    const keyEnv = process.env.MP_ENCRYPTION_KEY
+    if (!keyEnv) {
+      logger.warn('DecryptString', 'MP_ENCRYPTION_KEY no configurada')
+      return null
+    }
+
+    let key: Buffer
+    if (/^[0-9a-f]{64}$/i.test(keyEnv)) {
+      key = Buffer.from(keyEnv, 'hex')
+    } else if (keyEnv.length >= 32) {
+      key = Buffer.from(keyEnv.substring(0, 32), 'utf8')
+    } else {
+      const padded = keyEnv.padEnd(32, '\0')
+      key = Buffer.from(padded.substring(0, 32), 'utf8')
+    }
+
+    const parts = encrypted.split(':')
+    if (parts.length !== 3) {
+      logger.warn('DecryptString', 'Formato encriptado inválido')
+      return null
+    }
+
+    const iv = Buffer.from(parts[0], 'hex')
+    const authTag = Buffer.from(parts[1], 'hex')
+    const encryptedText = parts[2]
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv)
+    decipher.setAuthTag(authTag)
+
+    let decrypted = decipher.update(encryptedText, 'hex', 'utf8')
+    decrypted += decipher.final('utf8')
+
+    return decrypted
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('DecryptString', 'Error desencriptando', err)
+    return null
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // FUNCIONES DE PROCESAMIENTO
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
  * Manejar notificaciones de pago (payment.created / payment.updated)
  *
- * Actualiza el estado de mercadopago_orders cuando:
- * - Pago se aprobó (status: approved)
- * - Pago fue rechazado (status: rejected)
- * - Pago está en revisión (status: in_process)
+ * MP envía sólo `data.id` (payment_id) — no manda external_reference ni status
+ * en el body. Hay que ir a buscar el detalle del pago a la API de MP.
+ *
+ * Flujo:
+ *   1. Extraer collector_id del payload (`user_id`)
+ *   2. Resolver credenciales del kiosquero por collector_id
+ *   3. GET /v1/payments/{id} con su access_token → obtener external_reference + status
+ *   4. Buscar la orden en mercadopago_orders por external_reference (o mp_payment_id)
+ *   5. UPDATE de status, mp_payment_id, confirmed_at, webhook_received_at
+ *
+ * Si no podemos resolver credenciales (caso típico del simulador del panel
+ * developers de MP, que manda user_id ficticio) o el GET a MP falla con 404
+ * (payment_id ficticio), retornamos sin hacer nada — pero el outer handler
+ * igual responde 200 OK para que MP no reintente.
  */
 async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Promise<void> {
   try {
-    const { data } = payload
+    const paymentId = String(payload.data?.id || '')
+    const collectorId = payload.user_id ? String(payload.user_id) : null
 
     logger.info('HandlePaymentNotification', 'Procesando notificación de pago', {
-      paymentId: data.id,
-      status: data.status,
-      externalRef: data.external_reference?.substring(0, 8) + '...',
+      paymentId: paymentId.substring(0, 8),
+      action: payload.action,
+      collectorId: collectorId?.substring(0, 6),
     })
 
-    if (!data.status) {
-      logger.warn('HandlePaymentNotification', 'Status no presente en payload', {
-        paymentId: data.id,
+    if (!paymentId) {
+      logger.warn('HandlePaymentNotification', 'Payload sin data.id, ignorando')
+      return
+    }
+
+    if (!collectorId) {
+      logger.warn('HandlePaymentNotification', 'Payload sin user_id (collector_id)', {
+        paymentId: paymentId.substring(0, 8),
       })
       return
     }
 
-    const mpStatus = data.status as MercadoPagoPaymentStatus
+    // ────────────────────────────────────────────────────────────────────────
+    // PASO 1: Resolver credenciales del kiosquero por collector_id
+    // ────────────────────────────────────────────────────────────────────────
+    const creds = await getCredentialsByCollectorId(collectorId)
+    if (!creds) {
+      // Probablemente es del simulador del panel developers de MP
+      // (manda collector_id ficticio que no matchea ninguna org). OK silently.
+      logger.warn('HandlePaymentNotification', 'No hay credenciales para collector_id', {
+        collectorId: collectorId.substring(0, 6),
+        paymentId: paymentId.substring(0, 8),
+      })
+      return
+    }
 
-    // Mapear status de MP a nuestro status
+    // ────────────────────────────────────────────────────────────────────────
+    // PASO 2: GET /v1/payments/{id} para obtener external_reference + status
+    // ────────────────────────────────────────────────────────────────────────
+    const paymentDetails = await fetchPaymentDetails(paymentId, creds.accessToken)
+    if (!paymentDetails) {
+      // 404 típico del simulador (payment_id ficticio).
+      logger.warn('HandlePaymentNotification', 'No se pudo obtener detalle del pago', {
+        paymentId: paymentId.substring(0, 8),
+      })
+      return
+    }
+
+    const mpStatus = paymentDetails.status as MercadoPagoPaymentStatus
     const mappedStatus: MercadoPagoOrderStatus = MERCADOPAGO_STATUS_MAP[mpStatus] || 'pending'
+    const externalReference = paymentDetails.external_reference || null
 
+    logger.info('HandlePaymentNotification', 'Detalle de pago obtenido', {
+      paymentId: paymentId.substring(0, 8),
+      mpStatus,
+      mappedStatus,
+      hasExternalRef: !!externalReference,
+      amount: paymentDetails.transaction_amount,
+    })
+
+    // ────────────────────────────────────────────────────────────────────────
+    // PASO 3: Localizar la orden — primero por external_reference, fallback
+    // por mp_payment_id (idempotencia: si ya procesamos antes, mp_payment_id
+    // ya está seteado).
+    // ────────────────────────────────────────────────────────────────────────
     const supabase = createServiceRoleClient()
 
-    // Buscar la orden
-    let externalReference = data.external_reference
-    if (!externalReference) {
-      // Si no tenemos external_reference, buscar por mp_payment_id
-      const { data: order } = await supabase
+    let orderRow:
+      | { id: string; status: string; webhook_received_at: string | null }
+      | null = null
+
+    if (externalReference) {
+      const { data } = await supabase
         .from('mercadopago_orders')
-        .select('external_reference, organization_id')
-        .eq('mp_payment_id', String(data.id))
+        .select('id, status, webhook_received_at')
+        .eq('external_reference', externalReference)
+        .eq('organization_id', creds.organizationId)
         .maybeSingle()
-
-      if (!order) {
-        logger.warn('HandlePaymentNotification', 'No se encontró orden vinculada', {
-          paymentId: data.id,
-        })
-        return
-      }
-
-      externalReference = (order as any).external_reference
+      orderRow = (data as any) || null
     }
 
-    if (!externalReference) {
-      logger.warn('HandlePaymentNotification', 'No hay external_reference para actualizar', {
-        paymentId: data.id,
+    if (!orderRow) {
+      const { data } = await supabase
+        .from('mercadopago_orders')
+        .select('id, status, webhook_received_at')
+        .eq('mp_payment_id', paymentId)
+        .eq('organization_id', creds.organizationId)
+        .maybeSingle()
+      orderRow = (data as any) || null
+    }
+
+    if (!orderRow) {
+      logger.warn('HandlePaymentNotification', 'No se encontró orden para el pago', {
+        paymentId: paymentId.substring(0, 8),
+        externalRef: externalReference?.substring(0, 8),
+        orgId: creds.organizationId.substring(0, 8),
       })
       return
     }
 
-    // Actualizar mercadopago_orders
-    const confirmedAt = mpStatus === 'approved' ? new Date().toISOString() : null
+    // Idempotencia: si ya está confirmed con webhook recibido, no re-procesar.
+    // Caso común: MP manda payment.created y payment.updated muy seguidos.
+    if (orderRow.status === 'confirmed' && orderRow.webhook_received_at) {
+      logger.info('HandlePaymentNotification', 'Orden ya confirmada, skip', {
+        orderId: orderRow.id.substring(0, 8),
+      })
+      return
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // PASO 4: UPDATE
+    // ────────────────────────────────────────────────────────────────────────
+    const confirmedAt = mpStatus === 'approved'
+      ? (paymentDetails.date_approved || new Date().toISOString())
+      : null
 
     const { error: updateError } = await supabase
       .from('mercadopago_orders')
       .update({
         status: mappedStatus,
-        mp_payment_id: String(data.id),
+        mp_payment_id: paymentId,
         confirmed_at: confirmedAt,
         webhook_received_at: new Date().toISOString(),
-        notes: data.status_detail ? `MP: ${data.status_detail}` : null,
+        notes: paymentDetails.status_detail ? `MP: ${paymentDetails.status_detail}` : null,
       })
-      .eq('external_reference', externalReference)
+      .eq('id', orderRow.id)
 
     if (updateError) {
       logger.error('HandlePaymentNotification', 'Error actualizando orden', updateError as Error)
@@ -546,21 +790,21 @@ async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Pr
     }
 
     logger.info('HandlePaymentNotification', 'Orden actualizada exitosamente', {
-      externalRef: externalReference.substring(0, 8),
+      orderId: orderRow.id.substring(0, 8),
       newStatus: mappedStatus,
       mpStatus,
     })
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('HandlePaymentNotification', 'Error procesando pago', err)
-    // No lanzar error (queremos retornar 200 de todas formas)
+    // No lanzar (queremos 200 OK al final del outer handler).
   }
 }
 
 /**
  * Manejar notificaciones de orden (order.updated)
  *
- * Actualiza estado si la orden cambió (ej: expiración)
+ * Actualiza estado si la orden cambió (ej: expiración).
  */
 async function handleOrderNotification(payload: MercadoPagoWebhookPayload): Promise<void> {
   try {
@@ -579,8 +823,6 @@ async function handleOrderNotification(payload: MercadoPagoWebhookPayload): Prom
       return
     }
 
-    // Para order.updated, el status puede ser 'expired', 'active', 'paid', etc.
-    // Mapeamos según nuestro modelo
     let newStatus: MercadoPagoOrderStatus = 'pending'
 
     if (data.status === 'expired') {
@@ -619,12 +861,7 @@ async function handleOrderNotification(payload: MercadoPagoWebhookPayload): Prom
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Parsear el header x-signature de Mercado Pago
- *
- * Formato: ts={timestamp},v1={signature}
- *
- * @param header - Contenido del header x-signature
- * @returns SignatureHeader o null si formato inválido
+ * Parsear el header x-signature de Mercado Pago. Formato: ts={ts},v1={sig}
  */
 function parseSignatureHeader(header: string): SignatureHeader | null {
   try {
@@ -648,25 +885,8 @@ function parseSignatureHeader(header: string): SignatureHeader | null {
 }
 
 /**
- * Verificar firma HMAC-SHA256 de Mercado Pago
- *
- * ALGORITMO (per docs oficiales):
- * 1. Template: id:[data.id];request-id:[xRequestId];ts:[ts];
- *    - data.id sale del QUERY PARAM (no del body), lowercased si es alfanumérico
- *    - separador `;` y prefijos `id:` `request-id:` `ts:` son obligatorios
- *    - punto y coma final también
- * 2. HMAC-SHA256(template, webhook_secret) → hex
- * 3. Comparar (timing-safe) con v1 recibido en header x-signature
- *
- * Referencia:
- * https://www.mercadopago.com.ar/developers/en/docs/your-integrations/notifications/webhooks
- *
- * @param timestamp - Timestamp del header (segundos)
- * @param requestId - X-Request-ID del header
- * @param dataId - data.id extraído del query param (lowercased)
- * @param webhookSecret - Secret de Mercado Pago
- * @param receivedV1 - Firma recibida en header
- * @returns true si firma es válida
+ * Verificar firma HMAC-SHA256 de Mercado Pago.
+ * Template oficial: id:[data.id];request-id:[xRequestId];ts:[ts];
  */
 function verifyMercadoPagoSignature(
   timestamp: number,
@@ -676,20 +896,16 @@ function verifyMercadoPagoSignature(
   receivedV1: string
 ): boolean {
   try {
-    // Template oficial MP — `;` final incluido, prefijos id:/request-id:/ts: obligatorios
     const template = `id:${dataId};request-id:${requestId};ts:${timestamp};`
 
-    // Generar HMAC-SHA256
     const hmac = crypto.createHmac('sha256', webhookSecret)
     hmac.update(template)
     const computed = hmac.digest('hex')
 
-    // Si las longitudes difieren, timingSafeEqual tira → comparación rápida primero
     if (computed.length !== receivedV1.length) {
       return false
     }
 
-    // Comparación timing-safe para evitar timing attacks
     const isValid = crypto.timingSafeEqual(
       Buffer.from(computed, 'hex'),
       Buffer.from(receivedV1, 'hex')
@@ -707,9 +923,6 @@ function verifyMercadoPagoSignature(
 // UTILIDADES
 // ───────────────────────────────────────────────────────────────────────────
 
-/**
- * Helper para retornar JSON con status code
- */
 function jsonResponse(data: any, status: number = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
