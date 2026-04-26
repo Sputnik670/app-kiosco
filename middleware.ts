@@ -3,7 +3,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 // Rutas de API que NO requieren autenticación
-const PUBLIC_API_ROUTES = ['/api/health']
+// - /api/health: healthcheck público
+// - /api/mercadopago/webhook: lo llama Mercado Pago server-to-server, sin
+//   sesión de usuario. La autenticidad se valida con HMAC SHA-256 dentro del
+//   handler (firma + timestamp). NO sumar más rutas acá sin un mecanismo
+//   propio de auth.
+const PUBLIC_API_ROUTES = ['/api/health', '/api/mercadopago/webhook']
 
 // Rutas de auth que tienen rate limit más estricto
 const AUTH_ROUTES = ['/api/auth', '/signup']
