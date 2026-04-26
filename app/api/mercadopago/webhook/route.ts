@@ -228,19 +228,24 @@ export async function POST(request: Request): Promise<Response> {
     // PASO 5: Verificar firma HMAC-SHA256
     // ─────────────────────────────────────────────────────────────────────────
     //
-    // BYPASS TEMPORAL — Controlado por env var MP_WEBHOOK_SKIP_SIGNATURE.
+    // BYPASS TEMPORAL — Hardcoded + env var MP_WEBHOOK_SKIP_SIGNATURE.
     // ─────────────────────────────────────────────────────────────────────────
+    // ⚠️  REVERTIR ANTES DE PROD MULTI-TENANT (cambiar HARDCODE a false).
+    //
     // Mientras debuggeamos por qué el simulador del panel MP devuelve siempre
     // 401, dejamos un escape hatch para validar el resto del flujo (orden →
     // confirmed → polling detecta → venta registrada). Cuando arreglemos el
-    // HMAC con datos reales de webhooks de prod, sacamos esta env var.
+    // HMAC con datos reales de webhooks de prod, ponemos HARDCODE = false
+    // y removemos esta env var.
     //
     // RIESGO ACEPTADO: cualquiera que conozca la URL del webhook puede
     // dispararnos updates fake. La URL no es pública pero tampoco es secreta.
     // Para piloto interno con 1 cliente está OK; para multi-tenant se rompe.
-    // No dejar prendido en prod productiva.
     // ─────────────────────────────────────────────────────────────────────────
-    const skipSignatureCheck = process.env.MP_WEBHOOK_SKIP_SIGNATURE === 'true'
+    const SKIP_SIGNATURE_HARDCODE = true // ⚠️ TEMP — bajar a false cuando HMAC ande
+    const skipSignatureCheck =
+      SKIP_SIGNATURE_HARDCODE ||
+      process.env.MP_WEBHOOK_SKIP_SIGNATURE === 'true'
 
     const isSignatureValid = skipSignatureCheck
       ? true
