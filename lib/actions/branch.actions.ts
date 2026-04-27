@@ -395,7 +395,3 @@ export async function updateBranchAction(
     }
   }
 }
-ror instanceof Error ? error.message : 'Error desconocido',
-    }
-  }
-}
