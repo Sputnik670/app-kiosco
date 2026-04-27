@@ -900,13 +900,38 @@ export async function updateMercadoPagoWebhookSecretAction(
       return { success: false, error: 'El webhook secret no puede estar vacío' }
     }
 
-    // Sanity check: los secrets de MP típicamente tienen >= 16 chars.
-    // No es validación de formato (cualquier string sirve si MP lo emite así),
-    // solo evita pegues accidentales tipo "asd".
-    if (webhookSecret.trim().length < 8) {
+    // ─────────────────────────────────────────────────────────────────────────
+    // SANITIZACIÓN: stripeamos whitespace ASCII Y unicode invisible.
+    //
+    // Bug histórico (26-abr-2026): al copiar/pegar el secret desde el panel
+    // de MP, se colaron caracteres unicode invisibles en el medio del secret
+    // (zero-width space, NBSP, etc). `trim()` no los detecta porque sólo
+    // recorta extremos y `\s` en JS no agarra varios de ellos. El secret
+    // guardado tenía 64 chars en `.length` pero los bytes no coincidían con
+    // los del panel — el HMAC nunca matcheaba.
+    //
+    // Stripeamos antes de validar formato.
+    // ─────────────────────────────────────────────────────────────────────────
+    const sanitized = webhookSecret
+      .replace(/\s+/g, '') // ASCII whitespace (space, tab, newline, etc)
+      // Unicode invisible: NBSP, en/em quad, en/em space, three-per-em,
+      // four-per-em, six-per-em, figure space, punctuation space, thin space,
+      // hair space, zero-width spaces y joiners, line/paragraph separators,
+      // narrow no-break, medium math space, ideographic space, BOM/zero-width
+      // no-break space.
+      .replace(
+        /[   -‍    　﻿]/g,
+        ''
+      )
+
+    // VALIDACIÓN ESTRICTA DE FORMATO: MP emite el webhook secret como 64
+    // caracteres hexadecimales lowercase (e.g. `a73ba6a098...04fe`). Si lo
+    // que pegaron no es eso, rechazar antes de encriptar para no esconder
+    // el bug en DB.
+    if (!/^[0-9a-f]{64}$/i.test(sanitized)) {
       return {
         success: false,
-        error: 'El webhook secret parece muy corto. Verificá el valor de MP.',
+        error: `El webhook secret no tiene el formato esperado de Mercado Pago (64 caracteres hexadecimales). Recibimos ${sanitized.length} caracteres tras limpiar espacios. Copialo de nuevo desde el panel de MP — asegurate de seleccionar exactamente desde el primer caracter al último.`,
       }
     }
 
@@ -927,7 +952,7 @@ export async function updateMercadoPagoWebhookSecretAction(
       }
     }
 
-    const encryptedSecret = encrypt(webhookSecret.trim())
+    const encryptedSecret = encrypt(sanitized)
 
     const { error: updateError } = await supabase
       .from('mercadopago_credentials')
@@ -946,6 +971,10 @@ export async function updateMercadoPagoWebhookSecretAction(
     logger.info('updateMercadoPagoWebhookSecretAction', 'Webhook secret actualizado', {
       orgId,
       userId: user.id,
+      // Preview seguro para auditar — first4/last4 son dato público (visibles
+      // en panel MP). NO loggeamos el secret completo.
+      secretPreview: `${sanitized.slice(0, 4)}...${sanitized.slice(-4)}`,
+      secretLen: sanitized.length,
     })
 
     return { success: true }
