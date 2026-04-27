@@ -20,6 +20,8 @@
 import { createClient } from '@/lib/supabase-server'
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 import { createBranchSchema, updateBranchSchema, updateBranchQRSchema, getZodError, idSchema } from '@/lib/validations'
+import { registerMercadoPagoPosForBranchAction } from '@/lib/actions/mercadopago.actions'
+import { logger } from '@/lib/logging'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -280,6 +282,30 @@ export async function createBranchAction(
       }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // AUTO-REGISTRO COMO POS EN MERCADO PAGO (best-effort, no bloqueante)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Si la org tiene MP conectado, intentamos registrar la sucursal como POS
+    // automáticamente para que pueda generar QRs EMVCo desde el primer momento.
+    // Si falla (no hay credenciales, MP rechaza, etc.), no bloqueamos la
+    // creación de la sucursal — el dueño puede reintentar manualmente desde
+    // Configuración → Mercado Pago → "Registrar sucursales".
+    if (nuevaBranch?.id) {
+      try {
+        const posResult = await registerMercadoPagoPosForBranchAction(nuevaBranch.id)
+        if (!posResult.success) {
+          logger.info('createBranchAction', 'Auto-registro POS en MP omitido', {
+            branchId: nuevaBranch.id.substring(0, 8),
+            reason: posResult.error,
+          })
+        }
+      } catch (mpError) {
+        // Failsafe extra: si el action explota inesperadamente, igual seguimos.
+        const err = mpError instanceof Error ? mpError : new Error(String(mpError))
+        logger.error('createBranchAction', 'Excepción en auto-registro POS', err)
+      }
+    }
+
     return {
       success: true,
       branchId: nuevaBranch?.id,
@@ -366,6 +392,10 @@ export async function updateBranchAction(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+ror instanceof Error ? error.message : 'Error desconocido',
     }
   }
 }

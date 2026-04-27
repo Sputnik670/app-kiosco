@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  Store,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -30,6 +31,9 @@ import {
   getOAuthUrlAction,
   disconnectMercadoPagoAction,
   updateMercadoPagoWebhookSecretAction,
+  getBranchesMpRegistrationStatusAction,
+  registerMercadoPagoPosForBranchAction,
+  type BranchMpStatus,
 } from '@/lib/actions/mercadopago.actions'
 
 /**
@@ -89,6 +93,13 @@ export default function ConfiguracionMercadoPago() {
   const [showWebhookSecretInput, setShowWebhookSecretInput] = useState(false)
   const [savingWebhookSecret, setSavingWebhookSecret] = useState(false)
 
+  // Sucursales registradas como POS en MP — requisito para QR EMVCo
+  // interoperable (Naranja X, MODO, Brubank, etc.).
+  const [branches, setBranches] = useState<BranchMpStatus[]>([])
+  const [loadingBranches, setLoadingBranches] = useState(false)
+  const [registeringBranchId, setRegisteringBranchId] = useState<string | null>(null)
+  const [registeringAll, setRegisteringAll] = useState(false)
+
   // URL params (para detectar retorno de OAuth)
   const searchParams = useSearchParams()
 
@@ -147,6 +158,103 @@ export default function ConfiguracionMercadoPago() {
   useEffect(() => {
     fetchConfig()
   }, [fetchConfig])
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // CARGAR SUCURSALES + ESTADO POS EN MP
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const fetchBranches = useCallback(async () => {
+    setLoadingBranches(true)
+    const result = await getBranchesMpRegistrationStatusAction()
+    if (result.success && result.branches) {
+      setBranches(result.branches)
+    } else {
+      // No-toast: la card muestra estado vacío por su cuenta. El error verdadero
+      // sería de auth, que ya cubre la pantalla principal.
+      setBranches([])
+    }
+    setLoadingBranches(false)
+  }, [])
+
+  // Trigger fetchBranches cada vez que tenemos config conectada (post-OAuth o
+  // recarga). Si no hay config, no tiene sentido pedir las sucursales — el
+  // botón de registrar las necesita igual.
+  useEffect(() => {
+    if (config) {
+      fetchBranches()
+    }
+  }, [config, fetchBranches])
+
+  const pendingBranchesCount = branches.filter((b) => !b.isRegistered).length
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // REGISTRAR SUCURSAL INDIVIDUAL EN MP
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const handleRegisterBranch = useCallback(
+    async (branchId: string) => {
+      setRegisteringBranchId(branchId)
+      const result = await registerMercadoPagoPosForBranchAction(branchId)
+      if (result.success) {
+        if (result.alreadyRegistered) {
+          toast.info('Sucursal ya estaba registrada en MP')
+        } else {
+          toast.success('Sucursal registrada en Mercado Pago', {
+            description: 'Ya podés cobrar QR interoperable desde esta caja.',
+          })
+        }
+        await fetchBranches()
+      } else {
+        toast.error('No se pudo registrar la sucursal', {
+          description: result.error,
+        })
+      }
+      setRegisteringBranchId(null)
+    },
+    [fetchBranches]
+  )
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // REGISTRAR TODAS LAS SUCURSALES PENDIENTES
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const handleRegisterAllPending = useCallback(async () => {
+    const pending = branches.filter((b) => !b.isRegistered)
+    if (pending.length === 0) return
+
+    setRegisteringAll(true)
+    let okCount = 0
+    let errCount = 0
+
+    // Las llamadas se hacen secuenciales para no saturar a MP con N requests
+    // simultáneas y poder mostrar progreso ordenado en logs si hay falla. Para
+    // 1-3 sucursales esto es trivial; si una org tiene 20+ sucursales, podemos
+    // paralelizar con Promise.all en una segunda iteración.
+    for (const b of pending) {
+      const result = await registerMercadoPagoPosForBranchAction(b.id)
+      if (result.success) {
+        okCount++
+      } else {
+        errCount++
+        // No spammeamos toasts por cada falla — al final mostramos resumen.
+      }
+    }
+
+    if (errCount === 0) {
+      toast.success(`${okCount} sucursal${okCount > 1 ? 'es' : ''} registrada${okCount > 1 ? 's' : ''} en MP`)
+    } else if (okCount === 0) {
+      toast.error('No se pudo registrar ninguna sucursal', {
+        description: 'Verificá que tu cuenta de MP esté verificada (KYC) y reintentá.',
+      })
+    } else {
+      toast.warning(`Registramos ${okCount} de ${okCount + errCount}`, {
+        description: 'Algunas sucursales fallaron. Probá registrarlas individualmente.',
+      })
+    }
+
+    await fetchBranches()
+    setRegisteringAll(false)
+  }, [branches, fetchBranches])
 
   // ───────────────────────────────────────────────────────────────────────────
   // CONECTAR CON OAUTH
@@ -326,6 +434,105 @@ export default function ConfiguracionMercadoPago() {
                 </p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* SUCURSALES — registro POS en MP para QR EMVCo interoperable */}
+        <Card
+          className={
+            !loadingBranches && pendingBranchesCount > 0
+              ? 'border-amber-300 bg-amber-50/50'
+              : 'border-emerald-200'
+          }
+        >
+          <CardHeader className="pb-3">
+            <div className="space-y-1">
+              <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+                <Store className="h-4 w-4" />
+                Sucursales en Mercado Pago
+                {!loadingBranches && branches.length > 0 && (
+                  pendingBranchesCount > 0 ? (
+                    <Badge
+                      variant="outline"
+                      className="text-amber-700 border-amber-400 text-xs"
+                    >
+                      <AlertTriangle className="mr-1 h-3 w-3" />
+                      {pendingBranchesCount} pendiente{pendingBranchesCount > 1 ? 's' : ''}
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-emerald-600 hover:bg-emerald-700 text-xs">
+                      <CheckCircle2 className="mr-1 h-3 w-3" />
+                      Todas registradas
+                    </Badge>
+                  )
+                )}
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Cada sucursal tiene que estar registrada como POS en Mercado Pago para
+                generar QRs interoperables (Naranja X, MODO, Brubank, Ualá, Cuenta DNI,
+                Santander, etc.). Se hace una sola vez por sucursal.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {loadingBranches ? (
+              <div className="flex justify-center py-2">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : branches.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">
+                No tenés sucursales activas todavía. Creá al menos una desde
+                "Sucursales" antes de registrar POS.
+              </p>
+            ) : (
+              <>
+                <ul className="space-y-1.5">
+                  {branches.map((b) => (
+                    <li
+                      key={b.id}
+                      className="flex items-center justify-between gap-2 text-sm rounded-md border bg-background px-3 py-2"
+                    >
+                      <span className="truncate font-medium">{b.name}</span>
+                      {b.isRegistered ? (
+                        <Badge className="bg-emerald-600 hover:bg-emerald-700 text-[10px] shrink-0">
+                          <CheckCircle2 className="mr-1 h-3 w-3" />
+                          Registrada
+                        </Badge>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            registeringBranchId === b.id || registeringAll
+                          }
+                          onClick={() => handleRegisterBranch(b.id)}
+                          className="h-7 text-xs shrink-0"
+                        >
+                          {registeringBranchId === b.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            'Registrar'
+                          )}
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {pendingBranchesCount > 1 && (
+                  <Button
+                    onClick={handleRegisterAllPending}
+                    disabled={registeringAll || registeringBranchId !== null}
+                    className="w-full mt-2"
+                    size="sm"
+                  >
+                    {registeringAll ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    Registrar todas las pendientes ({pendingBranchesCount})
+                  </Button>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
 

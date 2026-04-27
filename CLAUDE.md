@@ -1,6 +1,6 @@
 # App Kiosco — Instrucciones del Proyecto
 
-> Última actualización: 26 de abril de 2026
+> Última actualización: 27 de abril de 2026
 
 ## Qué es esto
 
@@ -80,7 +80,7 @@ SaaS de gestión para cadenas de kioscos en Argentina. El objetivo es convertir 
 - `branch.actions.ts`
 
 ### En desarrollo
-- **Mercado Pago QR** — `mercadopago.actions.ts`, `configuracion-mercadopago.tsx`, `mercadopago-qr-dialog.tsx`, `app/api/mercadopago/` (OAuth + webhook implementados, testing en prod pendiente)
+- **Mercado Pago QR EMVCo interoperable** — `mercadopago.actions.ts`, `configuracion-mercadopago.tsx`, `mercadopago-qr-dialog.tsx`, `app/api/mercadopago/` (OAuth + webhook + endpoint EMVCo funcionando para single-tenant; multi-tenant pendiente — ver deuda técnica abajo). El QR generado es interoperable con cualquier billetera virtual de Argentina (MP, Naranja X, Brubank, Ualá, Cuenta DNI, MODO, Santander, Galicia, BBVA, etc.). Falta validación de campo en producción con billeteras alternativas.
 - **ARCA** — `configuracion-arca.tsx` / `arca.actions.ts`, `arca.service.ts`
 
 ### Descartado
@@ -180,13 +180,85 @@ App-kiosco-main/
 ### Regla técnica nueva
 - **Soft-delete con SELECT policy restrictiva**: Si la SELECT policy filtra por un campo que el UPDATE modifica, usar función SECURITY DEFINER para el soft-delete. UPDATE directo falla en PostgREST por el RETURNING check.
 
+## Fixes y Features (sesión 27 abril 2026)
+
+### Webhook Mercado Pago — bug crítico de webhooks perdidos
+
+**Síntoma:** Pagos QR de Mercado Pago se cobraban OK en MP, pero las ventas nunca aparecían en el dashboard. El handler de webhook devolvía 200 silencioso y la orden quedaba sin actualizar.
+
+**Causas raíz (tres bugs encadenados):**
+
+1. **Webhook secret contaminado en DB** → La fila `mercadopago_credentials.webhook_secret_encrypted` tenía un byte de control `0x83` (control C1) embebido. El sanitize viejo no lo detectaba, y el HMAC fallaba en cada request firmada.
+2. **Mercado Pago manda DOS formatos al mismo endpoint** → Feed v2.0 (IPN viejo, sin firma) + WebHook v1.0 (formato nuevo, firmado). El handler asumía siempre el formato nuevo y crasheaba con `TypeError` al recibir Feed v2, devolviendo 200 silencioso por el catch genérico.
+3. **Feed v2 IPN no siempre manda `user_id`** → No podíamos identificar al seller para buscar sus credenciales en multi-tenant.
+
+**Fixes deployados (commits `678ba2d`, `8a1e521`, `f9aa499`):**
+
+- **Sanitize bulletproof** del webhook secret: `replace(/[^0-9a-f]/gi, '')` strip todo carácter no-hex. Cubre control chars, espacios invisibles, BOM, etc.
+- **Ruteo por User-Agent + shape del body** en `app/api/mercadopago/webhook/route.ts`: WebHook v1.0 va al handler firmado (HMAC); Feed v2.0 va a un handler dedicado que sintetiza el payload al formato nuevo internamente.
+- **Guard en `getWebhookSecretForPayload`** contra `data` undefined cuando llega un payload sin estructura esperada.
+- **Fallback single-tenant en Feed v2 IPN**: Si no viene `user_id`, busca la única organización con credenciales MP activas. Funciona para piloto, no escalable a multi-tenant.
+- **Texto en libro de ventas**: "Pago QR Mercado Pago" en vez del UUID interno feo.
+- **Limpieza** del código DEBUG-HMAC que había quedado de la sesión de diagnóstico.
+
+**Validado en producción:** Pago de prueba $3 con app Mercado Pago → QR cierra → venta aparece en dashboard.
+
+### Reglas técnicas nuevas
+
+- **Webhooks de Mercado Pago: rutear por User-Agent + shape del body.** MP manda dos formatos al mismo endpoint (Feed v2.0 sin firma, WebHook v1.0 con firma). No asumir formato único — si el handler crashea, devuelve 200 silencioso y el evento se pierde para siempre.
+- **Sanitizar secrets/tokens leídos de DB con `replace(/[^0-9a-f]/gi, '')` (o el charset que corresponda).** Bytes de control invisibles (0x83 y similares) pueden filtrarse en pegados desde el panel de proveedores y romper HMAC sin error visible.
+
+### Deuda técnica conocida (próxima sesión)
+
+- **WebHook v1.0 sigue fallando HMAC** consistentemente. El secret en DB sigue probablemente contaminado. Para piloto single-tenant funciona porque el fallback Feed v2 lo cubre. **Antes de habilitar multi-tenant: rotar secret en panel MP + re-pegar con sanitize bulletproof.**
+- **Dos ventas perdidas hoy** ($6 y $9 de las pruebas) no se recuperan por decisión del dueño. La plata entró a MP, pero no hay registro de `sale` en el sistema.
+
+### Migración a QR EMVCo interoperable (parte 2 del 27-abr-2026)
+
+**Problema:** Hasta hoy generábamos el QR a partir de un `init_point` URL devuelto por `/checkout/preferences`. Solo lo leía la app de Mercado Pago — Naranja X, MODO, Brubank, Ualá, Cuenta DNI, etc., no escanean URLs propietarias.
+
+**Solución:** Migrar al endpoint **`POST /instore/orders/qr/seller/collectors/{collector_id}/pos/{external_pos_id}/qrs`**, que devuelve un `qr_data` en formato **EMVCo** (estándar interoperable). Lo escanea cualquier billetera virtual de Argentina/LATAM.
+
+**Cambios deployados:**
+
+- **Migration `00013_branches_mp_external_pos_id.sql`** → nueva columna `branches.mp_external_pos_id` (text, nullable) con índice UNIQUE por organización. Decisión clave: 1 POS de MP = 1 sucursal (no 1 cash_register, que es per-día).
+- **Server action `registerMercadoPagoPosForBranchAction`** → llama `PUT /instore/orders/qr/seller/collectors/{collector_id}/pos/{external_pos_id}` con `name`, `category=621102` (kiosco), `fixed_amount=false`. external_pos_id determinístico: `KIOSCO_<branch_id sin guiones>`. Idempotente.
+- **Server action `getBranchesMpRegistrationStatusAction`** → lista sucursales con su estado de registro. Usada por el panel de configuración para mostrar "registrada/pendiente" por sucursal.
+- **Refactor `createMercadoPagoOrderAction`** → cambia el endpoint de `/checkout/preferences` a `/instore/orders/qr/.../qrs`. Validación previa: la sucursal tiene que tener `mp_external_pos_id` o el action devuelve error claro ("Registrá la sucursal en MP antes de cobrar QR"). Body con `external_reference`, `total_amount`, `notification_url`, `items[]`. Persiste el `qr_data` EMVCo en la columna `qr_data` (mismo nombre, distinto formato — string EMVCo en vez de URL).
+- **UI `configuracion-mercadopago.tsx`** → nueva card "Sucursales en Mercado Pago" con badge de estado por sucursal y botón "Registrar todas las pendientes". Solo aparece cuando hay credenciales MP cargadas.
+- **Auto-registro en `branch.actions.ts:createBranchAction`** → al crear una sucursal, intenta registrar el POS automáticamente si la org tiene MP conectado. Best-effort: no bloquea la creación si falla, dejando el botón manual de retry.
+- **Copy del `mercadopago-qr-dialog.tsx`** → cambiado a "Escaneá con tu billetera virtual" con lista de billeteras compatibles (MP, Naranja X, MODO, Brubank, Ualá, Cuenta DNI, Santander, Galicia).
+- **Webhook handler sin cambios** → sigue resolviendo por `external_reference = saleId`. EMVCo y Preferences usan el mismo flujo de notificación.
+
+**Validación previa al deploy:**
+- `tsc --noEmit` limpio.
+- `vitest run tests/unit/actions/mercadopago-webhook-signature.test.ts` → 20 tests pasando.
+
+**Validación de producción pendiente (Tarea #10 cierra cuando se confirme):**
+1. Pago con app Mercado Pago → regresión, debería seguir andando igual.
+2. Pago con MODO o Naranja X o Cuenta DNI → confirmación crítica de que el EMVCo es realmente interoperable.
+
+**Reglas técnicas nuevas:**
+
+- **1 POS de MP = 1 sucursal (`branches`), no 1 cash_register.** `cash_registers` es per-día/turno; los POS de MP son persistentes. Registrarlos por turno generaría caos en MP.
+- **External pos_id determinístico desde branch_id:** formato `KIOSCO_<32 hex chars>`. Garantiza idempotencia local (la misma sucursal siempre genera el mismo POS) y ausencia de colisiones cross-org.
+- **Categoría MP `621102`** = "Quiosco / Almacén general" en el catálogo MCC de MP. Si MP rechaza la categoría en alguna cuenta, ajustar acá.
+
+### Aprendizajes del intento previo (12-mar-2026)
+
+La sesión del 12-mar-2026 intentó este mismo camino y pivoteó a Preferences API porque el endpoint `POST /users/{id}/stores` rechazaba a apps OAuth recién creadas. Esta sesión lo logró skipeando Stores enteros — el endpoint `PUT /instore/.../pos/{external_pos_id}` no requiere Store previo, así que registramos POS directamente al nivel del seller. Las columnas legacy `mercadopago_credentials.mp_store_id` y `.mp_pos_external_id` (migration `00012`) quedan as-is — no se usan en el flujo nuevo (que es per-branch, no per-org).
+
 ## Pendientes Prioritarios de Seguridad
 
-Ver `AUDIT-FINDINGS.md` para la lista completa. Al 26-abr-2026 todos los pendientes críticos están cerrados. Los abiertos son no-accionables o de baja prioridad:
+Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendientes críticos están cerrados. Los abiertos son no-accionables o de baja prioridad:
 - Auth leaked password protection deshabilitado (requiere plan Pro de Supabase).
 - Dos optimizaciones de performance frontend (queries no-críticas en dashboard, dynamic imports en VistaEmpleado).
 
-Próximo deploy: bajar `SKIP_SIGNATURE_HARDCODE = true` a `false` en `app/api/mercadopago/webhook/route.ts:268` después de pegar el webhook secret de MP en el form de configuración. Hoy está en bypass porque la fila de `mercadopago_credentials.webhook_secret_encrypted` quedó NULL por un bug del callback OAuth (ya fixeado en `app/api/mercadopago/oauth/callback/route.ts`, pero el secret hay que volver a pegarlo manualmente).
+## Pendientes Prioritarios de Producto
+
+1. **Tarea #10 — QR EMVCo: validación de campo (PRIORIDAD ALTA).** Código deployado y validado por typecheck + unit tests. Falta confirmar en producción real: (a) pago con app Mercado Pago como regresión, (b) pago con al menos una billetera alternativa (MODO / Naranja X / Cuenta DNI). Solo después de eso se considera la migración cerrada y se puede marketing-ear como diferenciador comercial.
+2. **Webhook secret multi-tenant.** Antes de subir a multi-tenant: rotar el secret en panel MP + re-pegar con sanitize bulletproof. WebHook v1.0 hoy falla HMAC; el fallback Feed v2 single-tenant lo tapa.
+3. **Bajar `SKIP_SIGNATURE_HARDCODE = true` a `false`** en `app/api/mercadopago/webhook/route.ts:268` cuando se haya re-pegado el webhook secret limpio. Hoy está en bypass por el bug del secret contaminado.
 
 ## Ventajas Competitivas
 

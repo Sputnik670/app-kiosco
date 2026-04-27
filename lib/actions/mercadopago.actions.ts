@@ -172,6 +172,38 @@ export interface UpdateWebhookSecretResult {
   error?: string
 }
 
+/**
+ * Resultado de registrar una sucursal como POS en Mercado Pago.
+ * `alreadyRegistered=true` cuando la sucursal ya tenía mp_external_pos_id
+ * (skip de la llamada a MP — idempotencia local).
+ */
+export interface RegisterPosResult {
+  success: boolean
+  externalPosId?: string
+  alreadyRegistered?: boolean
+  error?: string
+}
+
+/**
+ * Estado de registro en Mercado Pago de una sucursal.
+ * Usado por la UI de configuración para mostrar la lista con badges de estado.
+ */
+export interface BranchMpStatus {
+  id: string
+  name: string
+  isRegistered: boolean
+  externalPosId: string | null
+}
+
+/**
+ * Resultado de listar sucursales con su estado en MP
+ */
+export interface GetBranchesMpStatusResult {
+  success: boolean
+  branches?: BranchMpStatus[]
+  error?: string
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // CONSTANTES
 // ───────────────────────────────────────────────────────────────────────────────
@@ -384,6 +416,39 @@ export async function createMercadoPagoOrderAction(
     const { supabase, orgId } = await verifyAuth()
 
     // ───────────────────────────────────────────────────────────────────────────
+    // VALIDAR QUE LA SUCURSAL ESTÁ REGISTRADA COMO POS EN MERCADO PAGO
+    // ───────────────────────────────────────────────────────────────────────────
+    // Sin mp_external_pos_id, no podemos generar QRs EMVCo en esa sucursal.
+    // El registro se hace via registerMercadoPagoPosForBranchAction, ya sea
+    // automáticamente al crear la sucursal o manualmente desde configuración.
+
+    const { data: branch, error: branchError } = await supabase
+      .from('branches')
+      .select('id, mp_external_pos_id, organization_id, is_active')
+      .eq('id', branchId)
+      .eq('organization_id', orgId)
+      .maybeSingle()
+
+    if (branchError || !branch) {
+      return {
+        success: false,
+        error: 'Sucursal no encontrada o no pertenece a tu organización',
+        retryable: false,
+      }
+    }
+
+    if (!branch.mp_external_pos_id) {
+      return {
+        success: false,
+        error:
+          'Esta sucursal todavía no está registrada como POS en Mercado Pago. Andá a Ajustes → Mercado Pago → "Registrar sucursales" antes de cobrar QR.',
+        retryable: false,
+      }
+    }
+
+    const externalPosId = branch.mp_external_pos_id
+
+    // ───────────────────────────────────────────────────────────────────────────
     // OBTENER CONFIGURACIÓN DE MERCADO PAGO
     // ───────────────────────────────────────────────────────────────────────────
 
@@ -396,25 +461,32 @@ export async function createMercadoPagoOrderAction(
       }
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // LLAMAR API DE MERCADO PAGO — Checkout Preferences
-    // ───────────────────────────────────────────────────────────────────────────
-    // Usamos /checkout/preferences en lugar de /instore/orders/qr/.../pos/.../qrs
-    // porque la API de QR in-store requiere registro de Store + POS en la cuenta
-    // del kiosquero, lo cual no está disponible para apps OAuth recién creadas.
-    //
-    // Preferences crea un init_point URL que metemos en un QR. Al escanear:
-    //   - MP app: abre checkout MP nativo
-    //   - Otras billeteras (Naranja X, Brubank, MODO): abren el URL en browser,
-    //     que va al checkout web de MP. Funcional, un par de taps extra.
-    //
-    // Idempotencia sigue garantizada por external_reference = saleId.
+    if (!config.collecterId) {
+      return {
+        success: false,
+        error: 'collector_id de Mercado Pago no disponible. Reconectá tu cuenta.',
+        retryable: false,
+      }
+    }
 
-    // notification_url: derivar de MP_REDIRECT_URI para reusar la base.
-    // CRÍTICO: en Preferences API con OAuth, MP no siempre honra la URL
-    // configurada en el panel de developers. Hay que pasarla en el body.
-    // Sin esto, los webhooks de payment.created/updated no llegan y la
-    // orden queda en `pending` para siempre, aunque el pago haya entrado.
+    // ───────────────────────────────────────────────────────────────────────────
+    // LLAMAR API DE MERCADO PAGO — QR Dynamic (EMVCo interoperable)
+    // ───────────────────────────────────────────────────────────────────────────
+    // Endpoint: POST /instore/orders/qr/seller/collectors/{collector_id}/pos/{external_pos_id}/qrs
+    //
+    // Devuelve `qr_data` con un string EMVCo puro (no URL), que es el estándar
+    // interoperable de billeteras virtuales en Argentina/LATAM. Lo leen:
+    //   - App de Mercado Pago
+    //   - Naranja X, Brubank, Ualá, Cuenta DNI, MODO, Santander, Galicia, BBVA
+    //
+    // Idempotencia garantizada por external_reference = saleId.
+    //
+    // NOTA HISTÓRICA: hasta abr-2026 usábamos /checkout/preferences para sortear
+    // el requisito de registrar POS por API. La sesión 27-abr-2026 implementó
+    // el registro de POS por sucursal y migró este flujo a EMVCo.
+
+    // notification_url: CRÍTICO. Sin esto, MP no envía webhooks aunque la URL
+    // esté configurada en el panel de developers (la pasamos por orden).
     let notificationUrl: string | undefined
     try {
       const redirectUri = process.env.MP_REDIRECT_URI
@@ -422,51 +494,59 @@ export async function createMercadoPagoOrderAction(
         notificationUrl = `${new URL(redirectUri).origin}/api/mercadopago/webhook`
       }
     } catch {
-      // Si MP_REDIRECT_URI no es URL válida, dejamos notification_url undefined
-      // y MP usará la del panel de developers como fallback.
+      // MP_REDIRECT_URI no es URL válida → dejamos undefined y MP usa el
+      // fallback del panel de developers.
     }
 
+    const totalAmount = Number(amount)
+
+    // Items: el endpoint EMVCo requiere al menos un item con campos específicos
+    // (title, description, unit_price, quantity, unit_measure, total_amount).
+    // Mandamos UN solo line item con el total — MP no usa nuestro detalle de
+    // productos para nada, solo necesita un item para validar el total. El
+    // detalle real lo guardamos en cart_snapshot para reconstruir la sale en el
+    // webhook.
     const mpRequestBody = {
       external_reference: saleId, // CRÍTICO: idempotencia
+      title: description || 'Compra en kiosco',
+      description: description || 'Venta desde caja de kiosco',
+      total_amount: totalAmount,
+      ...(notificationUrl ? { notification_url: notificationUrl } : {}),
       items: [
         {
-          title: description || 'Venta en Kiosco',
-          description: 'Venta desde kiosco',
+          title: description || 'Compra en kiosco',
+          description: 'Venta desde caja',
+          unit_price: totalAmount,
           quantity: 1,
-          unit_price: Number(amount),
-          currency_id: 'ARS',
+          unit_measure: 'unit',
+          total_amount: totalAmount,
         },
       ],
-      // Vence la preferencia para que el QR no quede vivo eternamente
-      expires: true,
-      expiration_date_from: new Date().toISOString(),
-      expiration_date_to: new Date(
-        Date.now() + QR_EXPIRY_MINUTES * 60 * 1000
-      ).toISOString(),
-      ...(notificationUrl ? { notification_url: notificationUrl } : {}),
     }
 
-    logger.debug('createMercadoPagoOrderAction', 'Llamando API de MP (Preferences)', {
-      saleId,
-      amount,
+    logger.debug('createMercadoPagoOrderAction', 'Llamando API de MP (QR EMVCo)', {
+      saleId: saleId.substring(0, 8),
+      amount: totalAmount,
       collecterId: config.collecterId,
+      externalPosId,
     })
 
     const mpResponse = await callMercadoPagoAPI(
       'POST',
-      '/checkout/preferences',
+      `/instore/orders/qr/seller/collectors/${config.collecterId}/pos/${externalPosId}/qrs`,
       mpRequestBody,
       config.accessToken
     )
 
-    if (!mpResponse || !mpResponse.init_point) {
-      logger.warn('createMercadoPagoOrderAction', 'MP API no retornó init_point', {
-        saleId,
-        mpResponse: mpResponse ? Object.keys(mpResponse) : null,
+    // Response esperado: { qr_data: "00020101...", in_store_order_id: "uuid" }
+    if (!mpResponse || !mpResponse.qr_data) {
+      logger.warn('createMercadoPagoOrderAction', 'MP API no retornó qr_data EMVCo', {
+        saleId: saleId.substring(0, 8),
+        responseKeys: mpResponse ? Object.keys(mpResponse) : null,
       })
       return {
         success: false,
-        error: 'No se pudo generar QR en Mercado Pago',
+        error: 'No se pudo generar QR EMVCo en Mercado Pago',
         retryable: true,
       }
     }
@@ -487,12 +567,15 @@ export async function createMercadoPagoOrderAction(
         // usando cart_snapshot. Hasta entonces, sale_id queda null.
         sale_id: null,
         external_reference: saleId,
-        amount: Number(amount),
+        amount: totalAmount,
         currency: 'ARS',
-        // qr_data guarda el init_point URL de la preferencia. El frontend lo
-        // encodea como QR y al escanearlo se abre el checkout MP.
-        qr_data: mpResponse.init_point,
-        mp_order_id: mpResponse.id,
+        // qr_data ahora guarda un string EMVCo puro (no URL). El componente
+        // QRCodeSVG lo encodea igual — el QR lo lee cualquier billetera.
+        qr_data: mpResponse.qr_data,
+        // mp_order_id: in_store_order_id que devuelve el endpoint EMVCo. El
+        // webhook NO lo usa para lookup (usa external_reference), pero lo
+        // guardamos para auditoría y debug.
+        mp_order_id: mpResponse.in_store_order_id || null,
         status: 'pending',
         // cart_snapshot: items tal cual los espera el RPC process_sale_from_webhook.
         // Si la caja se cierra antes de que MP confirme, el webhook igual puede
@@ -862,6 +945,235 @@ export async function disconnectMercadoPagoAction(): Promise<DisconnectMercadoPa
 
     return { success: true }
   } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
+ * 🏪 Registrar una sucursal como POS en Mercado Pago
+ *
+ * REQUISITO PREVIO para generar QRs EMVCo interoperables (los que leen
+ * Naranja X, Brubank, Ualá, MODO, Cuenta DNI, Santander, etc., además de la
+ * app de Mercado Pago).
+ *
+ * external_pos_id determinístico: `KIOSCO_<branch_id sin guiones>`. Garantiza
+ * que el mismo branch siempre genere el mismo POS y que dos branches distintos
+ * NO colisionen, para cualquier organización.
+ *
+ * IDEMPOTENCIA:
+ * - Si la sucursal ya tiene mp_external_pos_id seteado, skip la API call y
+ *   retornamos alreadyRegistered: true.
+ * - Si no, llamamos PUT a MP (idempotente por spec del endpoint) y persistimos.
+ *
+ * VALIDACIÓN:
+ * - Solo OWNER (cambia config de la org).
+ * - Sucursal tiene que pertenecer a la org del usuario.
+ * - Org tiene que tener credenciales MP activas con collector_id.
+ *
+ * MP API:
+ *   PUT /instore/orders/qr/seller/collectors/{collector_id}/pos/{external_pos_id}
+ *   Body: { name, fixed_amount, category }
+ *
+ * @param branchId - UUID de la sucursal a registrar
+ * @returns RegisterPosResult
+ */
+export async function registerMercadoPagoPosForBranchAction(
+  branchId: string
+): Promise<RegisterPosResult> {
+  try {
+    if (!branchId || typeof branchId !== 'string' || branchId.trim().length === 0) {
+      return { success: false, error: 'branchId es requerido' }
+    }
+
+    const { supabase, orgId } = await verifyOwner()
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 1. Buscar la sucursal y validar ownership
+    // ─────────────────────────────────────────────────────────────────────────
+    const { data: branch, error: fetchError } = await supabase
+      .from('branches')
+      .select('id, name, mp_external_pos_id, organization_id, is_active')
+      .eq('id', branchId)
+      .eq('organization_id', orgId)
+      .maybeSingle()
+
+    if (fetchError || !branch) {
+      return {
+        success: false,
+        error: 'Sucursal no encontrada o no pertenece a tu organización',
+      }
+    }
+
+    if (branch.is_active === false) {
+      return {
+        success: false,
+        error: 'No se puede registrar una sucursal inactiva',
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 2. Si ya tiene POS registrado, skip API call (idempotencia local)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (branch.mp_external_pos_id && branch.mp_external_pos_id.length > 0) {
+      logger.info('registerMercadoPagoPos', 'Sucursal ya registrada, skip API call', {
+        branchId: branch.id.substring(0, 8),
+        externalPosId: branch.mp_external_pos_id,
+      })
+      return {
+        success: true,
+        externalPosId: branch.mp_external_pos_id,
+        alreadyRegistered: true,
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 3. Obtener credenciales de MP
+    // ─────────────────────────────────────────────────────────────────────────
+    const config = await getDecryptedMercadoPagoConfig(supabase, orgId)
+    if (!config) {
+      return {
+        success: false,
+        error: 'Credenciales de Mercado Pago no configuradas. Conectá tu cuenta primero.',
+      }
+    }
+
+    if (!config.collecterId) {
+      return {
+        success: false,
+        error: 'collector_id de Mercado Pago no disponible. Reconectá tu cuenta.',
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 4. Generar external_pos_id determinístico
+    // Formato: KIOSCO_<32 hex chars del branch_id>  =  39 chars total
+    // El prefijo evita colisiones con otros usos del seller en MP.
+    // ─────────────────────────────────────────────────────────────────────────
+    const externalPosId = `KIOSCO_${branchId.replace(/-/g, '')}`
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 5. Llamar PUT a MP — idempotente por spec
+    // ─────────────────────────────────────────────────────────────────────────
+    // Body mínimo: name + fixed_amount + category. Otros campos (store_id,
+    // external_id, business_hours) los omitimos — MP los infiere del seller.
+    // category 621102 = "Quiosco / Almacén general" en el catálogo MCC de MP.
+    // Si MP rechaza esta categoría, el error claro va a venir en el response y
+    // ajustamos.
+    logger.debug('registerMercadoPagoPos', 'Llamando PUT a MP', {
+      collecterId: config.collecterId,
+      externalPosId,
+      branchName: branch.name?.substring(0, 30),
+    })
+
+    const mpResponse = await callMercadoPagoAPI(
+      'PUT',
+      `/instore/orders/qr/seller/collectors/${config.collecterId}/pos/${externalPosId}`,
+      {
+        name: (branch.name || 'Sucursal').substring(0, 50),
+        fixed_amount: false,
+        category: 621102,
+      },
+      config.accessToken
+    )
+
+    if (!mpResponse) {
+      // callMercadoPagoAPI ya hizo retry exponencial (3 intentos). Si llegó null,
+      // MP rechazó persistentemente. Razones probables:
+      //   - access_token sin scope qr (raro en OAuth, pero posible)
+      //   - cuenta MP sin verificación KYC completa
+      //   - category inválida
+      // El detalle del error está en los logs de callMercadoPagoAPI.
+      return {
+        success: false,
+        error:
+          'Mercado Pago rechazó el registro del POS. Verificá que tu cuenta esté verificada en MP (KYC) y reintentá. Si persiste, mirá los logs.',
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 6. Persistir external_pos_id en branches
+    // ─────────────────────────────────────────────────────────────────────────
+    const { error: updateError } = await supabase
+      .from('branches')
+      .update({ mp_external_pos_id: externalPosId })
+      .eq('id', branchId)
+      .eq('organization_id', orgId)
+
+    if (updateError) {
+      // Caso raro: MP aceptó el POS pero la DB no nos deja guardar. La próxima
+      // llamada va a re-PUT a MP (idempotente, no rompe nada) y reintentar el
+      // UPDATE. Mensaje claro para el dueño.
+      logger.error(
+        'registerMercadoPagoPos',
+        'POS creado en MP pero error guardando en BD',
+        updateError
+      )
+      return {
+        success: false,
+        error: 'POS registrado en MP pero no pudimos guardarlo localmente. Reintentá.',
+      }
+    }
+
+    logger.info('registerMercadoPagoPos', 'POS registrado exitosamente', {
+      orgId,
+      branchId: branch.id.substring(0, 8),
+      externalPosId,
+    })
+
+    return {
+      success: true,
+      externalPosId,
+      alreadyRegistered: false,
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('registerMercadoPagoPos', 'Error inesperado', err)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
+ * 📋 Listar las sucursales activas de la organización con su estado de
+ *    registro como POS en Mercado Pago.
+ *
+ * Usada por configuracion-mercadopago.tsx para mostrar el panel de
+ * "Sucursales registradas" con badges de estado por sucursal.
+ *
+ * @returns GetBranchesMpStatusResult con array de BranchMpStatus
+ */
+export async function getBranchesMpRegistrationStatusAction(): Promise<GetBranchesMpStatusResult> {
+  try {
+    const { supabase, orgId } = await verifyAuth()
+
+    const { data, error } = await supabase
+      .from('branches')
+      .select('id, name, mp_external_pos_id')
+      .eq('organization_id', orgId)
+      .eq('is_active', true)
+      .order('name', { ascending: true })
+
+    if (error) {
+      logger.error('getBranchesMpRegistrationStatus', 'Error cargando sucursales', error)
+      return { success: false, error: 'No pudimos cargar las sucursales' }
+    }
+
+    const branches: BranchMpStatus[] = (data || []).map((b) => ({
+      id: b.id,
+      name: b.name,
+      isRegistered: Boolean(b.mp_external_pos_id),
+      externalPosId: b.mp_external_pos_id || null,
+    }))
+
+    return { success: true, branches }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('getBranchesMpRegistrationStatus', 'Error inesperado', err)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido',

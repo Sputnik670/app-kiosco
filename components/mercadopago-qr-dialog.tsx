@@ -342,10 +342,11 @@ export function MercadoPagoQRDialog({
             {/* Instrucciones */}
             <div className="text-center space-y-1 sm:space-y-2 w-full">
               <p className="text-[10px] sm:text-xs font-bold text-slate-600 uppercase">
-                Escanea con tu celular
+                Escaneá con tu billetera virtual
               </p>
               <p className="text-[10px] sm:text-[11px] text-slate-500 leading-tight">
-                Abre Mercado Pago y escanea el código QR
+                Mercado Pago, Naranja X, MODO, Brubank, Ualá, Cuenta DNI,
+                Santander, Galicia y más.
               </p>
             </div>
 
