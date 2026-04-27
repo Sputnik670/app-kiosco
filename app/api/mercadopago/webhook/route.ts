@@ -739,17 +739,46 @@ async function handleFeedV2IPN(
 
     // Extraer collector_id (user_id) del query string o body. MP a veces lo
     // pone en uno, a veces en otro, a veces en ninguno.
-    const userId =
+    let userId =
       requestUrl.searchParams.get('user_id') ||
       String(payload?.user_id || '')
 
     if (!userId) {
-      // Sin collector_id no podemos resolver credenciales. El WebHook v1.0
-      // (que sí trae user_id en el body) cubre el mismo pago.
-      logger.info('FeedV2IPN', 'Sin user_id — skip (WebHook v1.0 cubre)', {
-        paymentId: paymentId.substring(0, 8),
-      })
-      return jsonResponse({ success: true }, 200)
+      // FALLBACK SINGLE-TENANT (27-abr-2026):
+      // En piloto vimos casos donde MP no incluye user_id ni en query ni en
+      // body para el Feed v2 IPN. Antes asumíamos que el WebHook v1.0 cubría
+      // — pero también puede fallar (ej: secret contaminado). Para no perder
+      // el evento, si hay UNA SOLA fila activa en mercadopago_credentials,
+      // asumimos que el IPN es para ese seller.
+      //
+      // Seguro porque la verificación indirecta de handlePaymentNotification
+      // (fetch a /v1/payments/{id} con el access_token correspondiente)
+      // detecta si el paymentId no matchea: MP devuelve 404 y cortamos sin
+      // tocar nada. Para multi-tenant, si hay >1 fila activa, mantenemos
+      // skip para no adivinar.
+      const supabaseFallback = createServiceRoleClient()
+      const { data: activeRows, error: activeErr } = await supabaseFallback
+        .from('mercadopago_credentials')
+        .select('collector_id')
+        .eq('is_active', true)
+
+      if (!activeErr && activeRows && activeRows.length === 1) {
+        userId = String((activeRows[0] as any).collector_id)
+        logger.info(
+          'FeedV2IPN',
+          'Sin user_id — fallback a única credencial activa (single-tenant)',
+          {
+            paymentId: paymentId.substring(0, 8),
+            fallbackCollectorId: userId.substring(0, 6),
+          }
+        )
+      } else {
+        logger.info('FeedV2IPN', 'Sin user_id y no aplica fallback — skip', {
+          paymentId: paymentId.substring(0, 8),
+          activeCredentialsCount: activeRows?.length || 0,
+        })
+        return jsonResponse({ success: true }, 200)
+      }
     }
 
     // Sintetizar payload formato nuevo y delegar al handler estándar.
