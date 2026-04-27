@@ -1376,7 +1376,7 @@ export async function probeMercadoPagoApiAction(): Promise<ProbeMpApiResult> {
           location: {
             street_number: '123',
             street_name: 'Calle de Prueba',
-            city_name: 'Buenos Aires',
+            city_name: 'Don Torcuato',
             state_name: 'Buenos Aires',
             latitude: -34.6037,
             longitude: -58.3816,
