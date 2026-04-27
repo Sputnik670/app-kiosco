@@ -302,11 +302,22 @@ export const saveMPCredentialsSchema = z.object({
   webhookSecret: z.string().max(500, 'Secret demasiado largo').optional(),
 })
 
+// Item del carrito que el webhook necesita para crear la sale.
+// Mismo shape que `processVenta`/`process_sale` espera.
+export const mpCartItemSchema = z.object({
+  product_id: idSchema,
+  quantity: z.number().int().positive('Cantidad debe ser mayor a 0'),
+  unit_price: positiveNumber,
+  subtotal: positiveNumber,
+})
+
 export const createMPOrderSchema = z.object({
   saleId: idSchema,
   amount: positiveNumber,
   description: z.string().min(1, 'Descripción requerida').max(500, 'Descripción demasiado larga'),
   branchId: idSchema,
+  cashRegisterId: idSchema,
+  items: z.array(mpCartItemSchema).min(1, 'El carrito no puede estar vacío'),
 })
 
 // ───────────────────────────────────────────────────────────────────────────────
