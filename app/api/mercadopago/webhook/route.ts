@@ -1149,7 +1149,7 @@ async function ensureSaleForConfirmedOrder(orderId: string): Promise<void> {
         p_items: cartSnapshot,
         p_payment_method: 'mercadopago',
         p_total: Number(orderRow.amount),
-        p_notes: `MP order ${orderId}`,
+        p_notes: 'Pago QR Mercado Pago',
       }
     )
 
