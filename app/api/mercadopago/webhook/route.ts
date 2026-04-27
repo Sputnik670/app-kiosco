@@ -152,21 +152,53 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Parsear body PRIMERO (lo necesitamos para fallback del data.id).
+    // Parsear body. Lo necesitamos para fallback del data.id (cuando MP manda
+    // el simulador del panel sin query string) y para detectar formato Feed v2
+    // (IPN viejo) por presencia de `resource`+`topic` en el body.
     // ─────────────────────────────────────────────────────────────────────────
-    // ⚠️ DEBUG TEMPORAL: capturamos rawBody para diagnosticar HMAC. Borrar tras fix.
-    let rawBody: string
     let payload: MercadoPagoWebhookPayload
     try {
-      rawBody = await request.text()
-      payload = JSON.parse(rawBody)
+      payload = await request.json()
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
       logger.error('MercadoPagoWebhook', 'Error parseando JSON', err)
       return jsonResponse({ error: 'JSON inválido' }, 400)
     }
 
+    const requestUrl = new URL(request.url)
+
     // ─────────────────────────────────────────────────────────────────────────
+    // RUTEO POR FORMATO DE NOTIFICACIÓN
+    //
+    // MP manda DOS formatos al mismo endpoint cuando tenemos `notification_url`
+    // seteado en el body de la preference Y webhooks configurados en el panel:
+    //
+    //   - "WebHook v1.0" (NUEVO, User-Agent "MercadoPago WebHook v1.0 ...")
+    //     Body: { id, type, action, user_id, data: { id, ... } }
+    //     Tiene firma HMAC v1 y la verificamos abajo.
+    //
+    //   - "Feed v2.0" (VIEJO IPN, User-Agent "MercadoPago Feed v2.0 ...")
+    //     Body: { resource, topic, user_id? }  — NO trae `data.id`.
+    //     Firma con template distinto que MP no documenta. Lo procesamos por
+    //     un path dedicado que sintetiza el formato nuevo y reusa el handler.
+    //
+    // Cobertura redundante: si por algún motivo uno de los dos paths falla
+    // para un pago, el otro lo cubre. La idempotencia del UPDATE optimista
+    // (`webhook_received_at IS NULL`) garantiza que el primero en llegar gana
+    // y el segundo no toca nada.
+    // ─────────────────────────────────────────────────────────────────────────
+    const userAgent = request.headers.get('user-agent') || ''
+    const looksLikeFeedV2 =
+      userAgent.includes('Feed v2') ||
+      (!!(payload as any)?.resource && !!(payload as any)?.topic && !payload?.data)
+
+    if (looksLikeFeedV2) {
+      return await handleFeedV2IPN(payload as any, requestUrl, requestIdHeader)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FORMATO NUEVO (WebHook v1.0): continuar con flujo estándar
+    //
     // Extraer data.id: primero del QUERY PARAM, fallback al BODY.
     // - Webhooks reales de MP en prod: vienen como ?data.id=xxx&type=...
     // - Simulador "Probar webhook" del panel developers: NO manda query string,
@@ -174,7 +206,6 @@ export async function POST(request: Request): Promise<Response> {
     // - Si es alfanumérico, lowercase (regla MP).
     // Ref: https://www.mercadopago.com.ar/developers/en/docs/your-integrations/notifications/webhooks
     // ─────────────────────────────────────────────────────────────────────────
-    const requestUrl = new URL(request.url)
     const dataIdRaw =
       requestUrl.searchParams.get('data.id') ||
       requestUrl.searchParams.get('id') ||
@@ -279,88 +310,10 @@ export async function POST(request: Request): Promise<Response> {
       )
 
       if (!isSignatureValid) {
-        // ⚠️ DEBUG TEMPORAL — probar 7 variantes de template para identificar
-        // qué firma MP. Borrar después del fix.
-        const queryDataId =
-          requestUrl.searchParams.get('data.id') ||
-          requestUrl.searchParams.get('id') ||
-          ''
-        const bodyDataId = String(payload?.data?.id || '')
-
-        const candidates: { name: string; tpl: string }[] = [
-          {
-            name: '1_actual_lowercase',
-            tpl: `id:${dataIdForSignature};request-id:${requestIdHeader};ts:${signature.ts};`,
-          },
-          {
-            name: '2_raw_no_lowercase',
-            tpl: `id:${dataIdRaw};request-id:${requestIdHeader};ts:${signature.ts};`,
-          },
-          {
-            name: '3_body_only',
-            tpl: `id:${bodyDataId};request-id:${requestIdHeader};ts:${signature.ts};`,
-          },
-          {
-            name: '4_query_only',
-            tpl: `id:${queryDataId};request-id:${requestIdHeader};ts:${signature.ts};`,
-          },
-          {
-            name: '5_no_trailing_semi',
-            tpl: `id:${dataIdForSignature};request-id:${requestIdHeader};ts:${signature.ts}`,
-          },
-          {
-            name: '6_ts_in_ms',
-            tpl: `id:${dataIdForSignature};request-id:${requestIdHeader};ts:${signature.ts * 1000};`,
-          },
-          {
-            name: '7_no_id_block',
-            tpl: `request-id:${requestIdHeader};ts:${signature.ts};`,
-          },
-        ]
-
-        const matches: string[] = []
-        for (const c of candidates) {
-          const computed = crypto
-            .createHmac('sha256', webhookSecret)
-            .update(c.tpl)
-            .digest('hex')
-          if (computed === signature.v1) matches.push(c.name)
-        }
-
-        const xHeaders: Record<string, string> = {}
-        request.headers.forEach((value, key) => {
-          if (key.startsWith('x-')) xHeaders[key] = value
+        logger.warn('MercadoPagoWebhook', 'Firma HMAC inválida — descartando', {
+          collectorId: payload.user_id ? String(payload.user_id).substring(0, 6) : null,
+          paymentIdPreview: String(payload.data?.id || '').substring(0, 8),
         })
-
-        // Hex de primeros 16 bytes del secret — detecta whitespace invisible
-        // (NBSP=c2a0, zero-width=e2808b, etc.) que trim() no agarra.
-        const secretHexFirst16 = Buffer.from(webhookSecret, 'utf8')
-          .toString('hex')
-          .slice(0, 32)
-
-        logger.error(
-          'MercadoPagoWebhook',
-          '[DEBUG-HMAC] Firma inválida — diagnóstico',
-          new Error(
-            JSON.stringify({
-              matchedCandidates: matches,
-              secretLen: webhookSecret.length,
-              secretFirst4: webhookSecret.substring(0, 4),
-              secretLast4: webhookSecret.substring(webhookSecret.length - 4),
-              secretHexFirst16,
-              queryDataId,
-              bodyDataId,
-              dataIdRaw,
-              dataIdForSignature,
-              receivedV1: signature.v1,
-              receivedTs: signature.ts,
-              fullUrl: request.url,
-              xHeaders,
-              rawBodyFirst300: rawBody.substring(0, 300),
-            })
-          )
-        )
-
         return jsonResponse({ error: 'Firma inválida' }, 401)
       }
     }
@@ -434,7 +387,15 @@ export async function POST(request: Request): Promise<Response> {
 async function getWebhookSecretForPayload(
   payload: MercadoPagoWebhookPayload
 ): Promise<string | null> {
-  const { data, user_id } = payload
+  // Defensa en profundidad: aunque el ruteo por formato (Feed v2 vs WebHook
+  // v1) manda los IPN viejos a otro handler, blindamos esto contra cualquier
+  // payload mal formado que cuele un `data` undefined. Antes (27-abr-2026) un
+  // IPN viejo crasheaba acá con TypeError "Cannot read properties of undefined
+  // (reading 'external_reference')" y el catch del caller traía 200 silencioso
+  // = pérdida de evento.
+  const data: Partial<MercadoPagoWebhookPayload['data']> =
+    payload?.data && typeof payload.data === 'object' ? payload.data : {}
+  const user_id = payload?.user_id
   const supabase = createServiceRoleClient()
 
   // PRIMARIO: por collector_id (siempre disponible en webhooks de pago).
@@ -709,6 +670,108 @@ function decryptString(encrypted: string): string | null {
 // ───────────────────────────────────────────────────────────────────────────
 // FUNCIONES DE PROCESAMIENTO
 // ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Manejar IPN viejo (Feed v2.0).
+ *
+ * MP manda este formato cuando seteamos `notification_url` en el body de la
+ * preference. Body: `{ resource, topic }`. NO trae `data.id` — hay que
+ * extraer el paymentId del `resource` URL (ej:
+ * `https://api.mercadopago.com/v1/payments/155825503441`).
+ *
+ * Sintetizamos un payload con shape de WebHook v1.0 y reusamos
+ * handlePaymentNotification — la lógica de UPDATE optimista, idempotencia
+ * vía `webhook_received_at IS NULL`, fetch a MP API y creación de sale via
+ * RPC es la misma para ambos formatos.
+ *
+ * SEGURIDAD: NO verificamos firma HMAC en este path. Razones:
+ *   1. Feed v2 firma con template distinto (sin `data.id`) que MP no
+ *      documenta públicamente. Verificarla a medias sería worse than nothing.
+ *   2. Verificación indirecta: handlePaymentNotification hace GET a
+ *      /v1/payments/{id} con el access_token del kiosquero (encriptado en
+ *      DB, no público). Si el paymentId es falso, MP devuelve 404 y
+ *      cortamos. Si es real pero de OTRO seller, no matchea collector_id y
+ *      tampoco actualizamos.
+ *   3. Idempotencia + cobertura redundante: el WebHook v1.0 (firmado y
+ *      verificado HMAC) cubre el mismo pago. Si llega primero, gana el
+ *      UPDATE optimista y este path no toca nada.
+ *
+ * Si no podemos extraer paymentId, o si el topic no es `payment` (ej:
+ * `merchant_order`), o si no tenemos forma de identificar el seller,
+ * skipeamos limpiamente con 200 — el WebHook v1.0 cubre el evento.
+ */
+async function handleFeedV2IPN(
+  payload: { resource?: string; topic?: string; user_id?: string | number },
+  requestUrl: URL,
+  requestIdHeader: string
+): Promise<Response> {
+  try {
+    const resource = String(payload?.resource || '')
+    const topic = String(payload?.topic || requestUrl.searchParams.get('topic') || '')
+
+    logger.info('FeedV2IPN', 'Recibido IPN viejo (Feed v2.0)', {
+      topic,
+      resourcePreview: resource.substring(0, 60),
+    })
+
+    // Sólo nos interesan notificaciones de payment. merchant_order y otros
+    // topics están cubiertos por el WebHook v1.0 que sí actualiza la orden.
+    if (topic !== 'payment') {
+      logger.info('FeedV2IPN', 'Topic no actionable, OK', { topic })
+      return jsonResponse({ success: true }, 200)
+    }
+
+    // Extraer paymentId del resource URL o del query param `id`.
+    let paymentId = ''
+    const resourceMatch = resource.match(/\/v1\/payments\/(\d+)/)
+    if (resourceMatch) {
+      paymentId = resourceMatch[1]
+    } else {
+      paymentId = requestUrl.searchParams.get('id') || ''
+    }
+
+    if (!paymentId) {
+      logger.warn('FeedV2IPN', 'No se pudo extraer paymentId', {
+        resourcePreview: resource.substring(0, 60),
+      })
+      return jsonResponse({ success: true }, 200)
+    }
+
+    // Extraer collector_id (user_id) del query string o body. MP a veces lo
+    // pone en uno, a veces en otro, a veces en ninguno.
+    const userId =
+      requestUrl.searchParams.get('user_id') ||
+      String(payload?.user_id || '')
+
+    if (!userId) {
+      // Sin collector_id no podemos resolver credenciales. El WebHook v1.0
+      // (que sí trae user_id en el body) cubre el mismo pago.
+      logger.info('FeedV2IPN', 'Sin user_id — skip (WebHook v1.0 cubre)', {
+        paymentId: paymentId.substring(0, 8),
+      })
+      return jsonResponse({ success: true }, 200)
+    }
+
+    // Sintetizar payload formato nuevo y delegar al handler estándar.
+    const synthesized: MercadoPagoWebhookPayload = {
+      id: requestIdHeader,
+      type: 'payment',
+      action: 'payment.updated',
+      user_id: userId,
+      data: { id: paymentId },
+    }
+
+    await handlePaymentNotification(synthesized)
+
+    return jsonResponse({ success: true }, 200)
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('FeedV2IPN', 'Error procesando IPN viejo', err)
+    // Retornamos 200 para que MP no reintente. Si fue un error transitorio,
+    // el WebHook v1.0 igual va a llegar y cubrir el pago.
+    return jsonResponse({ success: true }, 200)
+  }
+}
 
 /**
  * Manejar notificaciones de pago (payment.created / payment.updated)

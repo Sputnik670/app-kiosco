@@ -901,28 +901,23 @@ export async function updateMercadoPagoWebhookSecretAction(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // SANITIZACIÓN: stripeamos whitespace ASCII Y unicode invisible.
+    // SANITIZACIÓN BULLETPROOF: stripeamos TODO lo que no sea hex char.
     //
-    // Bug histórico (26-abr-2026): al copiar/pegar el secret desde el panel
-    // de MP, se colaron caracteres unicode invisibles en el medio del secret
-    // (zero-width space, NBSP, etc). `trim()` no los detecta porque sólo
-    // recorta extremos y `\s` en JS no agarra varios de ellos. El secret
-    // guardado tenía 64 chars en `.length` pero los bytes no coincidían con
-    // los del panel — el HMAC nunca matcheaba.
+    // Historial de bugs:
+    //   - 26-abr-2026: zero-width / NBSP se colaron al copy/paste desde el
+    //     panel de MP. Trim() no los agarra porque sólo recorta extremos.
+    //     Fix parcial: enumerar invisibles "comunes" en regex.
+    //   - 27-abr-2026: el regex anterior no cubría rango C1 (U+0080-U+009F)
+    //     y se coló U+0083 ("No Break Here"), rompiendo HMAC de nuevo.
     //
-    // Stripeamos antes de validar formato.
+    // Lección: enumerar invisibles es jugar al wack-a-mole. El secret de MP
+    // es SIEMPRE 64 chars en [0-9a-f] — cualquier otra cosa es ruido. Stripear
+    // todo-lo-no-hex es bulletproof y una sola línea.
+    //
+    // Trade-off: si pegan con typo (ej: una 'g'), también se stripea — la
+    // validación de longitud de abajo lo agarra y devuelve error claro.
     // ─────────────────────────────────────────────────────────────────────────
-    const sanitized = webhookSecret
-      .replace(/\s+/g, '') // ASCII whitespace (space, tab, newline, etc)
-      // Unicode invisible: NBSP, en/em quad, en/em space, three-per-em,
-      // four-per-em, six-per-em, figure space, punctuation space, thin space,
-      // hair space, zero-width spaces y joiners, line/paragraph separators,
-      // narrow no-break, medium math space, ideographic space, BOM/zero-width
-      // no-break space.
-      .replace(
-        /[   -‍    　﻿]/g,
-        ''
-      )
+    const sanitized = webhookSecret.replace(/[^0-9a-f]/gi, '')
 
     // VALIDACIÓN ESTRICTA DE FORMATO: MP emite el webhook secret como 64
     // caracteres hexadecimales lowercase (e.g. `a73ba6a098...04fe`). Si lo
