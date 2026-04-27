@@ -1378,7 +1378,7 @@ export async function probeMercadoPagoApiAction(): Promise<ProbeMpApiResult> {
             street_name: 'Calle de Prueba',
             city_name: 'Buenos Aires',
             state_name: 'Buenos Aires',
-            country_name: 'AR',
+            country_id: 'AR',
             latitude: -34.6037,
             longitude: -58.3816,
             reference: 'Probe de diagnóstico — borrar',
