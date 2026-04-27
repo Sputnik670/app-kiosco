@@ -154,9 +154,12 @@ export async function POST(request: Request): Promise<Response> {
     // ─────────────────────────────────────────────────────────────────────────
     // Parsear body PRIMERO (lo necesitamos para fallback del data.id).
     // ─────────────────────────────────────────────────────────────────────────
+    // ⚠️ DEBUG TEMPORAL: capturamos rawBody para diagnosticar HMAC. Borrar tras fix.
+    let rawBody: string
     let payload: MercadoPagoWebhookPayload
     try {
-      payload = await request.json()
+      rawBody = await request.text()
+      payload = JSON.parse(rawBody)
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
       logger.error('MercadoPagoWebhook', 'Error parseando JSON', err)
@@ -276,9 +279,88 @@ export async function POST(request: Request): Promise<Response> {
       )
 
       if (!isSignatureValid) {
-        logger.warn('MercadoPagoWebhook', 'Firma HMAC inválida', {
-          v1Start: signature.v1.substring(0, 10) + '...',
+        // ⚠️ DEBUG TEMPORAL — probar 7 variantes de template para identificar
+        // qué firma MP. Borrar después del fix.
+        const queryDataId =
+          requestUrl.searchParams.get('data.id') ||
+          requestUrl.searchParams.get('id') ||
+          ''
+        const bodyDataId = String(payload?.data?.id || '')
+
+        const candidates: { name: string; tpl: string }[] = [
+          {
+            name: '1_actual_lowercase',
+            tpl: `id:${dataIdForSignature};request-id:${requestIdHeader};ts:${signature.ts};`,
+          },
+          {
+            name: '2_raw_no_lowercase',
+            tpl: `id:${dataIdRaw};request-id:${requestIdHeader};ts:${signature.ts};`,
+          },
+          {
+            name: '3_body_only',
+            tpl: `id:${bodyDataId};request-id:${requestIdHeader};ts:${signature.ts};`,
+          },
+          {
+            name: '4_query_only',
+            tpl: `id:${queryDataId};request-id:${requestIdHeader};ts:${signature.ts};`,
+          },
+          {
+            name: '5_no_trailing_semi',
+            tpl: `id:${dataIdForSignature};request-id:${requestIdHeader};ts:${signature.ts}`,
+          },
+          {
+            name: '6_ts_in_ms',
+            tpl: `id:${dataIdForSignature};request-id:${requestIdHeader};ts:${signature.ts * 1000};`,
+          },
+          {
+            name: '7_no_id_block',
+            tpl: `request-id:${requestIdHeader};ts:${signature.ts};`,
+          },
+        ]
+
+        const matches: string[] = []
+        for (const c of candidates) {
+          const computed = crypto
+            .createHmac('sha256', webhookSecret)
+            .update(c.tpl)
+            .digest('hex')
+          if (computed === signature.v1) matches.push(c.name)
+        }
+
+        const xHeaders: Record<string, string> = {}
+        request.headers.forEach((value, key) => {
+          if (key.startsWith('x-')) xHeaders[key] = value
         })
+
+        // Hex de primeros 16 bytes del secret — detecta whitespace invisible
+        // (NBSP=c2a0, zero-width=e2808b, etc.) que trim() no agarra.
+        const secretHexFirst16 = Buffer.from(webhookSecret, 'utf8')
+          .toString('hex')
+          .slice(0, 32)
+
+        logger.error(
+          'MercadoPagoWebhook',
+          '[DEBUG-HMAC] Firma inválida — diagnóstico',
+          new Error(
+            JSON.stringify({
+              matchedCandidates: matches,
+              secretLen: webhookSecret.length,
+              secretFirst4: webhookSecret.substring(0, 4),
+              secretLast4: webhookSecret.substring(webhookSecret.length - 4),
+              secretHexFirst16,
+              queryDataId,
+              bodyDataId,
+              dataIdRaw,
+              dataIdForSignature,
+              receivedV1: signature.v1,
+              receivedTs: signature.ts,
+              fullUrl: request.url,
+              xHeaders,
+              rawBodyFirst300: rawBody.substring(0, 300),
+            })
+          )
+        )
+
         return jsonResponse({ error: 'Firma inválida' }, 401)
       }
     }
