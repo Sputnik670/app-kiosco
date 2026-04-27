@@ -204,6 +204,29 @@ export interface GetBranchesMpStatusResult {
   error?: string
 }
 
+/**
+ * Resultado de un probe individual contra la API de MP.
+ * Usado por probeMercadoPagoApiAction (TEMPORAL — debug 27-abr-2026).
+ */
+export interface ProbeMpApiCallResult {
+  name: string
+  method: string
+  path: string
+  status: number | null
+  ok: boolean
+  responseBody: string
+}
+
+/**
+ * Resultado de probeMercadoPagoApiAction.
+ * (TEMPORAL — debug 27-abr-2026 / decisión Stores+POS vs Preferences.)
+ */
+export interface ProbeMpApiResult {
+  success: boolean
+  error?: string
+  results?: ProbeMpApiCallResult[]
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // CONSTANTES
 // ───────────────────────────────────────────────────────────────────────────────
@@ -1288,6 +1311,149 @@ export async function updateMercadoPagoWebhookSecretAction(
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('updateMercadoPagoWebhookSecretAction', 'Error inesperado', err)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
+ * 🧪 [TEMPORAL — DEBUG 27-abr-2026] Probe directo contra la API de MP
+ *
+ * Contexto: el deploy del 27-abr-2026 introdujo `registerMercadoPagoPosForBranchAction`
+ * llamando `PUT /instore/orders/qr/seller/collectors/{id}/pos/{external_pos_id}`.
+ * En producción ese endpoint devuelve HTTP 404 ("Si quieres conocer los recursos
+ * de la API que se encuentran disponibles..."), que es el mensaje genérico de MP
+ * cuando el path NO EXISTE en su API.
+ *
+ * Este probe sirve para decidir entre:
+ *  - Opción A: Implementar Store + POS bien (POST /users/{id}/stores → POST /pos)
+ *  - Opción B: Revertir a Preferences API (perdiendo interop EMVCo)
+ *
+ * Hace 2 calls SIN retries con el access_token desencriptado y devuelve el HTTP
+ * status + body crudo de cada uno. NO modifica nuestra DB. PUEDE crear un store
+ * real en la cuenta de MP del dueño si MP lo acepta — el nombre obvio
+ * `TEST_PROBE_DELETE_ME` permite identificarlo y borrarlo después.
+ *
+ * BORRAR este action cuando se cierre la decisión A vs B.
+ *
+ * @returns ProbeMpApiResult
+ */
+export async function probeMercadoPagoApiAction(): Promise<ProbeMpApiResult> {
+  try {
+    const { supabase, orgId } = await verifyOwner()
+
+    const config = await getDecryptedMercadoPagoConfig(supabase, orgId)
+    if (!config) {
+      return { success: false, error: 'No hay credenciales de Mercado Pago configuradas' }
+    }
+    if (!config.collecterId) {
+      return { success: false, error: 'collector_id no disponible — reconectá MP' }
+    }
+
+    // Body completo válido para POST /users/{id}/stores. Si solo mandamos `name`,
+    // MP rechaza con 400 por fields faltantes y eso enmascara el error real que
+    // queremos ver (scope insufficient / endpoint inexistente / etc.).
+    const probes: Array<{
+      name: string
+      method: 'GET' | 'POST'
+      path: string
+      body: Record<string, unknown> | null
+    }> = [
+      {
+        name: '1. GET /users/me (sanity check)',
+        method: 'GET',
+        path: '/users/me',
+        body: null,
+      },
+      {
+        name: '2. POST /users/{id}/stores (probe Store creation)',
+        method: 'POST',
+        path: `/users/${config.collecterId}/stores`,
+        body: {
+          name: 'TEST_PROBE_DELETE_ME',
+          location: {
+            street_number: '123',
+            street_name: 'Calle de Prueba',
+            city_name: 'Buenos Aires',
+            state_name: 'Buenos Aires',
+            country_name: 'Argentina',
+            latitude: -34.6037,
+            longitude: -58.3816,
+            reference: 'Probe de diagnóstico — borrar',
+          },
+          business_hours: {
+            monday: [{ open: '09:00', close: '18:00' }],
+            tuesday: [{ open: '09:00', close: '18:00' }],
+            wednesday: [{ open: '09:00', close: '18:00' }],
+            thursday: [{ open: '09:00', close: '18:00' }],
+            friday: [{ open: '09:00', close: '18:00' }],
+          },
+          external_id: `PROBE_${Date.now()}`,
+        },
+      },
+    ]
+
+    const results: ProbeMpApiCallResult[] = []
+
+    for (const probe of probes) {
+      const url = `${MP_API_BASE_URL}${probe.path}`
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), MP_API_TIMEOUT_MS)
+
+        const response = await fetch(url, {
+          method: probe.method,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.accessToken}`,
+          },
+          body: probe.body ? JSON.stringify(probe.body) : undefined,
+          signal: controller.signal,
+        })
+        clearTimeout(timeoutId)
+
+        const responseText = await response.text()
+        // Truncar para no saturar la UI ni los logs
+        const truncated =
+          responseText.length > 1500
+            ? responseText.substring(0, 1500) + '\n... [truncated]'
+            : responseText
+
+        results.push({
+          name: probe.name,
+          method: probe.method,
+          path: probe.path,
+          status: response.status,
+          ok: response.ok,
+          responseBody: truncated,
+        })
+      } catch (err) {
+        results.push({
+          name: probe.name,
+          method: probe.method,
+          path: probe.path,
+          status: null,
+          ok: false,
+          responseBody: `[network error] ${err instanceof Error ? err.message : String(err)}`,
+        })
+      }
+    }
+
+    logger.info('probeMercadoPagoApi', 'Probe completado', {
+      orgId,
+      summary: results.map((r) => ({
+        name: r.name,
+        status: r.status,
+        ok: r.ok,
+      })),
+    })
+
+    return { success: true, results }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    logger.error('probeMercadoPagoApi', 'Error inesperado', err)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido',
