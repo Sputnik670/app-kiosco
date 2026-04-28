@@ -256,7 +256,7 @@ Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendien
 
 ## Pendientes Prioritarios de Producto
 
-1. **Tarea #10 — QR EMVCo: validación de campo (PRIORIDAD ALTA).** Código deployado y validado por typecheck + unit tests. Falta confirmar en producción real: (a) pago con app Mercado Pago como regresión, (b) pago con al menos una billetera alternativa (MODO / Naranja X / Cuenta DNI). Solo después de eso se considera la migración cerrada y se puede marketing-ear como diferenciador comercial.
+1. **Tarea #10 — QR EMVCo (BLOQUEADA, plan listo para viernes).** El probe del 27-abr-2026 23:40 UTC validó que la opción A (Stores+POS) es viable: MP creó un store con HTTP 201 al omitir `country_id` y usar `city_name: 'Don Torcuato'`. La implementación deployada hoy (que llamaba a `PUT /instore/orders/qr/.../pos/{id}`) usaba un endpoint inexistente — por eso el cobro QR está roto en el deploy live. **Plan completo de implementación en `docs/PLAN_VIERNES_EMVCO.md`** — la sesión gemela del viernes lo ejecuta paso por paso. Mientras tanto, hacer rollback en Vercel al deploy con commit `f9aa499` ("fix(mp): texto amigable en libro de ventas para pagos QR") para que el cobro QR funcione con la app de MP durante el QA de la semana.
 2. **Webhook secret multi-tenant.** Antes de subir a multi-tenant: rotar el secret en panel MP + re-pegar con sanitize bulletproof. WebHook v1.0 hoy falla HMAC; el fallback Feed v2 single-tenant lo tapa.
 3. **Bajar `SKIP_SIGNATURE_HARDCODE = true` a `false`** en `app/api/mercadopago/webhook/route.ts:268` cuando se haya re-pegado el webhook secret limpio. Hoy está en bypass por el bug del secret contaminado.
 
