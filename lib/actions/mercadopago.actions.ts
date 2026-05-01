@@ -204,29 +204,6 @@ export interface GetBranchesMpStatusResult {
   error?: string
 }
 
-/**
- * Resultado de un probe individual contra la API de MP.
- * Usado por probeMercadoPagoApiAction (TEMPORAL — debug 27-abr-2026).
- */
-export interface ProbeMpApiCallResult {
-  name: string
-  method: string
-  path: string
-  status: number | null
-  ok: boolean
-  responseBody: string
-}
-
-/**
- * Resultado de probeMercadoPagoApiAction.
- * (TEMPORAL — debug 27-abr-2026 / decisión Stores+POS vs Preferences.)
- */
-export interface ProbeMpApiResult {
-  success: boolean
-  error?: string
-  results?: ProbeMpApiCallResult[]
-}
-
 // ───────────────────────────────────────────────────────────────────────────────
 // CONSTANTES
 // ───────────────────────────────────────────────────────────────────────────────
@@ -976,29 +953,40 @@ export async function disconnectMercadoPagoAction(): Promise<DisconnectMercadoPa
 }
 
 /**
- * 🏪 Registrar una sucursal como POS en Mercado Pago
+ * 🏪 Registrar una sucursal como POS en Mercado Pago (flujo Stores+POS)
  *
  * REQUISITO PREVIO para generar QRs EMVCo interoperables (los que leen
  * Naranja X, Brubank, Ualá, MODO, Cuenta DNI, Santander, etc., además de la
  * app de Mercado Pago).
  *
- * external_pos_id determinístico: `KIOSCO_<branch_id sin guiones>`. Garantiza
- * que el mismo branch siempre genere el mismo POS y que dos branches distintos
- * NO colisionen, para cualquier organización.
+ * external_pos_id y external_store_id determinísticos:
+ *   `KIOSCO_<branch_id sin guiones>`. Garantizan idempotencia local (el mismo
+ *   branch siempre genera el mismo Store+POS) y ausencia de colisiones cross-org.
  *
- * IDEMPOTENCIA:
- * - Si la sucursal ya tiene mp_external_pos_id seteado, skip la API call y
- *   retornamos alreadyRegistered: true.
- * - Si no, llamamos PUT a MP (idempotente por spec del endpoint) y persistimos.
+ * FLUJO (en orden):
+ *  1. Si la sucursal ya tiene mp_external_pos_id, skip — retornar alreadyRegistered.
+ *  2. Si no tiene mp_store_id, crear Store en MP (POST /users/{id}/stores) y
+ *     persistir mp_store_id ANTES de seguir (recovery por si falla el POS).
+ *  3. Crear POS bajo ese Store (POST /pos con store_id) y persistir el
+ *     mp_external_pos_id en branches.
  *
  * VALIDACIÓN:
  * - Solo OWNER (cambia config de la org).
- * - Sucursal tiene que pertenecer a la org del usuario.
+ * - Sucursal tiene que pertenecer a la org del usuario y estar activa.
  * - Org tiene que tener credenciales MP activas con collector_id.
  *
  * MP API:
- *   PUT /instore/orders/qr/seller/collectors/{collector_id}/pos/{external_pos_id}
- *   Body: { name, fixed_amount, category }
+ *   POST /users/{collector_id}/stores
+ *     → devuelve { id }, ese ID es el store_id que necesita el POS.
+ *   POST /pos
+ *     → body con external_id, store_id (numérico), category, name.
+ *
+ * NOTA HISTÓRICA: hasta el 27-abr-2026 esta función llamaba a
+ *   PUT /instore/orders/qr/seller/collectors/{id}/pos/{external_pos_id}
+ * que es un endpoint INEXISTENTE. MP devolvía 404 silencioso, el POS nunca
+ * se creaba realmente, y MP igual generaba un qr_data degradado que solo leía
+ * la app de MP. Por eso Naranja X y otras billeteras rechazaban el QR con
+ * "el código no es para pagar". Validado en producción el 01-may-2026.
  *
  * @param branchId - UUID de la sucursal a registrar
  * @returns RegisterPosResult
@@ -1018,7 +1006,7 @@ export async function registerMercadoPagoPosForBranchAction(
     // ─────────────────────────────────────────────────────────────────────────
     const { data: branch, error: fetchError } = await supabase
       .from('branches')
-      .select('id, name, mp_external_pos_id, organization_id, is_active')
+      .select('id, name, address, mp_external_pos_id, mp_store_id, organization_id, is_active')
       .eq('id', branchId)
       .eq('organization_id', orgId)
       .maybeSingle()
@@ -1038,7 +1026,7 @@ export async function registerMercadoPagoPosForBranchAction(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2. Si ya tiene POS registrado, skip API call (idempotencia local)
+    // 2. Idempotencia local — si ya tiene POS, skip
     // ─────────────────────────────────────────────────────────────────────────
     if (branch.mp_external_pos_id && branch.mp_external_pos_id.length > 0) {
       logger.info('registerMercadoPagoPos', 'Sucursal ya registrada, skip API call', {
@@ -1071,48 +1059,127 @@ export async function registerMercadoPagoPosForBranchAction(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 4. Generar external_pos_id determinístico
-    // Formato: KIOSCO_<32 hex chars del branch_id>  =  39 chars total
-    // El prefijo evita colisiones con otros usos del seller en MP.
+    // 4. Crear (o reusar) Store en MP
     // ─────────────────────────────────────────────────────────────────────────
-    const externalPosId = `KIOSCO_${branchId.replace(/-/g, '')}`
+    // Si la creación previa del Store ya pasó (mp_store_id persistido), reusamos
+    // — no duplicamos stores en la cuenta de MP del dueño.
+    let storeId = branch.mp_store_id
+
+    if (!storeId) {
+      const externalStoreId = `KIOSCO_${branchId.replace(/-/g, '')}`
+
+      // CRÍTICO sobre `location`:
+      //  - city_name: MP rechaza ciudades fuera de su whitelist. "Don Torcuato"
+      //    pasó el probe del 27-abr-2026 (HTTP 201). "Buenos Aires" como ciudad
+      //    fue rechazada. Hardcodeado hasta que `branches` tenga columnas
+      //    city/state propias (TODO de iteración futura).
+      //  - state_name: "Buenos Aires" (provincia) acepta.
+      //  - NO mandar country_id ni country_name — MP infiere del seller AR.
+      //  - latitude/longitude: hardcodeadas a CABA mientras no haya geo en branches.
+      const storeBody = {
+        name: (branch.name || 'Sucursal').substring(0, 50),
+        external_id: externalStoreId,
+        location: {
+          street_number: '0',
+          street_name: branch.address || 'Sin dirección',
+          city_name: 'Don Torcuato',
+          state_name: 'Buenos Aires',
+          latitude: -34.6037,
+          longitude: -58.3816,
+          reference: branch.name || '',
+        },
+        business_hours: {
+          monday: [{ open: '08:00', close: '22:00' }],
+          tuesday: [{ open: '08:00', close: '22:00' }],
+          wednesday: [{ open: '08:00', close: '22:00' }],
+          thursday: [{ open: '08:00', close: '22:00' }],
+          friday: [{ open: '08:00', close: '22:00' }],
+          saturday: [{ open: '08:00', close: '22:00' }],
+          sunday: [{ open: '08:00', close: '22:00' }],
+        },
+      }
+
+      logger.debug('registerMercadoPagoPos', 'Llamando POST /users/{id}/stores', {
+        collecterId: config.collecterId,
+        externalStoreId,
+        branchName: branch.name?.substring(0, 30),
+      })
+
+      const storeResponse = await callMercadoPagoAPI(
+        'POST',
+        `/users/${config.collecterId}/stores`,
+        storeBody,
+        config.accessToken
+      )
+
+      if (!storeResponse || !storeResponse.id) {
+        return {
+          success: false,
+          error:
+            'Mercado Pago rechazó la creación del Store. Verificá que tu cuenta esté verificada (KYC) y reintentá. Si persiste, mirá los logs de Vercel.',
+        }
+      }
+
+      storeId = String(storeResponse.id)
+
+      // Persistir mp_store_id ANTES de crear el POS — recovery: si la creación
+      // del POS falla, el próximo retry reusa el Store en vez de crear uno nuevo.
+      const { error: storeUpdateError } = await supabase
+        .from('branches')
+        .update({ mp_store_id: storeId })
+        .eq('id', branchId)
+        .eq('organization_id', orgId)
+
+      if (storeUpdateError) {
+        logger.error(
+          'registerMercadoPagoPos',
+          'Store creado en MP pero error guardando mp_store_id',
+          storeUpdateError
+        )
+        return {
+          success: false,
+          error:
+            'Store creado en MP pero no pudimos guardarlo localmente. Reintentá — vamos a reusar el Store ya creado.',
+        }
+      }
+
+      logger.info('registerMercadoPagoPos', 'Store creado en MP', {
+        branchId: branch.id.substring(0, 8),
+        storeId,
+      })
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 5. Llamar PUT a MP — idempotente por spec
+    // 5. Crear POS bajo ese Store
     // ─────────────────────────────────────────────────────────────────────────
-    // Body mínimo: name + fixed_amount + category. Otros campos (store_id,
-    // external_id, business_hours) los omitimos — MP los infiere del seller.
+    // Formato external_pos_id: KIOSCO_<32 hex chars del branch_id> = 39 chars.
     // category 621102 = "Quiosco / Almacén general" en el catálogo MCC de MP.
-    // Si MP rechaza esta categoría, el error claro va a venir en el response y
-    // ajustamos.
-    logger.debug('registerMercadoPagoPos', 'Llamando PUT a MP', {
-      collecterId: config.collecterId,
+    const externalPosId = `KIOSCO_${branchId.replace(/-/g, '')}`
+
+    logger.debug('registerMercadoPagoPos', 'Llamando POST /pos', {
       externalPosId,
+      storeId,
       branchName: branch.name?.substring(0, 30),
     })
 
-    const mpResponse = await callMercadoPagoAPI(
-      'PUT',
-      `/instore/orders/qr/seller/collectors/${config.collecterId}/pos/${externalPosId}`,
+    const posResponse = await callMercadoPagoAPI(
+      'POST',
+      '/pos',
       {
-        name: (branch.name || 'Sucursal').substring(0, 50),
+        external_id: externalPosId,
         fixed_amount: false,
+        name: (branch.name || 'Caja').substring(0, 50),
         category: 621102,
+        store_id: Number(storeId),
       },
       config.accessToken
     )
 
-    if (!mpResponse) {
-      // callMercadoPagoAPI ya hizo retry exponencial (3 intentos). Si llegó null,
-      // MP rechazó persistentemente. Razones probables:
-      //   - access_token sin scope qr (raro en OAuth, pero posible)
-      //   - cuenta MP sin verificación KYC completa
-      //   - category inválida
-      // El detalle del error está en los logs de callMercadoPagoAPI.
+    if (!posResponse || !posResponse.external_id) {
       return {
         success: false,
         error:
-          'Mercado Pago rechazó el registro del POS. Verificá que tu cuenta esté verificada en MP (KYC) y reintentá. Si persiste, mirá los logs.',
+          'Store creado en MP pero falló la creación del POS. Mirá los logs de Vercel y reintentá.',
       }
     }
 
@@ -1127,8 +1194,8 @@ export async function registerMercadoPagoPosForBranchAction(
 
     if (updateError) {
       // Caso raro: MP aceptó el POS pero la DB no nos deja guardar. La próxima
-      // llamada va a re-PUT a MP (idempotente, no rompe nada) y reintentar el
-      // UPDATE. Mensaje claro para el dueño.
+      // llamada va a saltarse el Store (ya tiene mp_store_id) y re-POST el POS;
+      // MP devuelve error "external_id duplicado" pero seguimos persistiendo.
       logger.error(
         'registerMercadoPagoPos',
         'POS creado en MP pero error guardando en BD',
@@ -1143,6 +1210,7 @@ export async function registerMercadoPagoPosForBranchAction(
     logger.info('registerMercadoPagoPos', 'POS registrado exitosamente', {
       orgId,
       branchId: branch.id.substring(0, 8),
+      storeId,
       externalPosId,
     })
 
@@ -1311,148 +1379,6 @@ export async function updateMercadoPagoWebhookSecretAction(
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
     logger.error('updateMercadoPagoWebhookSecretAction', 'Error inesperado', err)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Error desconocido',
-    }
-  }
-}
-
-/**
- * 🧪 [TEMPORAL — DEBUG 27-abr-2026] Probe directo contra la API de MP
- *
- * Contexto: el deploy del 27-abr-2026 introdujo `registerMercadoPagoPosForBranchAction`
- * llamando `PUT /instore/orders/qr/seller/collectors/{id}/pos/{external_pos_id}`.
- * En producción ese endpoint devuelve HTTP 404 ("Si quieres conocer los recursos
- * de la API que se encuentran disponibles..."), que es el mensaje genérico de MP
- * cuando el path NO EXISTE en su API.
- *
- * Este probe sirve para decidir entre:
- *  - Opción A: Implementar Store + POS bien (POST /users/{id}/stores → POST /pos)
- *  - Opción B: Revertir a Preferences API (perdiendo interop EMVCo)
- *
- * Hace 2 calls SIN retries con el access_token desencriptado y devuelve el HTTP
- * status + body crudo de cada uno. NO modifica nuestra DB. PUEDE crear un store
- * real en la cuenta de MP del dueño si MP lo acepta — el nombre obvio
- * `TEST_PROBE_DELETE_ME` permite identificarlo y borrarlo después.
- *
- * BORRAR este action cuando se cierre la decisión A vs B.
- *
- * @returns ProbeMpApiResult
- */
-export async function probeMercadoPagoApiAction(): Promise<ProbeMpApiResult> {
-  try {
-    const { supabase, orgId } = await verifyOwner()
-
-    const config = await getDecryptedMercadoPagoConfig(supabase, orgId)
-    if (!config) {
-      return { success: false, error: 'No hay credenciales de Mercado Pago configuradas' }
-    }
-    if (!config.collecterId) {
-      return { success: false, error: 'collector_id no disponible — reconectá MP' }
-    }
-
-    // Body completo válido para POST /users/{id}/stores. Si solo mandamos `name`,
-    // MP rechaza con 400 por fields faltantes y eso enmascara el error real que
-    // queremos ver (scope insufficient / endpoint inexistente / etc.).
-    const probes: Array<{
-      name: string
-      method: 'GET' | 'POST'
-      path: string
-      body: Record<string, unknown> | null
-    }> = [
-      {
-        name: '1. GET /users/me (sanity check)',
-        method: 'GET',
-        path: '/users/me',
-        body: null,
-      },
-      {
-        name: '2. POST /users/{id}/stores (probe Store creation)',
-        method: 'POST',
-        path: `/users/${config.collecterId}/stores`,
-        body: {
-          name: 'TEST_PROBE_DELETE_ME',
-          location: {
-            street_number: '123',
-            street_name: 'Calle de Prueba',
-            city_name: 'Don Torcuato',
-            state_name: 'Buenos Aires',
-            latitude: -34.6037,
-            longitude: -58.3816,
-            reference: 'Probe de diagnóstico — borrar',
-          },
-          business_hours: {
-            monday: [{ open: '09:00', close: '18:00' }],
-            tuesday: [{ open: '09:00', close: '18:00' }],
-            wednesday: [{ open: '09:00', close: '18:00' }],
-            thursday: [{ open: '09:00', close: '18:00' }],
-            friday: [{ open: '09:00', close: '18:00' }],
-          },
-          external_id: `PROBE_${Date.now()}`,
-        },
-      },
-    ]
-
-    const results: ProbeMpApiCallResult[] = []
-
-    for (const probe of probes) {
-      const url = `${MP_API_BASE_URL}${probe.path}`
-      try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), MP_API_TIMEOUT_MS)
-
-        const response = await fetch(url, {
-          method: probe.method,
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.accessToken}`,
-          },
-          body: probe.body ? JSON.stringify(probe.body) : undefined,
-          signal: controller.signal,
-        })
-        clearTimeout(timeoutId)
-
-        const responseText = await response.text()
-        // Truncar para no saturar la UI ni los logs
-        const truncated =
-          responseText.length > 1500
-            ? responseText.substring(0, 1500) + '\n... [truncated]'
-            : responseText
-
-        results.push({
-          name: probe.name,
-          method: probe.method,
-          path: probe.path,
-          status: response.status,
-          ok: response.ok,
-          responseBody: truncated,
-        })
-      } catch (err) {
-        results.push({
-          name: probe.name,
-          method: probe.method,
-          path: probe.path,
-          status: null,
-          ok: false,
-          responseBody: `[network error] ${err instanceof Error ? err.message : String(err)}`,
-        })
-      }
-    }
-
-    logger.info('probeMercadoPagoApi', 'Probe completado', {
-      orgId,
-      summary: results.map((r) => ({
-        name: r.name,
-        status: r.status,
-        ok: r.ok,
-      })),
-    })
-
-    return { success: true, results }
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error))
-    logger.error('probeMercadoPagoApi', 'Error inesperado', err)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido',

@@ -33,9 +33,7 @@ import {
   updateMercadoPagoWebhookSecretAction,
   getBranchesMpRegistrationStatusAction,
   registerMercadoPagoPosForBranchAction,
-  probeMercadoPagoApiAction,
   type BranchMpStatus,
-  type ProbeMpApiCallResult,
 } from '@/lib/actions/mercadopago.actions'
 
 /**
@@ -101,13 +99,6 @@ export default function ConfiguracionMercadoPago() {
   const [loadingBranches, setLoadingBranches] = useState(false)
   const [registeringBranchId, setRegisteringBranchId] = useState<string | null>(null)
   const [registeringAll, setRegisteringAll] = useState(false)
-
-  // [TEMPORAL — debug 27-abr-2026] Estado del probe contra la API de MP.
-  // Permite diagnosticar si el endpoint de Stores responde para esta cuenta.
-  // Borrar junto con probeMercadoPagoApiAction cuando se cierre la decisión.
-  const [probing, setProbing] = useState(false)
-  const [probeResults, setProbeResults] = useState<ProbeMpApiCallResult[] | null>(null)
-  const [probeError, setProbeError] = useState<string | null>(null)
 
   // URL params (para detectar retorno de OAuth)
   const searchParams = useSearchParams()
@@ -264,33 +255,6 @@ export default function ConfiguracionMercadoPago() {
     await fetchBranches()
     setRegisteringAll(false)
   }, [branches, fetchBranches])
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // [TEMPORAL — debug 27-abr-2026] Probe directo contra la API de MP
-  // ───────────────────────────────────────────────────────────────────────────
-
-  const handleProbe = useCallback(async () => {
-    setProbing(true)
-    setProbeError(null)
-    setProbeResults(null)
-
-    const result = await probeMercadoPagoApiAction()
-
-    if (result.success && result.results) {
-      setProbeResults(result.results)
-      const allOk = result.results.every((r) => r.ok)
-      if (allOk) {
-        toast.success('Probe OK — revisá los resultados abajo')
-      } else {
-        toast.warning('Probe completado con errores — revisá los resultados abajo')
-      }
-    } else {
-      setProbeError(result.error || 'Error desconocido en el probe')
-      toast.error('No se pudo correr el probe', { description: result.error })
-    }
-
-    setProbing(false)
-  }, [])
 
   // ───────────────────────────────────────────────────────────────────────────
   // CONECTAR CON OAUTH
@@ -568,89 +532,6 @@ export default function ConfiguracionMercadoPago() {
                   </Button>
                 )}
               </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* [TEMPORAL — debug 27-abr-2026] Probe contra API de MP.
-            Sirve para decidir si vamos por Stores+POS o si revertimos a
-            Preferences. Borrar este bloque junto con probeMercadoPagoApiAction
-            cuando cierre el ticket. */}
-        <Card className="border-dashed border-amber-300 bg-amber-50/30">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              🔬 Diagnóstico API Mercado Pago
-              <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-400">
-                Temporal
-              </Badge>
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Prueba dos endpoints reales contra MP con tu token actual:
-              <br />
-              1) <code className="font-mono text-[10px]">GET /users/me</code> (sanity check)
-              <br />
-              2) <code className="font-mono text-[10px]">POST /users/{'{id}'}/stores</code> (probe de creación de Store)
-              <br />
-              Si el segundo responde 2xx, MP creó un store llamado{' '}
-              <code className="font-mono text-[10px]">TEST_PROBE_DELETE_ME</code> en tu cuenta —
-              borralo después desde el panel de MP.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Button
-              onClick={handleProbe}
-              disabled={probing}
-              variant="outline"
-              size="sm"
-              className="w-full"
-            >
-              {probing ? (
-                <>
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                  Probando…
-                </>
-              ) : (
-                'Correr probe'
-              )}
-            </Button>
-
-            {probeError && (
-              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">
-                {probeError}
-              </div>
-            )}
-
-            {probeResults && (
-              <div className="space-y-2">
-                {probeResults.map((r, i) => (
-                  <div
-                    key={i}
-                    className={`rounded-md border p-2 text-xs ${
-                      r.ok
-                        ? 'border-emerald-200 bg-emerald-50/50'
-                        : 'border-red-200 bg-red-50/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium">{r.name}</span>
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] ${
-                          r.ok ? 'text-emerald-700 border-emerald-400' : 'text-red-700 border-red-400'
-                        }`}
-                      >
-                        {r.status === null ? 'NETWORK' : `HTTP ${r.status}`}
-                      </Badge>
-                    </div>
-                    <p className="font-mono text-[10px] text-muted-foreground mt-1">
-                      {r.method} {r.path}
-                    </p>
-                    <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-900 text-slate-100 p-2 text-[10px] leading-snug">
-                      {r.responseBody || '(empty body)'}
-                    </pre>
-                  </div>
-                ))}
-              </div>
             )}
           </CardContent>
         </Card>
