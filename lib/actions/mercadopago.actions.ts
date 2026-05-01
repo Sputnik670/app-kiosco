@@ -960,8 +960,9 @@ export async function disconnectMercadoPagoAction(): Promise<DisconnectMercadoPa
  * app de Mercado Pago).
  *
  * external_pos_id y external_store_id determinísticos:
- *   `KIOSCO_<branch_id sin guiones>`. Garantizan idempotencia local (el mismo
- *   branch siempre genera el mismo Store+POS) y ausencia de colisiones cross-org.
+ *   `KIOSCO<branch_id sin guiones>` (puramente alfanumérico — MP rechaza el
+ *   underscore en POST /pos). Garantizan idempotencia local (el mismo branch
+ *   siempre genera el mismo Store+POS) y ausencia de colisiones cross-org.
  *
  * FLUJO (en orden):
  *  1. Si la sucursal ya tiene mp_external_pos_id, skip — retornar alreadyRegistered.
@@ -1066,7 +1067,12 @@ export async function registerMercadoPagoPosForBranchAction(
     let storeId = branch.mp_store_id
 
     if (!storeId) {
-      const externalStoreId = `KIOSCO_${branchId.replace(/-/g, '')}`
+      // CRÍTICO: MP requiere `external_id` puramente alfanumérico [A-Za-z0-9]
+      // en POST /pos. El endpoint de Stores sí acepta `_` (lo validamos en
+      // 27-abr-2026), pero POST /pos lo rechaza con
+      // "external_id must be alphanumeric" (validado 01-may-2026).
+      // Mantenemos el mismo formato sin underscore en ambos para consistencia.
+      const externalStoreId = `KIOSCO${branchId.replace(/-/g, '')}`
 
       // CRÍTICO sobre `location`:
       //  - city_name: MP rechaza ciudades fuera de su whitelist. "Don Torcuato"
@@ -1152,9 +1158,10 @@ export async function registerMercadoPagoPosForBranchAction(
     // ─────────────────────────────────────────────────────────────────────────
     // 5. Crear POS bajo ese Store
     // ─────────────────────────────────────────────────────────────────────────
-    // Formato external_pos_id: KIOSCO_<32 hex chars del branch_id> = 39 chars.
+    // Formato external_pos_id: KIOSCO<32 hex chars del branch_id> = 38 chars.
+    // SIN underscore — MP rechaza con "external_id must be alphanumeric" (POST /pos).
     // category 621102 = "Quiosco / Almacén general" en el catálogo MCC de MP.
-    const externalPosId = `KIOSCO_${branchId.replace(/-/g, '')}`
+    const externalPosId = `KIOSCO${branchId.replace(/-/g, '')}`
 
     logger.debug('registerMercadoPagoPos', 'Llamando POST /pos', {
       externalPosId,
