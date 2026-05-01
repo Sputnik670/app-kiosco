@@ -1,6 +1,6 @@
 # App Kiosco — Instrucciones del Proyecto
 
-> Última actualización: 27 de abril de 2026
+> Última actualización: 1 de mayo de 2026
 
 ## Qué es esto
 
@@ -248,6 +248,46 @@ App-kiosco-main/
 
 La sesión del 12-mar-2026 intentó este mismo camino y pivoteó a Preferences API porque el endpoint `POST /users/{id}/stores` rechazaba a apps OAuth recién creadas. Esta sesión lo logró skipeando Stores enteros — el endpoint `PUT /instore/.../pos/{external_pos_id}` no requiere Store previo, así que registramos POS directamente al nivel del seller. Las columnas legacy `mercadopago_credentials.mp_store_id` y `.mp_pos_external_id` (migration `00012`) quedan as-is — no se usan en el flujo nuevo (que es per-branch, no per-org).
 
+## Fixes y Features (sesión 1 mayo 2026)
+
+### EMVCo definitivo — fin de la odisea Mercado Pago
+
+**Punto de partida:** El deploy del 27-abr llamaba a `PUT /instore/orders/qr/seller/collectors/{id}/pos/{external_pos_id}` para registrar el POS, pero **ese endpoint no existe**. MP devolvía 404, el código capturaba el error y devolvía éxito al usuario, y MP igual generaba un `qr_data` degradado al cobrar — solo legible por la app de Mercado Pago. **Bro detectó el problema cuando intentó cobrar con Naranja X y le saltó "el código no es para pagar".**
+
+**Bugs encontrados (en orden):**
+
+1. **POS nunca se registraba realmente** — el endpoint `PUT /instore/.../pos/{id}` no existe. Implementación deployada como "exitosa" sin probar contra MP real con billetera no-MP.
+2. **MP rechaza `external_id` con underscore en `POST /pos`** — error 400 "external_id must be alphanumeric". Inconsistencia con `POST /users/{id}/stores`, que sí acepta underscore (validado el mismo día con un store creado OK con `external_id = KIOSCO_<hex>`).
+3. **El logger genérico de `callMercadoPagoAPI`** truncaba el body de error de MP, escondiendo detalles útiles. Resuelto leyendo logs de Vercel directamente.
+
+**Fixes deployados (commits `727189f`, posterior fix del underscore):**
+
+- **Migration `00016_branches_mp_store_id.sql`** — agrega columna `mp_store_id` a `branches` con índice UNIQUE por organización. Necesaria para el flujo Stores+POS y el recovery (si la creación del Store pasa pero falla el POS, el reintento reusa el Store en vez de duplicarlo en MP).
+- **`registerMercadoPagoPosForBranchAction` reescrita** (en `lib/actions/mercadopago.actions.ts`) al flujo correcto:
+  1. Si la sucursal ya tiene `mp_external_pos_id`, skip (idempotencia local).
+  2. Si no tiene `mp_store_id`, crear Store en MP via `POST /users/{collector_id}/stores` y persistir el ID **antes** de seguir.
+  3. Crear POS via `POST /pos` con `store_id` numérico, `external_id` alfanumérico, `category: 621102`.
+  4. Persistir `mp_external_pos_id` en `branches`.
+- **Borrado de código de probe del 27-abr** — `probeMercadoPagoApiAction`, sus interfaces, los useStates y la card "🔬 Diagnóstico API" en `configuracion-mercadopago.tsx`.
+- **Prefijo `external_id` cambiado de `KIOSCO_` a `KIOSCO`** (puramente alfanumérico) tanto para Store como para POS.
+- **Plan `docs/PLAN_VIERNES_EMVCO.md` ejecutado** — borrar el archivo cuando se cierre la validación.
+
+**Validación:**
+
+- ✅ Registro de POS exitoso (badge "Registrada" en verde).
+- ✅ QR generado es **EMVCo válido** — confirmado porque MP responde "Este QR solo sirve para cobrar en tu negocio" cuando el dueño intenta escanear su propio QR (señal de QR de comercio bien formado, no de QR degradado).
+- ⏳ **Pendiente prueba final con cuenta externa** — Bro no tiene segunda cuenta hoy. Confirmar el 2-may-2026 con: (1) MP de otra persona = regresión obligatoria, (2) Naranja X / MODO / Cuenta DNI = validación crítica EMVCo interop.
+
+### Reglas técnicas nuevas
+
+- **Mercado Pago — `external_id` en `POST /pos` debe ser puramente `[A-Za-z0-9]`.** Sin underscore, sin guion, sin punto. El endpoint `POST /users/{id}/stores` sí acepta underscore — son inconsistentes entre sí. Default del proyecto: prefijo `KIOSCO` (sin underscore) seguido del UUID sin guiones.
+- **Validar integraciones de cobro con AL MENOS dos billeteras distintas antes de declarar "funciona".** El bug del 27-abr quedó dos semanas oculto porque solo se probó con la app de MP, que tiene un fallback que enmascara cuando el POS no está bien registrado. Validar SIEMPRE con MP + una billetera no-MP (Naranja X, MODO, Cuenta DNI).
+- **`callMercadoPagoAPI` lossy en logs:** si necesitás el body de error completo de MP, leer logs de Vercel directamente — el logger del proyecto solo guarda `error.message` que MP a veces deja vago. Mejora pendiente: capturar `response.text()` en el throw cuando es non-2xx.
+
+### Hallazgo lateral
+
+- **Migration `00010_payment_methods_expansion` está aplicada en Supabase producción** (24-abr-2026) pero el archivo SQL no está en `supabase/migrations/` — vive solo en la rama `feature/metodos-cobro` sin mergear. Cuando se retome esa feature (Posnet / QR fijo / Alias para cobros manuales), no hace falta re-aplicar la migration. Las columnas de DB ya están en producción esperando al código que las use.
+
 ## Pendientes Prioritarios de Seguridad
 
 Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendientes críticos están cerrados. Los abiertos son no-accionables o de baja prioridad:
@@ -256,9 +296,12 @@ Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendien
 
 ## Pendientes Prioritarios de Producto
 
-1. **Tarea #10 — QR EMVCo (BLOQUEADA, plan listo para viernes).** El probe del 27-abr-2026 23:40 UTC validó que la opción A (Stores+POS) es viable: MP creó un store con HTTP 201 al omitir `country_id` y usar `city_name: 'Don Torcuato'`. La implementación deployada hoy (que llamaba a `PUT /instore/orders/qr/.../pos/{id}`) usaba un endpoint inexistente — por eso el cobro QR está roto en el deploy live. **Plan completo de implementación en `docs/PLAN_VIERNES_EMVCO.md`** — la sesión gemela del viernes lo ejecuta paso por paso. Mientras tanto, hacer rollback en Vercel al deploy con commit `f9aa499` ("fix(mp): texto amigable en libro de ventas para pagos QR") para que el cobro QR funcione con la app de MP durante el QA de la semana.
-2. **Webhook secret multi-tenant.** Antes de subir a multi-tenant: rotar el secret en panel MP + re-pegar con sanitize bulletproof. WebHook v1.0 hoy falla HMAC; el fallback Feed v2 single-tenant lo tapa.
-3. **Bajar `SKIP_SIGNATURE_HARDCODE = true` a `false`** en `app/api/mercadopago/webhook/route.ts:268` cuando se haya re-pegado el webhook secret limpio. Hoy está en bypass por el bug del secret contaminado.
+1. **Tarea #10 — QR EMVCo (CASI CERRADA — falta prueba con billetera externa).** Implementación deployada y validada técnicamente el 1-may-2026: registro de POS funciona, QR generado es EMVCo válido (confirmado por respuesta de MP "este QR solo sirve para cobrar en tu negocio"). Falta única validación de campo: cobrar $1 con (a) MP de otra cuenta = regresión obligatoria, y (b) Naranja X / MODO / Cuenta DNI = goal original interop. Cuando ambas pasen, **borrar `docs/PLAN_VIERNES_EMVCO.md`** y cerrar definitivamente.
+2. **Retomar `feature/metodos-cobro` (Posnet / QR fijo / Alias).** Rama lista pero sin mergear. Migration `00010_payment_methods_expansion` ya aplicada en producción (las columnas existen). Plan acordado con Bro el 1-may-2026: traer todo de una, activar método por método desde el panel del dueño en orden Alias → QR fijo → Posnet, probar con venta real cada uno. Tarjeta queda para más adelante. **No arrancar hasta cerrar Tarea #10.**
+3. **Webhook secret multi-tenant.** Antes de subir a multi-tenant: rotar el secret en panel MP + re-pegar con sanitize bulletproof. WebHook v1.0 hoy falla HMAC; el fallback Feed v2 single-tenant lo tapa.
+4. **Bajar `SKIP_SIGNATURE_HARDCODE = true` a `false`** en `app/api/mercadopago/webhook/route.ts:268` cuando se haya re-pegado el webhook secret limpio. Hoy está en bypass por el bug del secret contaminado.
+5. **Borrar `TEST_PROBE_DELETE_ME` del panel de MP** — store id `81655138`, creado por el probe del 27-abr-2026.
+6. **Mejora menor: `callMercadoPagoAPI` capturar response body completo** cuando MP devuelve non-2xx, para no depender de logs de Vercel para diagnóstico. Hoy solo guarda `error.message` que MP a veces deja vago.
 
 ## Ventajas Competitivas
 
