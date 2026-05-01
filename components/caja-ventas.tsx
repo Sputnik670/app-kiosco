@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Trash2, ShoppingCart, Plus, Minus, Loader2, ScanBarcode, ReceiptText, CloudOff, QrCode, Star, ChevronDown, ChevronUp } from "lucide-react"
+import { Trash2, ShoppingCart, Plus, Minus, Loader2, ScanBarcode, ReceiptText, CloudOff, QrCode, Star, ChevronDown, ChevronUp, CreditCard, Banknote } from "lucide-react"
 import { toast } from "sonner"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -13,11 +13,33 @@ import { useOfflineVentas } from "@/hooks/use-offline-ventas"
 import { useCart } from "@/hooks/use-cart"
 import { BarcodeScanner } from "@/components/barcode-scanner"
 import { MercadoPagoQRDialog } from "@/components/mercadopago-qr-dialog"
+import { DialogCobroManual, type ManualPaymentMethod } from "@/components/dialog-cobro-manual"
 import { SyncStatusIndicator, SyncBadge } from "@/components/pwa"
 import type { ProductoVenta } from "@/lib/actions/ventas.actions"
 import { getTopProductsAction } from "@/lib/actions/ventas.actions"
+import {
+  getPaymentMethodsConfigAction,
+  type PaymentMethodsConfig,
+} from "@/lib/actions/payment-methods.actions"
 
-type CajaPaymentMethod = "cash" | "card" | "wallet" | "mercadopago"
+type CajaPaymentMethod =
+  | "cash"
+  | "card"
+  | "wallet"
+  | "mercadopago"
+  | "posnet_mp"
+  | "qr_static_mp"
+  | "transfer_alias"
+
+const MANUAL_METHODS: ReadonlyArray<ManualPaymentMethod> = [
+  "posnet_mp",
+  "qr_static_mp",
+  "transfer_alias",
+]
+
+function isManualMethod(m: CajaPaymentMethod): m is ManualPaymentMethod {
+  return (MANUAL_METHODS as ReadonlyArray<string>).includes(m)
+}
 
 // Generador de UUID simple sin dependencias externas
 function generateTempSaleId(): string {
@@ -54,6 +76,11 @@ export default function CajaVentas({
   const [topProducts, setTopProducts] = useState<ProductoVenta[]>([])
   const [showAllTop, setShowAllTop] = useState(false)
   const [loadingTop, setLoadingTop] = useState(true)
+  // Métodos de cobro ampliados (Posnet / QR fijo / Alias)
+  const [paymentMethodsConfig, setPaymentMethodsConfig] =
+    useState<PaymentMethodsConfig | null>(null)
+  const [showManualDialog, setShowManualDialog] = useState(false)
+  const [manualMethod, setManualMethod] = useState<ManualPaymentMethod | null>(null)
 
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -105,6 +132,23 @@ export default function CajaVentas({
     loadTopProducts()
     return () => { cancelled = true }
   }, [sucursalId])
+
+  // Cargar configuración de métodos de cobro ampliados
+  useEffect(() => {
+    let cancelled = false
+    const loadPaymentConfig = async () => {
+      try {
+        const result = await getPaymentMethodsConfigAction()
+        if (!cancelled && result.success && result.config) {
+          setPaymentMethodsConfig(result.config)
+        }
+      } catch {
+        // Silencioso — si falla solo quedan los métodos básicos
+      }
+    }
+    loadPaymentConfig()
+    return () => { cancelled = true }
+  }, [])
 
   const agregarAlCarrito = useCallback(
     (producto: ProductoVenta) => {
@@ -195,7 +239,7 @@ export default function CajaVentas({
   const procesarVentaHandler = async () => {
     if (cart.isEmpty) return
 
-    // Si el método de pago es Mercado Pago, abrir el dialog QR en lugar de procesar directamente
+    // Si el método de pago es Mercado Pago (QR dinámico EMVCo), abrir el dialog QR
     if (metodoPago === "mercadopago") {
       const tempSaleId = generateTempSaleId()
       setMercadoPagoTempSaleId(tempSaleId)
@@ -203,7 +247,18 @@ export default function CajaVentas({
       return
     }
 
-    // Flujo normal para otros métodos de pago
+    // Métodos manuales (Posnet MP, QR fijo, Alias) → abrir dialog de confirmación
+    if (isManualMethod(metodoPago)) {
+      setManualMethod(metodoPago)
+      setShowManualDialog(true)
+      return
+    }
+
+    // Flujo normal para otros métodos de pago (cash, card, wallet)
+    await completarVenta(metodoPago)
+  }
+
+  const completarVenta = async (metodo: CajaPaymentMethod) => {
     setProcesandoVenta(true)
     try {
       const items = cart.items.map((item) => ({
@@ -215,7 +270,7 @@ export default function CajaVentas({
 
       const result = await processVenta({
         items,
-        metodoPago,
+        metodoPago: metodo,
         montoTotal: cart.getTotal()
       })
 
@@ -235,7 +290,7 @@ export default function CajaVentas({
             subtotal: i.price * i.cantidad,
           })),
           total: cart.getTotal(),
-          metodoPago: metodoPago,
+          metodoPago: metodo,
           vendedor: empleadoNombre,
           // Marcar si es offline
           offlinePending: result.isOffline,
@@ -245,6 +300,8 @@ export default function CajaVentas({
 
       toast.success(result.isOffline ? "Venta guardada (offline)" : "Venta Exitosa")
       cart.clearCart()
+      setShowManualDialog(false)
+      setManualMethod(null)
       if (onVentaCompletada) onVentaCompletada()
     } catch (error) {
       toast.error("Error", {
@@ -253,6 +310,11 @@ export default function CajaVentas({
     } finally {
       setProcesandoVenta(false)
     }
+  }
+
+  const handleManualConfirmed = async () => {
+    if (!manualMethod) return
+    await completarVenta(manualMethod)
   }
 
   const handleMercadoPagoPaymentConfirmed = async () => {
@@ -486,20 +548,31 @@ export default function CajaVentas({
         </div>
 
         <div className="grid grid-cols-4 gap-2">
-          {(['cash', 'wallet', 'card', 'mercadopago'] as const).map((m) => {
-            const labels = {
+          {(() => {
+            const baseMethods: CajaPaymentMethod[] = ['cash', 'wallet', 'card', 'mercadopago']
+            const manualExtras: CajaPaymentMethod[] = []
+            if (paymentMethodsConfig?.posnet_mp_enabled) manualExtras.push('posnet_mp')
+            if (paymentMethodsConfig?.qr_static_enabled) manualExtras.push('qr_static_mp')
+            if (paymentMethodsConfig?.alias_enabled) manualExtras.push('transfer_alias')
+            const all = [...baseMethods, ...manualExtras]
+
+            const labels: Record<CajaPaymentMethod, string> = {
               cash: 'Efectivo',
               wallet: 'Virtual',
               card: 'Tarjeta',
-              mercadopago: 'QR MP'
-            } as const
-            const icons = {
-              cash: null,
-              wallet: null,
-              card: null,
-              mercadopago: <QrCode className="h-4 w-4" />
+              mercadopago: 'QR MP',
+              posnet_mp: 'Posnet',
+              qr_static_mp: 'QR Fijo',
+              transfer_alias: 'Alias',
             }
-            return (
+            const icons: Partial<Record<CajaPaymentMethod, React.ReactNode>> = {
+              mercadopago: <QrCode className="h-4 w-4" />,
+              posnet_mp: <CreditCard className="h-4 w-4" />,
+              qr_static_mp: <QrCode className="h-4 w-4" />,
+              transfer_alias: <Banknote className="h-4 w-4" />,
+            }
+
+            return all.map((m) => (
               <button
                 key={m}
                 onClick={() => setMetodoPago(m)}
@@ -513,8 +586,8 @@ export default function CajaVentas({
                 {icons[m] && <span>{icons[m]}</span>}
                 <span className="line-clamp-1">{labels[m]}</span>
               </button>
-            )
-          })}
+            ))
+          })()}
         </div>
 
         <Button
@@ -556,6 +629,19 @@ export default function CajaVentas({
         }))}
         onPaymentConfirmed={handleMercadoPagoPaymentConfirmed}
         onPaymentFailed={handleMercadoPagoPaymentFailed}
+      />
+
+      <DialogCobroManual
+        open={showManualDialog}
+        onOpenChange={(next) => {
+          setShowManualDialog(next)
+          if (!next) setManualMethod(null)
+        }}
+        method={manualMethod}
+        amount={cart.getTotal()}
+        config={paymentMethodsConfig}
+        onConfirmed={handleManualConfirmed}
+        processing={procesandoVenta}
       />
 
       {/* Indicador flotante de sincronización offline */}

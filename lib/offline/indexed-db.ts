@@ -82,7 +82,7 @@ export interface VentaPendiente {
   turno_id: string // caja_diaria_id
   organization_id: string
   items: VentaPendienteItem[]
-  metodo_pago: 'cash' | 'card' | 'wallet' | 'mercadopago'
+  metodo_pago: 'cash' | 'card' | 'wallet' | 'mercadopago' | 'posnet_mp' | 'qr_static_mp' | 'transfer_alias'
   monto_total: number
   vendedor_id: string | null
   // Timestamps

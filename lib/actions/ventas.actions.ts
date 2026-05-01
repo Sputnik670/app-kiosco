@@ -42,7 +42,15 @@ type ProductWithStock = Database['public']['Views']['v_products_with_stock']['Ro
 /**
  * Métodos de pago soportados
  */
-export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'wallet' | 'mercadopago'
+export type PaymentMethod =
+  | 'cash'
+  | 'card'
+  | 'transfer'
+  | 'wallet'
+  | 'mercadopago'       // QR dinámico MP (OAuth + webhook)
+  | 'posnet_mp'         // Posnet físico de MP
+  | 'qr_static_mp'      // QR fijo de MP (imagen estática)
+  | 'transfer_alias'    // Transferencia por alias/CVU
 
 /**
  * Producto para ventas (vista simplificada para UI)

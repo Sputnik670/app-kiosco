@@ -39,7 +39,7 @@ import type { SyncStatus } from '@/types/app.types'
  * Nota: Solo métodos que no requieren validación online
  * 'mercadopago' está aquí pero requiere validación online (QR dinámico)
  */
-type OfflinePaymentMethod = 'cash' | 'card' | 'wallet' | 'mercadopago'
+type OfflinePaymentMethod = 'cash' | 'card' | 'wallet' | 'mercadopago' | 'posnet_mp' | 'qr_static_mp' | 'transfer_alias'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS

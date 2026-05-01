@@ -47,9 +47,19 @@ export const resetPasswordSchema = z.object({
 // VENTAS
 // ───────────────────────────────────────────────────────────────────────────────
 
-export const paymentMethodSchema = z.enum(['cash', 'card', 'transfer', 'wallet'], {
-  message: 'Método de pago inválido',
-})
+export const paymentMethodSchema = z.enum(
+  [
+    'cash',
+    'card',
+    'transfer',
+    'wallet',
+    'mercadopago',
+    'posnet_mp',
+    'qr_static_mp',
+    'transfer_alias',
+  ],
+  { message: 'Método de pago inválido' }
+)
 
 export const saleItemSchema = z.object({
   product_id: idSchema,
@@ -319,6 +329,66 @@ export const createMPOrderSchema = z.object({
   cashRegisterId: idSchema,
   items: z.array(mpCartItemSchema).min(1, 'El carrito no puede estar vacío'),
 })
+
+// ───────────────────────────────────────────────────────────────────────────────
+// MÉTODOS DE COBRO AMPLIOS (Posnet físico / QR fijo / Alias)
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Schema de guardado de configuración de métodos de pago manuales.
+ * Todos los campos son opcionales — el usuario habilita solo los que necesita.
+ *
+ * Reglas:
+ *   - Si un método está habilitado, debe tener los datos mínimos para que sea utilizable.
+ *   - Si está deshabilitado, los datos pueden estar vacíos (pero se mantienen por si se reactiva).
+ */
+export const savePaymentMethodsConfigSchema = z
+  .object({
+    // Posnet físico MP
+    posnet_mp_enabled: z.boolean(),
+    posnet_mp_label: z.string().max(120, 'Nombre demasiado largo').nullish(),
+    posnet_mp_notes: z.string().max(500, 'Notas demasiado largas').nullish(),
+
+    // QR fijo
+    qr_static_enabled: z.boolean(),
+    qr_static_image_url: z.string().url('URL inválida').max(1000).nullish(),
+    qr_static_image_path: z.string().max(500).nullish(),
+    qr_static_holder_name: z.string().max(120, 'Titular demasiado largo').nullish(),
+    qr_static_instructions: z.string().max(500, 'Instrucciones demasiado largas').nullish(),
+
+    // Alias / transferencia
+    alias_enabled: z.boolean(),
+    alias_value: z
+      .string()
+      .max(40, 'Alias demasiado largo')
+      .regex(/^[a-zA-Z0-9._-]*$/, 'Alias inválido (solo letras, números, . _ -)')
+      .nullish(),
+    alias_cbu_cvu: z
+      .string()
+      .regex(/^\d{0,22}$/, 'CBU/CVU debe ser solo números (máx. 22 dígitos)')
+      .nullish(),
+    alias_titular_name: z.string().max(120, 'Titular demasiado largo').nullish(),
+    alias_bank_name: z.string().max(120, 'Banco demasiado largo').nullish(),
+    alias_instructions: z.string().max(500, 'Instrucciones demasiado largas').nullish(),
+  })
+  .superRefine((val, ctx) => {
+    // Si QR fijo está habilitado, debe haber una imagen cargada
+    if (val.qr_static_enabled && !val.qr_static_image_url) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['qr_static_image_url'],
+        message: 'Subí una imagen del QR antes de habilitar este método',
+      })
+    }
+    // Si alias está habilitado, debe haber al menos alias o CBU
+    if (val.alias_enabled && !val.alias_value && !val.alias_cbu_cvu) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['alias_value'],
+        message: 'Ingresá un alias o un CBU/CVU antes de habilitar este método',
+      })
+    }
+  })
 
 // ───────────────────────────────────────────────────────────────────────────────
 // HELPER: Extraer primer error legible de Zod

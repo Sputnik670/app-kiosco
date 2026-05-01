@@ -121,6 +121,9 @@ const Reports = dynamic(
 const ConfiguracionMercadoPago = dynamic(() => import("@/components/configuracion-mercadopago"), {
   loading: TabLoadingFallback,
 })
+const ConfiguracionMetodosCobro = dynamic(() => import("@/components/configuracion-metodos-cobro"), {
+  loading: TabLoadingFallback,
+})
 const ConfiguracionArca = dynamic(() => import("@/components/configuracion-arca"), {
   loading: TabLoadingFallback,
 })
@@ -480,6 +483,7 @@ export default function DashboardDueno({ onBack, sucursalId }: DashboardDuenoPro
         {state.activeTab === "ajustes" && (
           <div className="space-y-6 animate-in fade-in">
             <ConfiguracionMercadoPago />
+            <ConfiguracionMetodosCobro />
             <ConfiguracionArca />
           </div>
         )}
