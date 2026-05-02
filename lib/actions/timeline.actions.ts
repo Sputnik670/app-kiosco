@@ -438,6 +438,11 @@ function paymentLabel(method: string | null): string {
     transfer: 'Transferencia',
     wallet: 'Billetera',
     billetera_virtual: 'Billetera',
+    // Métodos introducidos por migration 00010
+    mercadopago: 'QR Mercado Pago',
+    posnet_mp: 'Posnet MP',
+    qr_static_mp: 'QR fijo',
+    transfer_alias: 'Alias / CVU',
   }
   return map[method || ''] || method || ''
 }

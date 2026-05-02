@@ -338,9 +338,26 @@ export async function getCashRegisterReportAction(
       // DECIMAL columns arrive as strings, must cast to Number
       const total = Number(s.total) || 0
       salesSummary.total += total
-      if (s.payment_method === "cash") salesSummary.cash += total
-      else if (s.payment_method === "card") salesSummary.card += total
-      else salesSummary.other += total
+      if (s.payment_method === "cash") {
+        salesSummary.cash += total
+      } else if (
+        // Todos los métodos electrónicos van a "card" — dejan traza, opuesto a
+        // efectivo. Incluye los originales (card/transfer/wallet) y los
+        // introducidos por migration 00010 (mercadopago = QR EMVCo dinámico,
+        // posnet_mp = lector físico, qr_static_mp = QR fijo, transfer_alias =
+        // transferencia por alias).
+        s.payment_method === "card" ||
+        s.payment_method === "transfer" ||
+        s.payment_method === "wallet" ||
+        s.payment_method === "mercadopago" ||
+        s.payment_method === "posnet_mp" ||
+        s.payment_method === "qr_static_mp" ||
+        s.payment_method === "transfer_alias"
+      ) {
+        salesSummary.card += total
+      } else {
+        salesSummary.other += total
+      }
     })
 
     // Procesar movimientos

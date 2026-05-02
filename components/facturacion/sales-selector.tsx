@@ -50,6 +50,11 @@ const paymentMethodLabels: Record<string, string> = {
   card: 'Tarjeta',
   transfer: 'Transferencia',
   wallet: 'Billetera',
+  // Métodos introducidos por migration 00010
+  mercadopago: 'QR Mercado Pago',
+  posnet_mp: 'Posnet MP',
+  qr_static_mp: 'QR fijo',
+  transfer_alias: 'Alias / CVU',
 }
 
 const paymentMethodIcons: Record<string, string> = {
@@ -57,6 +62,10 @@ const paymentMethodIcons: Record<string, string> = {
   card: '💳',
   transfer: '🏦',
   wallet: '📱',
+  mercadopago: '📱',
+  posnet_mp: '💳',
+  qr_static_mp: '📱',
+  transfer_alias: '🏦',
 }
 
 function formatMoney(amount: number): string {

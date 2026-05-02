@@ -8,6 +8,25 @@ import { Progress } from "@/components/ui/progress"
 import { Package, Smartphone, Loader2 } from "lucide-react"
 import type { SalesTabProps } from "@/types/dashboard.types"
 
+// Labels legibles para cada key de PaymentBreakdown — evita que `qr_static_mp`
+// se renderice como "QR STATIC_MP" (con replace simple) o "MERCADOPAGO" en mayúsculas
+// raro. Mantener en sync con los helpers paymentLabel de timeline.actions y
+// tab-historial.
+const PAYMENT_BREAKDOWN_LABELS: Record<string, string> = {
+  cash: 'Efectivo',
+  card: 'Tarjeta',
+  transfer: 'Transferencia',
+  wallet: 'Billetera',
+  mercadopago: 'QR Mercado Pago',
+  posnet_mp: 'Posnet MP',
+  qr_static_mp: 'QR fijo',
+  transfer_alias: 'Alias / CVU',
+}
+
+function paymentBreakdownLabel(key: string): string {
+  return PAYMENT_BREAKDOWN_LABELS[key] || key.replace(/_/g, ' ')
+}
+
 // Dynamic import de Recharts (~250KB) — solo se carga cuando se renderiza el tab de ventas
 const RechartsChart = lazy(() =>
   import("recharts").then((mod) => ({
@@ -92,7 +111,7 @@ export function TabSales({
                 v > 0 && (
                   <div key={k}>
                     <div className="flex justify-between text-xs font-black mb-1 uppercase">
-                      <span className="text-slate-600">{k.replace("_", " ")}</span>
+                      <span className="text-slate-600">{paymentBreakdownLabel(k)}</span>
                       <span className="font-mono">{formatMoney(v)}</span>
                     </div>
                     <Progress value={(v / totalVendido) * 100} className="h-1.5 bg-slate-100" />
@@ -122,7 +141,7 @@ export function TabSales({
                 v > 0 && (
                   <div key={k}>
                     <div className="flex justify-between text-xs font-black mb-1 uppercase">
-                      <span className="text-indigo-700">{k.replace("_", " ")}</span>
+                      <span className="text-indigo-700">{paymentBreakdownLabel(k)}</span>
                       <span className="font-mono text-indigo-900">{formatMoney(v)}</span>
                     </div>
                     <Progress

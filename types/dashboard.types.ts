@@ -104,6 +104,12 @@ export interface PaymentBreakdown {
   card: number
   transfer: number
   wallet: number
+  // Métodos electrónicos introducidos por migration 00010 — mantener en sync
+  // con la PaymentBreakdown definida en lib/actions/dashboard.actions.ts.
+  mercadopago: number
+  posnet_mp: number
+  qr_static_mp: number
+  transfer_alias: number
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

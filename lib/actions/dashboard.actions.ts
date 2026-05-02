@@ -44,6 +44,13 @@ export interface PaymentBreakdown {
   card: number
   transfer: number
   wallet: number
+  // Métodos electrónicos introducidos por migration 00010
+  // (mercadopago = QR dinámico EMVCo / posnet_mp = lector físico /
+  //  qr_static_mp = QR fijo / transfer_alias = transferencia por alias)
+  mercadopago: number
+  posnet_mp: number
+  qr_static_mp: number
+  transfer_alias: number
 }
 
 /**
@@ -198,6 +205,10 @@ export async function getOwnerStatsAction(
       card: 0,
       transfer: 0,
       wallet: 0,
+      mercadopago: 0,
+      posnet_mp: 0,
+      qr_static_mp: 0,
+      transfer_alias: 0,
     }
 
     ;(salesData || []).forEach((row: DailySales) => {
@@ -214,8 +225,18 @@ export async function getOwnerStatsAction(
       }
     })
 
-    // Traceable = card + transfer + wallet
-    const traceable = paymentBreakdown.card + paymentBreakdown.transfer + paymentBreakdown.wallet
+    // Traceable = todo método electrónico — card + transfer + wallet (legacy) +
+    // mercadopago/posnet_mp/qr_static_mp/transfer_alias (introducidos por
+    // migration 00010). Conceptualmente: todo lo que NO es efectivo deja
+    // traza en el banco / MP / posnet, opuesto a `cash`.
+    const traceable =
+      paymentBreakdown.card +
+      paymentBreakdown.transfer +
+      paymentBreakdown.wallet +
+      paymentBreakdown.mercadopago +
+      paymentBreakdown.posnet_mp +
+      paymentBreakdown.qr_static_mp +
+      paymentBreakdown.transfer_alias
     const cashAmount = paymentBreakdown.cash
 
     // ───────────────────────────────────────────────────────────────────────────
@@ -613,7 +634,16 @@ function createEmptyStatsResult(errorMessage: string): OwnerStatsResult {
     totalSold: 0,
     netProfit: 0,
     ROI: 0,
-    paymentBreakdown: { cash: 0, card: 0, transfer: 0, wallet: 0 },
+    paymentBreakdown: {
+      cash: 0,
+      card: 0,
+      transfer: 0,
+      wallet: 0,
+      mercadopago: 0,
+      posnet_mp: 0,
+      qr_static_mp: 0,
+      transfer_alias: 0,
+    },
     topProducts: [],
     saleCount: 0,
     businessMetrics: { gross: 0, net: 0, margin: 0, traceable: 0, cash: 0, ROI: 0 },

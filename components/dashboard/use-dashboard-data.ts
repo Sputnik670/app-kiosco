@@ -41,6 +41,10 @@ const emptyPaymentBreakdown: PaymentBreakdown = {
   card: 0,
   transfer: 0,
   wallet: 0,
+  mercadopago: 0,
+  posnet_mp: 0,
+  qr_static_mp: 0,
+  transfer_alias: 0,
 }
 
 const emptyMetrics: BusinessMetrics = {
@@ -247,7 +251,19 @@ export function useDashboardData(
           const totalSvc = ventasSvc.reduce((sum, v) => sum + v.total_cobrado, 0)
           setTotalServiciosVendido(totalSvc)
 
-          const svcBreakdown: PaymentBreakdown = { cash: 0, card: 0, transfer: 0, wallet: 0 }
+          // Servicios virtuales solo soportan cash/card/transfer/wallet hoy. Los
+          // métodos nuevos del kiosco (mercadopago/posnet_mp/qr_static_mp/transfer_alias)
+          // van en 0 — no tienen flujo de servicios todavía.
+          const svcBreakdown: PaymentBreakdown = {
+            cash: 0,
+            card: 0,
+            transfer: 0,
+            wallet: 0,
+            mercadopago: 0,
+            posnet_mp: 0,
+            qr_static_mp: 0,
+            transfer_alias: 0,
+          }
           ventasSvc.forEach((v) => {
             const method = v.metodo_pago as string
             if (method === "cash") svcBreakdown.cash += v.total_cobrado

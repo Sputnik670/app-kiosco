@@ -307,7 +307,15 @@ export function TabHistorial({
   // ─── Helpers ──────────────────────────────────────────────────────────
   const paymentLabel = (method: string) => {
     const map: Record<string, string> = {
-      cash: '💵', card: '💳', transfer: '🏦', wallet: '📱',
+      cash: '💵',
+      card: '💳',
+      transfer: '🏦',
+      wallet: '📱',
+      // Métodos introducidos por migration 00010
+      mercadopago: '📱',     // QR dinámico EMVCo de MP
+      posnet_mp: '💳',       // Lector físico de tarjeta
+      qr_static_mp: '📱',    // QR fijo de MP
+      transfer_alias: '🏦',  // Transferencia por alias/CVU
     }
     return map[method] || '💵'
   }
