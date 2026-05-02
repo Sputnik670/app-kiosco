@@ -91,7 +91,7 @@ describe('OfflineDB', () => {
       const db = await offlineDB.open()
       expect(db).toBeDefined()
       expect(db.name).toBe('kiosco-offline')
-      expect(db.version).toBe(2)
+      expect(db.version).toBe(4)
     })
 
     it('should create all required object stores', async () => {

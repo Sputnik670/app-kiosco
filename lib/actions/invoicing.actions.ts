@@ -22,7 +22,8 @@
 
 import { createClient } from '@/lib/supabase-server'
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
-import { arcaService } from '@/lib/services/arca.service'
+import { requestCAEFromInvoiceData, CBTE_TIPO_MAP } from '@/lib/services/arca-cae'
+import { decryptArcaCredentials } from '@/lib/services/arca-credentials'
 
 // ============================================================================
 // HELPERS DE SEGURIDAD
@@ -116,12 +117,6 @@ export async function saveFiscalConfigAction(
     if (error) {
       return { success: false, error: error.message }
     }
-
-    // Configurar el servicio ARCA
-    arcaService.configure({
-      cuit: config.cuit,
-      environment: config.arca_environment,
-    })
 
     return { success: true }
   } catch (error) {
@@ -333,7 +328,7 @@ export async function createInvoiceDraftAction(
         tax_amount: taxAmount,
         total,
         status: 'draft',
-        is_mock: arcaService.isMock(),
+        is_mock: false,  // Mock eliminado en sesión 2-may-2026 — siempre va contra AFIP real
         created_by: user?.id || null,
       })
       .select()
@@ -426,13 +421,20 @@ export async function issueInvoiceAction(
       return { success: false, error: 'Configuración fiscal no encontrada' }
     }
 
-    // Configurar servicio ARCA
-    arcaService.configure({
-      cuit: fiscalConfig.cuit,
-      environment: fiscalConfig.arca_environment,
-    })
+    // Cargar credenciales ARCA reales (cert + key encriptados) desde arca_config.
+    // El sistema retroactivo legacy usa organizations.fiscal_config para datos
+    // del comprobante, pero el cert/key vive en arca_config (sesión 2-may-2026).
+    const credResult = await decryptArcaCredentials(invoice.organization_id)
+    if (!credResult.success || !credResult.credentials) {
+      return {
+        success: false,
+        error: credResult.error || 'Configurá ARCA (subí certificado) antes de emitir facturas',
+      }
+    }
+    const { certPem, keyPem, isSandbox } = credResult.credentials
 
-    // Obtener items de las ventas vinculadas
+    // Obtener items de las ventas vinculadas (para auditoría — el SDK necesita
+    // solo totales, pero conservamos el lookup por si lo extendemos a item-level)
     const { data: invoiceSales } = await supabase
       .from('invoice_sales' as any)
       .select('sale_id')
@@ -450,29 +452,35 @@ export async function issueInvoiceAction(
       `)
       .in('sale_id', saleIds)
 
-    // Preparar items para ARCA
-    const items = (saleItems || []).map(item => {
-      const product = resolveJoin<{ name: string }>(item.products)
-      return {
-        description: product?.name || 'Producto',
-        quantity: item.quantity,
-        unit_price: Number(item.unit_price),
-        subtotal: Number(item.subtotal),
-      }
-    })
+    // Items quedan disponibles para ext. futuras (PDF, item-level reporting).
+    void saleItems
+    void resolveJoin
 
-    // Solicitar CAE
-    const caeResponse = await arcaService.requestCAE({
-      invoice_type: invoice.invoice_type as InvoiceType,
-      point_of_sale: invoice.point_of_sale,
-      invoice_number: invoice.invoice_number,
-      date: format(new Date(), 'yyyy-MM-dd'),
-      customer_cuit: invoice.customer_cuit || undefined,
-      customer_tax_status: (invoice.customer_tax_status as CustomerTaxStatus) || 'CF',
-      items,
-      subtotal: Number(invoice.subtotal),
-      tax_amount: Number(invoice.tax_amount),
-      total: Number(invoice.total),
+    // Mapear tipo de factura A/B/C → código AFIP
+    const cbteTipo = CBTE_TIPO_MAP[invoice.invoice_type as 'A' | 'B' | 'C']
+    if (!cbteTipo) {
+      return { success: false, error: `Tipo de factura desconocido: ${invoice.invoice_type}` }
+    }
+
+    // Solicitar CAE via la capa pura compartida (lib/services/arca-cae.ts)
+    const ivaDetalleArr = invoice.invoice_type === 'A' || invoice.invoice_type === 'B'
+      ? [{ Id: 5, BaseImp: Number(invoice.subtotal), Importe: Number(invoice.tax_amount) }]
+      : undefined
+
+    const caeResponse = await requestCAEFromInvoiceData({
+      cuit: fiscalConfig.cuit,
+      certPem,
+      keyPem,
+      isSandbox,
+      puntoVenta: invoice.point_of_sale,
+      cbteTipo,
+      docTipo: invoice.customer_cuit ? 80 : 99,
+      docNro: invoice.customer_cuit || '0',
+      fechaYYYYMMDD: format(new Date(), 'yyyyMMdd'),
+      impTotal: Number(invoice.total),
+      impNeto: Number(invoice.subtotal),
+      impIva: Number(invoice.tax_amount),
+      ivaDetalle: ivaDetalleArr,
     })
 
     if (!caeResponse.success || !caeResponse.cae) {
@@ -484,7 +492,7 @@ export async function issueInvoiceAction(
       .from('invoices' as any)
       .update({
         cae: caeResponse.cae,
-        cae_expiry: caeResponse.cae_expiry,
+        cae_expiry: caeResponse.caeVencimiento,
         status: 'issued',
         issued_at: new Date().toISOString(),
       })
@@ -505,7 +513,7 @@ export async function issueInvoiceAction(
         total: Number(updatedInvoice.total),
       },
       cae: caeResponse.cae,
-      cae_expiry: caeResponse.cae_expiry,
+      cae_expiry: caeResponse.caeVencimiento,
     }
   } catch (error) {
     return {
