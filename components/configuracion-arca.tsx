@@ -19,17 +19,27 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   ChevronDown,
   ChevronUp,
   Upload,
   Unlink,
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import {
   getArcaConfigAction,
   saveArcaConfigAction,
   uploadArcaCertificateAction,
   toggleArcaActiveAction,
+  setArcaSandboxModeAction,
   disconnectArcaAction,
 } from '@/lib/actions/arca.actions'
 
@@ -113,6 +123,10 @@ export default function ConfiguracionArca() {
 
   // Desconectar
   const [disconnecting, setDisconnecting] = useState(false)
+
+  // Toggle sandbox/producción
+  const [togglingSandbox, setTogglingSandbox] = useState(false)
+  const [showSandboxConfirm, setShowSandboxConfirm] = useState(false)
 
   // ───────────────────────────────────────────────────────────────────────────
   // CARGAR CONFIGURACIÓN ACTUAL
@@ -306,6 +320,50 @@ export default function ConfiguracionArca() {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
+  // TOGGLE SANDBOX / PRODUCCIÓN
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const handleToggleSandbox = (newSandbox: boolean) => {
+    // Bloqueo: no permitir pasar a producción sin certificado cargado
+    if (!newSandbox && !config?.hasCert) {
+      toast.error('Falta el certificado', {
+        description: 'Subí el certificado y la clave antes de pasar a producción',
+      })
+      return
+    }
+
+    // Pasar a producción → confirmación obligatoria
+    if (!newSandbox) {
+      setShowSandboxConfirm(true)
+      return
+    }
+
+    // Volver a sandbox es seguro → ejecutar directo
+    void applySandboxMode(true)
+  }
+
+  const applySandboxMode = async (newSandbox: boolean) => {
+    setTogglingSandbox(true)
+    const result = await setArcaSandboxModeAction(newSandbox)
+    if (result.success) {
+      setConfig((prev) => (prev ? { ...prev, isSandbox: newSandbox } : null))
+      toast.success(
+        newSandbox ? 'Modo prueba activado' : 'Modo producción activado',
+        {
+          description: newSandbox
+            ? 'Las facturas que emitas son de prueba y no cuentan ante ARCA.'
+            : 'Atención: las facturas que emitas son fiscales y cuentan ante ARCA.',
+        }
+      )
+      setTimeout(() => fetchConfig(), 500)
+    } else {
+      toast.error('Error', { description: result.error })
+    }
+    setTogglingSandbox(false)
+    setShowSandboxConfirm(false)
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
   // RENDER: CARGANDO
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -339,7 +397,7 @@ export default function ConfiguracionArca() {
                 className={config.isSandbox ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'}
               >
                 <CheckCircle2 className="mr-1 h-3 w-3" />
-                {config.isSandbox ? 'Sandbox' : 'Configurado'}
+                {config.isSandbox ? 'Sandbox' : 'Producción'}
               </Badge>
             </div>
           </CardHeader>
@@ -397,6 +455,23 @@ export default function ConfiguracionArca() {
                 checked={config.isActive || false}
                 onCheckedChange={handleToggleActive}
                 disabled={toggling || !config.hasCert}
+              />
+            </div>
+
+            {/* Toggle Sandbox / Producción */}
+            <div className="pt-2 border-t flex items-center justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">Modo prueba (sandbox)</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {config.isSandbox
+                    ? 'Las facturas son de prueba — NO cuentan ante ARCA'
+                    : 'Modo producción — las facturas son fiscales y cuentan ante ARCA'}
+                </p>
+              </div>
+              <Switch
+                checked={config.isSandbox ?? true}
+                onCheckedChange={handleToggleSandbox}
+                disabled={togglingSandbox || !config.hasCert}
               />
             </div>
           </CardContent>
@@ -600,6 +675,58 @@ export default function ConfiguracionArca() {
           )}
           Desconectar ARCA
         </Button>
+
+        {/* Dialog confirmación pasar a producción */}
+        <Dialog open={showSandboxConfirm} onOpenChange={setShowSandboxConfirm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-700">
+                <AlertTriangle className="h-5 w-5" />
+                Pasar a producción
+              </DialogTitle>
+              <DialogDescription className="pt-2 space-y-3 text-sm">
+                <span className="block">
+                  Vas a desactivar el modo prueba. A partir de este momento,
+                  las facturas que emitas son <strong>fiscales y reales</strong>:
+                </span>
+                <span className="block bg-red-50 border border-red-200 rounded-md p-3 space-y-1.5 text-red-800">
+                  <span className="block">• Cuentan ante ARCA y entran en tu monotributo.</span>
+                  <span className="block">• Cada factura suma a tu facturación anual.</span>
+                  <span className="block">• No se pueden borrar — solo anular con nota de crédito.</span>
+                </span>
+                <span className="block">
+                  Asegurate de que tus datos fiscales (CUIT, razón social, punto de venta)
+                  estén correctos antes de continuar.
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowSandboxConfirm(false)}
+                disabled={togglingSandbox}
+                className="flex-1"
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="default"
+                onClick={() => applySandboxMode(false)}
+                disabled={togglingSandbox}
+                className="flex-1 bg-red-600 hover:bg-red-700"
+              >
+                {togglingSandbox ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Cambiando...
+                  </>
+                ) : (
+                  'Sí, pasar a producción'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }

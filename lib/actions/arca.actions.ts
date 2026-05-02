@@ -24,6 +24,7 @@
 
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 import { logger } from '@/lib/logging'
+import { requestCAEFromInvoiceData, CBTE_TIPO_MAP } from '@/lib/services/arca-cae'
 import { randomBytes, createCipheriv, createDecipheriv } from 'crypto'
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -79,9 +80,17 @@ export interface ToggleArcaResult {
   error?: string
 }
 
+export interface SetArcaSandboxResult {
+  success: boolean
+  error?: string
+}
+
 export interface CreateInvoiceResult {
   success: boolean
+  /** ARCA no estaba activo para la org → no se intentó facturar (no es error) */
   skipped?: boolean
+  /** La venta ya tenía factura authorized → se devolvió la existente sin llamar a AFIP */
+  alreadyInvoiced?: boolean
   cae?: string
   caeVencimiento?: string
   cbteNumero?: number
@@ -105,12 +114,6 @@ const FACTURA_DEFAULT_MAP: Record<string, string> = {
   monotributista: 'C',
   responsable_inscripto: 'B',
   exento: 'C',
-}
-
-const CBTE_TIPO_MAP: Record<string, number> = {
-  A: 1,
-  B: 6,
-  C: 11,
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -173,6 +176,7 @@ export async function saveArcaConfigAction(data: {
   tipoContribuyente: string
   condicionIva: string
   domicilioFiscal?: string
+  isSandbox?: boolean
 }): Promise<SaveArcaConfigResult> {
   try {
     const { supabase, orgId, user } = await verifyOwner()
@@ -209,7 +213,7 @@ export async function saveArcaConfigAction(data: {
           tipo_factura_default: tipoFacturaDefault,
           condicion_iva: data.condicionIva,
           domicilio_fiscal: data.domicilioFiscal?.trim() || null,
-          is_sandbox: true,
+          is_sandbox: data.isSandbox ?? true,
         },
         { onConflict: 'organization_id' }
       )
@@ -327,6 +331,58 @@ export async function toggleArcaActiveAction(active: boolean): Promise<ToggleArc
 }
 
 /**
+ * Cambiar entre modo sandbox y producción.
+ * Sandbox = pruebas contra wswhomo (los CAE no cuentan ante ARCA real).
+ * Producción = wsfev1 real (los CAE son fiscales y cuentan en tu monotributo).
+ */
+export async function setArcaSandboxModeAction(
+  isSandbox: boolean
+): Promise<SetArcaSandboxResult> {
+  try {
+    const { supabase, orgId, user } = await verifyOwner()
+
+    const { data: config } = await supabase
+      .from('arca_config')
+      .select('cert_encrypted, key_encrypted, is_active')
+      .eq('organization_id', orgId)
+      .maybeSingle()
+
+    if (!config) {
+      return { success: false, error: 'Primero configurá los datos fiscales' }
+    }
+
+    if (!isSandbox && (!config.cert_encrypted || !config.key_encrypted)) {
+      return {
+        success: false,
+        error: 'Necesitás subir el certificado digital antes de pasar a producción',
+      }
+    }
+
+    logger.info('setArcaSandboxModeAction', `Cambiando a modo ${isSandbox ? 'sandbox' : 'producción'}`, {
+      orgId,
+      userId: user.id,
+    })
+
+    const { error } = await supabase
+      .from('arca_config')
+      .update({ is_sandbox: isSandbox })
+      .eq('organization_id', orgId)
+
+    if (error) {
+      logger.error('setArcaSandboxModeAction', 'Error actualizando is_sandbox', error)
+      return { success: false, error: 'No se pudo actualizar el modo' }
+    }
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
  * Crear factura electrónica para una venta
  * Si ARCA no está activo → retorna skipped=true (no es error)
  */
@@ -369,8 +425,30 @@ export async function createInvoiceAction(
       return { success: false, error: 'El monto debe ser mayor a cero' }
     }
 
+    // ─── Idempotencia ───
+    // Si esta venta ya tiene factura autorizada, devolver la existente.
+    // No llamamos a AFIP ni desencriptamos credenciales — una venta = una factura.
+    // Para corregir, hay que emitir nota de crédito (feature futura).
+    const { data: existingInvoice } = await supabase
+      .from('arca_invoices')
+      .select('id, cae, cae_vencimiento, cbte_numero')
+      .eq('sale_id', saleId)
+      .eq('status', 'authorized')
+      .maybeSingle()
+
+    if (existingInvoice && existingInvoice.cae) {
+      return {
+        success: true,
+        alreadyInvoiced: true,
+        cae: existingInvoice.cae,
+        caeVencimiento: existingInvoice.cae_vencimiento ?? '',
+        cbteNumero: Number(existingInvoice.cbte_numero ?? 0),
+        invoiceId: existingInvoice.id,
+      }
+    }
+
     const tipoFactura = options?.tipoFactura || arcaConfig.tipo_factura_default || 'C'
-    const cbteTipo = CBTE_TIPO_MAP[tipoFactura] || 11
+    const cbteTipo = CBTE_TIPO_MAP[tipoFactura as 'A' | 'B' | 'C'] || 11
     const docTipo = options?.docTipo || 99
     const docNro = options?.docNro || '0'
 
@@ -398,46 +476,25 @@ export async function createInvoiceAction(
       return { success: false, error: 'Error desencriptando certificado' }
     }
 
-    // Llamar a ARCA
-    let cae: string
-    let caeVencimiento: string
-    let cbteNumero: number
+    // Llamar a ARCA via la capa pura compartida (lib/services/arca-cae.ts)
+    const caeResult = await requestCAEFromInvoiceData({
+      cuit: arcaConfig.cuit,
+      certPem,
+      keyPem,
+      isSandbox: arcaConfig.is_sandbox,
+      puntoVenta: arcaConfig.punto_venta,
+      cbteTipo,
+      docTipo,
+      docNro,
+      fechaYYYYMMDD: fecha,
+      impTotal,
+      impNeto,
+      impIva,
+      ivaDetalle: ivaDetalle ?? undefined,
+    })
 
-    try {
-      const Afip = (await import('@afipsdk/afip.js')).default
-
-      const afip = new Afip({
-        CUIT: arcaConfig.cuit,
-        cert: certPem,
-        key: keyPem,
-        production: !arcaConfig.is_sandbox,
-      })
-
-      const voucherData = {
-        CantReg: 1,
-        PtoVta: arcaConfig.punto_venta,
-        CbteTipo: cbteTipo,
-        Concepto: 1,
-        DocTipo: docTipo,
-        DocNro: docNro,
-        CbteFch: fecha,
-        ImpTotal: impTotal,
-        ImpTotConc: 0,
-        ImpNeto: impNeto,
-        ImpOpEx: 0,
-        ImpIVA: impIva,
-        ImpTrib: 0,
-        MonId: 'PES',
-        MonCotiz: 1,
-        ...(ivaDetalle ? { Iva: ivaDetalle } : {}),
-      }
-
-      const result = await afip.ElectronicBilling.createNextVoucher(voucherData)
-      cae = result.CAE
-      caeVencimiento = result.CAEFchVto
-      cbteNumero = Number(result.voucher_number ?? 0)
-    } catch (afipError) {
-      const errMsg = afipError instanceof Error ? afipError.message : String(afipError)
+    if (!caeResult.success || !caeResult.cae) {
+      const errMsg = caeResult.error || 'Error desconocido al solicitar CAE'
       logger.error('createInvoiceAction', 'Error ARCA', new Error(errMsg))
 
       await supabase.from('arca_invoices').insert({
@@ -458,6 +515,10 @@ export async function createInvoiceAction(
 
       return { success: false, error: `Error de ARCA: ${errMsg}` }
     }
+
+    const cae = caeResult.cae
+    const caeVencimiento = caeResult.caeVencimiento ?? ''
+    const cbteNumero = caeResult.cbteNumero ?? 0
 
     const { data: invoice, error: insertError } = await supabase
       .from('arca_invoices')
@@ -485,6 +546,14 @@ export async function createInvoiceAction(
       .single()
 
     if (insertError) {
+      // Posible race con UNIQUE INDEX (arca_invoices_sale_authorized_unique):
+      // otra request acaba de guardar la misma factura. Loggeamos pero
+      // devolvemos success — AFIP ya emitió el CAE y el cliente lo recibe.
+      logger.warn(
+        'createInvoiceAction',
+        'INSERT falló post-CAE (probable race con UNIQUE)',
+        { saleId, cae, insertError }
+      )
       return { success: true, cae, caeVencimiento, cbteNumero }
     }
 
