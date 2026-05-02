@@ -1574,10 +1574,43 @@ async function callMercadoPagoAPI(
       clearTimeout(timeoutId)
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(
-          `MP API error ${response.status}: ${errorData.message || response.statusText}`
+        // Leer body como texto primero — funciona aunque MP devuelva HTML,
+        // plain text o vacío. Después intentamos parsear como JSON para extraer
+        // fields estructurados; si no parsea, igual conservamos el body crudo.
+        // Antes hacíamos `response.json().catch(() => ({}))` que perdía todo el
+        // body en respuestas non-JSON y solo conservaba `errorData.message`,
+        // dejándonos ciegos cuando MP devolvía detalles en `cause`, `error`,
+        // arrays de validación, o un HTML de gateway.
+        const rawBody = await response.text().catch(() => '')
+        let parsed: any = null
+        try {
+          parsed = rawBody ? JSON.parse(rawBody) : null
+        } catch {
+          // Body no es JSON — se conserva como string crudo para diagnóstico.
+        }
+
+        const summary =
+          parsed?.message ||
+          parsed?.error ||
+          parsed?.cause?.[0]?.description ||
+          response.statusText ||
+          'sin detalle'
+
+        // Truncamos el body en el message del Error para no inflar logs en cada
+        // retry. El body completo se persiste como property del Error y lo
+        // extraemos en el logger.error final si todos los reintentos fallan.
+        const truncatedBody =
+          rawBody.length > 1500 ? rawBody.slice(0, 1500) + '...[truncado]' : rawBody
+
+        const err = new Error(
+          `MP API error ${response.status} ${method} ${path}: ${summary}${
+            truncatedBody ? ` | body: ${truncatedBody}` : ''
+          }`
         )
+        ;(err as any).mpStatus = response.status
+        ;(err as any).mpRawBody = rawBody
+        ;(err as any).mpParsed = parsed
+        throw err
       }
 
       const data = await response.json()
@@ -1597,7 +1630,18 @@ async function callMercadoPagoAPI(
     }
   }
 
-  logger.error('callMercadoPagoAPI', `Todos los reintentos fallaron: ${method} ${path}`, lastError!)
+  // Después de agotar retries, dumpeamos el body completo (no truncado) en meta
+  // para diagnóstico exhaustivo. Es 1 sola entrada por request totalmente fallado,
+  // vale la pena el peso en logs.
+  logger.error(
+    'callMercadoPagoAPI',
+    `Todos los reintentos fallaron: ${method} ${path}`,
+    lastError!,
+    {
+      mpStatus: (lastError as any)?.mpStatus,
+      mpRawBody: (lastError as any)?.mpRawBody,
+    }
+  )
   return null
 }
 

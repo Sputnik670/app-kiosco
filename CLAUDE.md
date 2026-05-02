@@ -1,6 +1,6 @@
 # App Kiosco — Instrucciones del Proyecto
 
-> Última actualización: 1 de mayo de 2026
+> Última actualización: 2 de mayo de 2026
 
 ## Qué es esto
 
@@ -288,6 +288,82 @@ La sesión del 12-mar-2026 intentó este mismo camino y pivoteó a Preferences A
 
 - **Migration `00010_payment_methods_expansion` está aplicada en Supabase producción** (24-abr-2026) pero el archivo SQL no está en `supabase/migrations/` — vive solo en la rama `feature/metodos-cobro` sin mergear. Cuando se retome esa feature (Posnet / QR fijo / Alias para cobros manuales), no hace falta re-aplicar la migration. Las columnas de DB ya están en producción esperando al código que las use.
 
+## Fixes y Features (sesión 2 mayo 2026)
+
+### Tarea #10 — QR EMVCo CERRADA definitivamente
+
+**Validación de campo completa:**
+- Test A (regresión con app de MP de otra cuenta): pasó. Cobro entró, dialog se cerró solo, venta apareció en dashboard como "Pago QR Mercado Pago".
+- Test B (interop con billetera no-MP — Naranja X / MODO / Cuenta DNI): pasó. El QR EMVCo es genuinamente interoperable.
+
+**Cierre formal de 2 semanas de trabajo iniciado el 12-mar-2026.** El goal original del proyecto Mercado Pago — "cualquier billetera virtual de Argentina puede pagar en el kiosco" — está cumplido. Borrado `docs/PLAN_VIERNES_EMVCO.md` (estaba marcado para borrarse al cerrar la validación).
+
+### Mejora del logger de `callMercadoPagoAPI`
+
+Antes: el catch de errores hacía `response.json().catch(() => ({}))` y solo guardaba `errorData.message`. Si MP devolvía HTML (gateway error), plain text, o JSON con detalles en `cause` / `error` / arrays de validación, todo eso se perdía y los logs quedaban con mensajes genéricos tipo "MP API error 400: Bad Request" — inútiles para diagnóstico.
+
+Ahora (`lib/actions/mercadopago.actions.ts`):
+- Lee body con `response.text()` primero (siempre funciona)
+- Intenta parsearlo como JSON para extraer fields estructurados (`message`, `error`, `cause[].description`)
+- Construye mensaje de error rico que incluye status + summary + body truncado a 1500 chars
+- Adjunta `mpStatus`, `mpRawBody`, `mpParsed` como properties del Error
+- El `logger.error` final (cuando agotó los 3 retries) extrae el body completo (sin truncar) en meta para diagnóstico exhaustivo
+
+Cierra la deuda técnica que venía del bug del 1-may-2026 (`external_id must be alphanumeric` que solo se vio leyendo logs de Vercel directamente).
+
+### Auditoría reveló bug en reporting al dueño para los 3 métodos manuales
+
+**Cómo apareció:** Ram quería probar Posnet con el del negocio. Antes de mandarlo a probar, audit end-to-end del feature. La parte de "configurar y vender con Posnet" funciona bien — la migration `00010` agrega `posnet_mp` al CHECK constraint, `process_sale` lo acepta, el dialog de confirmación es claro, no hay filtraciones de datos sensibles. **Pero el reporting al dueño tenía 5 (después 8) lugares donde los métodos nuevos aparecían mal categorizados o con label feo.**
+
+**Bug raíz:** la interface `PaymentBreakdown` solo tenía 4 keys (`cash`, `card`, `transfer`, `wallet`). El código de dashboard hacía `if (paymentBreakdown.hasOwnProperty(method)) paymentBreakdown[method] += amount` — para `posnet_mp` / `qr_static_mp` / `transfer_alias` (y `mercadopago`, bug colateral preexistente) la condición fallaba y la venta se descartaba del breakdown silenciosamente. El total bruto sí las contaba (porque era previo al filtro), pero el desglose por método marcaba todo en cero. Una venta de $100 por Posnet aparecía como "Ventas totales: $100, Tarjeta: $0, Efectivo: $0".
+
+**Bug colateral:** `mercadopago` (introducido hace mucho con el QR dinámico) también estaba siendo descartado del breakdown — venía cargando ventas en gross pero no en el desglose. Nunca lo notamos porque el dueño venía mirando solo el total bruto.
+
+**Fixes deployados** (8 archivos):
+- `lib/actions/dashboard.actions.ts` — `PaymentBreakdown` interface ampliada con 4 keys nuevas (`mercadopago`, `posnet_mp`, `qr_static_mp`, `transfer_alias`); inicialización + fallback de error actualizados; `traceable` expandido para incluir todos los métodos electrónicos.
+- `types/dashboard.types.ts` — interface duplicada (consumida por hooks) sincronizada.
+- `components/dashboard/use-dashboard-data.ts` — `emptyPaymentBreakdown` y `svcBreakdown` literales actualizados con 8 keys.
+- `components/dashboard/tab-sales.tsx` — agregado label helper `paymentBreakdownLabel` para que el render de `Object.entries` no muestre `qr_static_mp` como "QR STATIC_MP" (el `replace("_", " ")` solo cambiaba el primer underscore).
+- `components/dashboard/tab-historial.tsx` — `paymentLabel` emojis ampliado.
+- `lib/actions/timeline.actions.ts` — `paymentLabel` strings legibles ampliado.
+- `components/facturacion/sales-selector.tsx` — `paymentMethodLabels` + `paymentMethodIcons` ampliados.
+- `lib/actions/reports.actions.ts` — `salesSummary` re-mapea: todo electrónico (card/transfer/wallet/mercadopago/posnet_mp/qr_static_mp/transfer_alias) cae en bucket "card"; "other" queda para legacy/desconocidos.
+
+**Decisiones de diseño tomadas:**
+1. `PaymentBreakdown` se amplía con 4 keys nuevas en vez de consolidar — mejor granularidad para reportes futuros.
+2. `traceable` se expande a todos los electrónicos — conceptualmente todo lo no-cash deja traza en banco/MP/posnet. Cambia un número que el dueño venía viendo, pero ahora tiene significado real (y QR MP por fin lo está alimentando con ventas reales).
+3. `salesSummary` queda simple (cash/card/other) — todo electrónico se consolida en "card" para mantener compatibilidad con reportes existentes.
+
+**Validación:** `tsc --noEmit` exit 0; `vitest run tests/unit/` pasa todos los tests de payments (las 2 fallas que aparecen son preexistentes y no relacionadas — `inventory.actions.test` sobre actualización de costo y `indexed-db.test` sobre versión de schema offline).
+
+### Discusión de producto: método "Alias / Transferencia" pausado
+
+Ram intentó probar Alias y detectó un riesgo de seguridad concreto: el dialog del cobro mostraba el CBU/alias del dueño al empleado. Riesgo real (rotación de personal, fotos, screenshots).
+
+La conversación que siguió derivó en una decisión de producto más profunda:
+- **Alias-MP** es redundante con QR EMVCo dinámico (que ya cubre todas las billeteras). Pedirle al cliente que tipee el alias cuando puede escanear el QR es estrictamente peor UX.
+- **Alias bancario** (Galicia, BBVA, Santander, etc.) es donde el método tiene utilidad real — para clientes que pagan desde home-banking sin pasar por wallets. Pero requiere flujo "dueño confirma desde su app del banco" porque no podemos integrarnos con APIs de bancos argentinos (no hay Open Banking maduro). Y los comprobantes de transferencia que muestra el cliente no son confiables (estafas con apps falsas son comunes).
+- Confirmación manual del dueño + realtime in-app (Supabase Realtime) sería la primera implementación viable. Push notifications (que requiere infra de service worker + VAPID + persistencia de subscripciones) queda como v2.
+
+**Decisión:** Alias pausado por ahora. Quedó deshabilitado desde Ajustes. Cuando se retome, el flujo será: empleado selecciona Alias → dialog "esperando confirmación del dueño" sin datos bancarios → dueño recibe aviso → mira su banco/MP → confirma → dialog del empleado se cierra solo. **QR fijo y Posnet siguen viables y son los próximos en la lista.**
+
+### Reglas técnicas nuevas
+
+- **Cuando se amplía el enum de `payment_method`, auditar TODO el reporting al dueño además del flujo de venta.** El bug fixeado hoy quedó oculto desde el 24-abr-2026 cuando se mergeó la migration `00010` y se implementó el flujo de venta — pero el reporting al dueño es un consumidor independiente del enum (dashboard, reports, timeline, historial, facturación tienen cada uno sus propios maps de labels). Validar uno no valida los otros.
+- **Cuando hay duplicación de interfaces** (como `PaymentBreakdown` viviendo en `types/dashboard.types.ts` y `lib/actions/dashboard.actions.ts`), un cambio en una requiere cambio sincronizado en la otra. Por ahora se dejaron las dos en sync con un comentario `// mantener en sync con...` apuntando a la otra. Considerar consolidar a futuro.
+- **No mostrar datos sensibles del dueño (CBU, alias, datos bancarios) al empleado en el flujo operativo.** Aunque el dueño los configure en Ajustes para uso interno, el flujo de cobro debe abstraerlos (mostrar solo monto + estado de "esperando confirmación").
+
+### Aprendizaje de proceso (institucional ya)
+
+**Tercera vez en 5 días que aparece la misma regla** (12-mar QR pivote a Preferences, 27-abr QR EMVCo "registrado" sin probar con billetera no-MP, 1-may Alias deployado con security issue). El patrón es siempre el mismo: la implementación parece andar en el happy path, alguien empieza a usarla en serio, aparecen huecos. **Cualquier feature de cobro / reporting / integración tiene que tener una validación end-to-end con el rol completo (caja → reporting → dashboard) antes de declarar done.** No alcanza con "se graba la venta OK".
+
+### Estado actual del repo después de esta sesión
+
+- 9 archivos modificados (8 reporting + `mercadopago.actions.ts` con la mejora del logger)
+- 1 archivo borrado (`docs/PLAN_VIERNES_EMVCO.md`)
+- Migration `00010_payment_methods_expansion.sql` ya está en el branch — el comentario "Hallazgo lateral" del 27-abr ya es obsoleto, el archivo está versionado.
+- `feature/metodos-cobro` ya merge-compatible con main: este push deja el feature de Posnet/QR fijo/Alias visible, con Alias deshabilitado por defecto, Posnet y QR fijo activables.
+
 ## Pendientes Prioritarios de Seguridad
 
 Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendientes críticos están cerrados. Los abiertos son no-accionables o de baja prioridad:
@@ -296,12 +372,12 @@ Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendien
 
 ## Pendientes Prioritarios de Producto
 
-1. **Tarea #10 — QR EMVCo (CASI CERRADA — falta prueba con billetera externa).** Implementación deployada y validada técnicamente el 1-may-2026: registro de POS funciona, QR generado es EMVCo válido (confirmado por respuesta de MP "este QR solo sirve para cobrar en tu negocio"). Falta única validación de campo: cobrar $1 con (a) MP de otra cuenta = regresión obligatoria, y (b) Naranja X / MODO / Cuenta DNI = goal original interop. Cuando ambas pasen, **borrar `docs/PLAN_VIERNES_EMVCO.md`** y cerrar definitivamente.
-2. **Retomar `feature/metodos-cobro` (Posnet / QR fijo / Alias).** Rama lista pero sin mergear. Migration `00010_payment_methods_expansion` ya aplicada en producción (las columnas existen). Plan acordado con Bro el 1-may-2026: traer todo de una, activar método por método desde el panel del dueño en orden Alias → QR fijo → Posnet, probar con venta real cada uno. Tarjeta queda para más adelante. **No arrancar hasta cerrar Tarea #10.**
-3. **Webhook secret multi-tenant.** Antes de subir a multi-tenant: rotar el secret en panel MP + re-pegar con sanitize bulletproof. WebHook v1.0 hoy falla HMAC; el fallback Feed v2 single-tenant lo tapa.
-4. **Bajar `SKIP_SIGNATURE_HARDCODE = true` a `false`** en `app/api/mercadopago/webhook/route.ts:268` cuando se haya re-pegado el webhook secret limpio. Hoy está en bypass por el bug del secret contaminado.
-5. **Borrar `TEST_PROBE_DELETE_ME` del panel de MP** — store id `81655138`, creado por el probe del 27-abr-2026.
-6. **Mejora menor: `callMercadoPagoAPI` capturar response body completo** cuando MP devuelve non-2xx, para no depender de logs de Vercel para diagnóstico. Hoy solo guarda `error.message` que MP a veces deja vago.
+1. **Probar Posnet con el del negocio.** Próximo método de cobro en validación de campo. La implementación está cerrada (configuración + flujo de venta + reporting al dueño todo verde después de los fixes del 2-may). El test real es: configurar el Posnet del negocio en Ajustes → Métodos de cobro, hacer una venta de prueba en Caja seleccionando "Posnet", confirmar que aparece en el dashboard del dueño categorizada como Tarjeta y con label/emoji correctos.
+2. **Probar QR fijo** después de cerrar Posnet. Mismo patrón: subir imagen del QR fijo de MP en Ajustes, hacer venta de prueba, validar reporting.
+3. **Retomar Alias / Transferencia con flujo "dueño confirma".** Pausado el 2-may-2026 por riesgo de seguridad (mostraba datos bancarios al empleado) y por análisis de producto que mostró que alias-MP es redundante con QR EMVCo. Cuando se retome, el flujo debe ser: empleado selecciona Alias → dialog "esperando confirmación del dueño" sin datos bancarios → dueño confirma desde su app del banco/MP → realtime cierra el dialog del empleado → venta queda como `transfer_alias`. Implementación: 1 día de Realtime Supabase + UI de confirmación. Push notifications (web push + service worker + VAPID + persistencia de subscripciones por usuario) queda como v2 si se valida que mantener app abierta es molesto en el piloto.
+4. **Webhook secret multi-tenant.** Antes de subir a multi-tenant: rotar el secret en panel MP + re-pegar con sanitize bulletproof. WebHook v1.0 hoy falla HMAC; el fallback Feed v2 single-tenant lo tapa.
+5. **Bajar `SKIP_SIGNATURE_HARDCODE = true` a `false`** en `app/api/mercadopago/webhook/route.ts:268` cuando se haya re-pegado el webhook secret limpio. Hoy está en bypass por el bug del secret contaminado.
+6. **Borrar `TEST_PROBE_DELETE_ME` del panel de MP** — store id `81655138`, creado por el probe del 27-abr-2026.
 
 ## Ventajas Competitivas
 
