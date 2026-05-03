@@ -216,6 +216,13 @@ export async function requestCAEFromInvoiceData(
       production: !params.isSandbox,
       useHttpsAgent: true,
       // useSoap12 default true — OK
+      // ticketPath: el SDK por default usa path.resolve(__dirname, "..", "..", "storage", "auth", "tickets")
+      // que en Vercel serverless con turbopack se bundlea a "/ROOT/..." (read-only) y rompe con
+      // ENOENT mkdir. Vercel solo permite escritura en /tmp (efímero per-lambda-instance).
+      // Cache de TA dura 12hs típicas — funciona dentro de una lambda warm, los cold starts
+      // van a chocar con `coe.alreadyAuthenticated` hasta que el TA expire en WSAA.
+      // Solución correcta a futuro: storage adapter custom contra Supabase (T16-B Task #8 parked).
+      ticketPath: '/tmp/arca-tickets',
     })
 
     const voucherData = {
