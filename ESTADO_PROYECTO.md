@@ -52,7 +52,7 @@ SaaS de gestión para cadenas de kioscos en Argentina. Cloud, mobile-first, con 
 | Módulo | Estado | Qué falta |
 |--------|--------|-----------|
 | **Mercado Pago QR** | OAuth implementado, webhook activo | Testear flujo completo de pago en producción |
-| **ARCA** | Configuración y servicio base | Completar flujo de facturación electrónica |
+| **ARCA** | T1+T5+T9+T10+T12+T14a+T14b+T15a cerradas (2-may). Fix condicion_iva CHECK (3-may). Cert homologación generado + cargado en app. | **T16 BLOQUEADA**: SDK `@afipsdk/afip.js` no es directo a AFIP (usa proxy `app.afipsdk.com` pago). Decisión pendiente: A=access_token gratis (30 min, deuda) o B=migrar a `@arcasdk/core` (1-2 días, definitivo). Ver bloque "sesión 3 mayo 2026" en CLAUDE.md. |
 
 ### PLANIFICADO (no arrancado)
 

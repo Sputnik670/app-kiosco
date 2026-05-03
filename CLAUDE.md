@@ -475,6 +475,57 @@ Mi recomendación al próximo agente: **T15 antes que T13.** Hookear `createInvo
 - **2 sesiones simultáneas de Claude Code requieren `git pull` antes de empezar y commit + push antes de cerrar.** En este sprint la sesión gemela cerró sin commitear T1+T5+T9+T10 y la siguiente sesión las heredó como cambios sin trackear. Funcionó porque ambas eran de Ram, pero el patrón es frágil.
 - **Para evitar mezclas en archivos compartidos:** cuando una tarea (T14b) toca un archivo creado por otra sesión sin commit (`arca-cae.ts` creado por T10), el commit honesto incluye una nota en el mensaje aclarando la mezcla. Mejor que esconderla.
 
+## Fixes y Features (sesión 3 mayo 2026)
+
+### Sprint T16 — smoke sandbox AFIP. CERRADA con bloqueo arquitectónico.
+
+Sesión dedicada a validar end-to-end ARCA contra sandbox AFIP. Avanzó hasta el último metro y descubrió que la stack elegida el 2-may NO es lo que creímos. T16 queda **funcionalmente bloqueada** hasta resolver el bloqueo. Lo que sí cerró:
+
+**Cert AFIP de homologación generado y cargado:**
+- OpenSSL key RSA 2048 + CSR (subject `C=AR, O=CARLOS RAMIRO IRAZOQUI SOLER, CN=appkiosco-homo, serialNumber=CUIT 20371472208`).
+- Subido al portal `wsass-homo.afip.gob.ar`, descargado .crt firmado por AFIP (CA "Computadores Test", AFIP normalizó CN a `appkiosco`, vence 2-may-2028).
+- Autorización del DN al servicio `wsfe` creada en WSASS.
+- Cert + key viven en `C:\Users\Rram\Desktop\arca-cert-homo\` (FUERA del repo).
+- Cargados en la app via UI ARCA, encriptados en `arca_config`. Sandbox toggle ON.
+
+**Bug fix: condicion_iva no matcheaba CHECK constraint.**
+
+`saveArcaConfigAction` fallaba con PG error 23514 ("violates check constraint arca_config_condicion_iva_check") porque el form mandaba `'monotributista'` / `'responsable_inscripto'` / `'exento'` como `condicion_iva` pero el CHECK de `00017_arca_tables.sql:33` exige strings AFIP canónicos: `'Monotributo'`, `'IVA Responsable Inscripto'`, `'IVA Exento'`, `'Responsable No Inscripto'`. Ningún consumidor externo del campo (ni `arca-cae.ts` ni `invoicing.actions.ts`), fix limitado a 3 strings + comentario inline en `components/configuracion-arca.tsx:83-103` apuntando al constraint para evitar drift futuro. Commit pusheado a main.
+
+**HALLAZGO CRÍTICO — `@afipsdk/afip.js` NO es directo a AFIP.**
+
+Al intentar la primera venta de prueba, error 401 con stacktrace apuntando a `app.afipsdk.com/api/v1/afip/...`. Investigación: el SDK npm `@afipsdk/afip.js` que la sesión 2-may parte 2 eligió creyendo que era "SDK AFIP directo" en realidad **es un wrapper que hace POST a `app.afipsdk.com`** (servicio de terceros). El cert+key del usuario sale de tu server hacia un proveedor externo. Para autenticarse necesita un `access_token` generado en `app.afipsdk.com` (14 días trial → suscripción mensual + cuota de facturas/mes).
+
+**Esto invalida la "decisión inalterable" #1 del 2-may parte 2** ("ARCA con SDK AFIP directo, NO TusFacturasAPP"). La premisa de "directo" estaba mal. La decisión hay que reabrirla.
+
+3 caminos posibles, en orden de preferencia:
+- **A — Diagnóstico rápido (30 min):** generar access_token gratis en `app.afipsdk.com`, pasarlo al constructor del SDK, reintentar smoke. Valida la cadena hasta `afipsdk.com` (NO hasta AFIP real). NO cierra T16, queda como "validada funcionalmente con dependencia inaceptable, migración pendiente".
+- **B — Migración correcta (1-2 días):** reemplazar por `@arcasdk/core` (npm, TS-first, mantenido 2025, conexión SOAP DIRECTA a AFIP). Refactor contenido en `lib/services/arca-cae.ts` (la capa pura existe para esto). T14a + T14b + T15a no se tocan.
+- **C — SOAP a mano (3-5 días):** descartado salvo que A y B fallen.
+
+**Decisión propuesta para próxima sesión:** A primero (15-30 min de diagnóstico) para validar que el cert+key + flujo end-to-end están OK. Si A pasa → declarar T16 funcionalmente validada con deuda anotada, después agendar sprint para B. Si A falla → ir directo a B.
+
+### Reglas técnicas nuevas
+
+- **Bibliotecas npm que dicen "SDK AFIP" merecen leer su README antes de elegirlas.** `@afipsdk/afip.js` no es directo; varias librerías similares también usan proxies. Para conexión directa real verificar que la lib hable SOAP contra `wsaa.afip.gov.ar` / `servicios1.afip.gov.ar` desde tu server, no contra un endpoint del autor.
+- **Cuando un enum vive en frontend Y como CHECK constraint en DB, agregar comentario inline en ambos lados apuntándose entre sí.** Ya hay precedente (`PaymentBreakdown` en `dashboard.types.ts`/`dashboard.actions.ts`). Mismo patrón ahora con `condicion_iva`. Reduce el costo de drift cuando alguien cambia un lado sin saber del otro.
+
+### Aprendizaje institucional reforzado
+
+Cuarta vez en 6 días que aplica el mismo patrón (12-mar QR pivote a Preferences, 27-abr QR EMVCo "registrado" sin probar, 1-may Alias deployado con security issue, 2-may parte 2 SDK "directo" sin validar el adjetivo). Hoy se confirma con T16: la implementación parece andar en el happy path (config se guarda, cert se carga, toggle en sandbox ámbar, todo verde) hasta que se hace la primera operación real y aparece el agujero. **Cualquier integración fiscal/cobro/externa se valida END-TO-END contra el sistema real antes de declarar done — incluso cuando "obviamente" debería andar porque elegimos el SDK oficial.**
+
+### Estado del sprint ARCA al cierre del 3-may
+
+| Tarea | Estado |
+|-------|--------|
+| T1, T5, T9, T10, T12, T14a, T14b, T15a | ✅ commiteadas |
+| Fix condicion_iva CHECK | ✅ commiteada |
+| Cert AFIP homologación generado + autorizado wsfe | ✅ |
+| Cert + key cargados en app, config guardada en prod | ✅ |
+| T16 smoke sandbox | 🚫 BLOQUEADA — 401 desde `app.afipsdk.com`. Decisión A vs B pendiente |
+| T6, T7, T13, T15b, T15c, T16 cierre | ⏳ pending (algunos dependen de T16) |
+| T11, T14c | 🅿️ parked |
+
 ## Pendientes Prioritarios de Seguridad
 
 Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendientes críticos están cerrados. Los abiertos son no-accionables o de baja prioridad:
@@ -483,7 +534,7 @@ Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendien
 
 ## Pendientes Prioritarios de Producto
 
-0. **Sprint ARCA — siguiente paso recomendado: T15 antes que T13.** T12 + T14 cerradas el 2-may parte 2 (toggle sandbox/producción + idempotencia + retry). Ahora corresponde hookear `createInvoiceAction` al flujo de caja-ventas (T15) — eso deja la integración funcionalmente completa y permite validar contra sandbox AFIP en piloto antes de invertir la semana del PDF fiscal (T13). Después de T15, el smoke real (T16): Ram genera certificado de homologación AFIP, lo carga en la app, hace venta de prueba, confirma que el CAE viene OK + reintento devuelve `alreadyInvoiced=true`. Recién ahí T13 (PDF fiscal compliant con QR ARCA según especificación https://www.afip.gob.ar/fe/qr/).
+0. **Sprint ARCA — DESBLOQUEAR T16. Decisión arquitectónica pendiente.** Estado al 3-may: cert AFIP homologación generado + cargado en app + config guardada OK. Smoke de venta dispara 401 desde `app.afipsdk.com` — el SDK `@afipsdk/afip.js` (elegido el 2-may creyéndose directo a AFIP) en realidad usa un proxy de terceros pago. **Camino propuesto:** OPCIÓN A primero (30 min — generar access_token gratis en `app.afipsdk.com`, pasarlo al constructor del SDK, reintentar smoke; si funciona valida la cadena de la app hasta el proxy y permite cerrar T16 funcionalmente con deuda anotada). Después agendar OPCIÓN B (migrar a `@arcasdk/core` que sí es directo a AFIP, 1-2 días, refactor contenido en `lib/services/arca-cae.ts`). Recién con T16 cerrada de verdad pasamos a T13 (PDF fiscal compliant con QR ARCA según https://www.afip.gob.ar/fe/qr/). Ver bloque "sesión 3 mayo 2026" arriba para detalle completo del hallazgo y los 3 caminos.
 1. **Probar Posnet con el del negocio.** Próximo método de cobro en validación de campo. La implementación está cerrada (configuración + flujo de venta + reporting al dueño todo verde después de los fixes del 2-may). El test real es: configurar el Posnet del negocio en Ajustes → Métodos de cobro, hacer una venta de prueba en Caja seleccionando "Posnet", confirmar que aparece en el dashboard del dueño categorizada como Tarjeta y con label/emoji correctos.
 2. **Probar QR fijo** después de cerrar Posnet. Mismo patrón: subir imagen del QR fijo de MP en Ajustes, hacer venta de prueba, validar reporting.
 3. **Retomar Alias / Transferencia con flujo "dueño confirma".** Pausado el 2-may-2026 por riesgo de seguridad (mostraba datos bancarios al empleado) y por análisis de producto que mostró que alias-MP es redundante con QR EMVCo. Cuando se retome, el flujo debe ser: empleado selecciona Alias → dialog "esperando confirmación del dueño" sin datos bancarios → dueño confirma desde su app del banco/MP → realtime cierra el dialog del empleado → venta queda como `transfer_alias`. Implementación: 1 día de Realtime Supabase + UI de confirmación. Push notifications (web push + service worker + VAPID + persistencia de subscripciones por usuario) queda como v2 si se valida que mantener app abierta es molesto en el piloto.
