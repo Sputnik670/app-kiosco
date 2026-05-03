@@ -1,6 +1,6 @@
 # App Kiosco — Instrucciones del Proyecto
 
-> Última actualización: 2 de mayo de 2026
+> Última actualización: 3 de mayo de 2026
 
 ## Qué es esto
 
@@ -364,6 +364,117 @@ La conversación que siguió derivó en una decisión de producto más profunda:
 - Migration `00010_payment_methods_expansion.sql` ya está en el branch — el comentario "Hallazgo lateral" del 27-abr ya es obsoleto, el archivo está versionado.
 - `feature/metodos-cobro` ya merge-compatible con main: este push deja el feature de Posnet/QR fijo/Alias visible, con Alias deshabilitado por defecto, Posnet y QR fijo activables.
 
+## Fixes y Features (sesión 2 mayo 2026 — parte 2: sprint ARCA con SDK directo)
+
+Sesión doble en paralelo (las dos cuentas de Claude Code de Ram). Cierre del sprint offline (T1+T5+T9+T10) por la sesión gemela y arranque del sprint ARCA con AFIP directo (T12+T14a+T14b). Commits `1fab7a1` y `6a2fe15` en main.
+
+### T1 + T5 — Sprint offline cerrado
+
+- **T1**: bump esperado de versión IndexedDB schema offline 2 → 4 en `tests/unit/offline/indexed-db.test.ts`. Coherencia con migraciones de schema offline acumuladas.
+- **T5**: guardrail offline en `components/qr-empleado-scanner.tsx` (Opción B = bloquear, NO guardar offline). Vista "Sin conexión" con botón Reintentar usando `useOnlineStatus`. Razón: `processEmployeeQRScanAction` es server-stateful, guardar offline crea riesgo de duplicar entradas o cerrar turnos por error. Opción A (guardar offline + sync con dedupe) queda parked.
+
+### T9 — Migration 00017 versiona tablas ARCA preexistentes
+
+`supabase/migrations/00017_arca_tables.sql` versiona en git las tablas `arca_config` y `arca_invoices` que ya existían en producción (`vrgexonzlrdptrplqpri`) pero nunca habían sido versionadas. Idempotente con `CREATE TABLE IF NOT EXISTS` y policies con `DROP POLICY IF EXISTS`. Sirve tanto para fresh setups como para entornos donde ya existen.
+
+### T10 — Decisión tomada: ARCA con SDK AFIP directo, NO TusFacturasAPP
+
+**Descartado TusFacturasAPP** por costo recurrente ($20-50K ARS/mes por org) que rompía el modelo de costos del SaaS ($199/mes por toda la cadena). Vamos con `@afipsdk/afip.js` directo.
+
+**Capa pura compartida creada:**
+- `lib/services/arca-cae.ts` — función `requestCAEFromInvoiceData()` centraliza la única llamada al SDK AFIP. Exporta `CBTE_TIPO_MAP`, `DOC_TYPES`, `IVA_RATES`. NO toca DB. NO es `'use server'` — invocable solo desde server actions que ya validaron auth.
+- `lib/services/arca-credentials.ts` — `decryptArcaCredentials(organizationId)` lee `arca_config` y desencripta cert+key con AES-256-GCM. Reusa `MP_ENCRYPTION_KEY` (un solo secret por env evita rotación quirúrgica por feature).
+- `lib/services/arca.service.ts` — vaciado (`export {}` + comentario deprecated). Era el mock anterior que nunca se conectaba a AFIP de verdad.
+
+**Refactor de consumidores:**
+- `lib/actions/arca.actions.ts` — `createInvoiceAction(saleId)` usa `requestCAEFromInvoiceData`.
+- `lib/actions/invoicing.actions.ts` — facturación retroactiva legacy también usa la capa pura. NOTA: usa `organizations.fiscal_config` (legacy JSONB) para datos básicos pero cert+key desde `arca_config` via `decryptArcaCredentials`. Coexistencia intencional, no migrar `fiscal_config` a `arca_config` en esta sesión.
+
+### T12 — Toggle sandbox / producción
+
+`saveArcaConfigAction` antes hardcodeaba `is_sandbox: true` siempre — toda cuenta nueva quedaba en sandbox para siempre, sin forma de pasar a producción.
+
+**Cambios:**
+- `saveArcaConfigAction` acepta `isSandbox?: boolean` opcional con default `true` (sandbox-by-default).
+- Nuevo server action `setArcaSandboxModeAction(isSandbox)` con validación de ownership y guardrail: bloquea pasar a producción sin certificado cargado.
+- UI en `components/configuracion-arca.tsx`: nuevo `Switch` "Modo prueba (sandbox)" debajo del toggle "Facturación activa", en la card configurada.
+- `Dialog` de confirmación rojo al pasar a producción explicando consecuencias fiscales (cuenta ante ARCA, suma a facturación anual, no se borra — solo nota de crédito).
+- Badge muestra "Producción" en emerald cuando `is_sandbox=false`. Antes decía "Configurado" siempre, ocultando el modo real.
+
+**Decisiones de UX consensuadas con Ram:**
+- Switch al lado de "Facturación activa" en la card configurada (no en form de edición) — visible cada vez que toca ARCA.
+- Sandbox como default siempre (lo más seguro, requiere acción explícita para producción).
+- Volver a sandbox es directo (acción segura), pasar a producción exige Dialog de confirmación.
+
+### T14a — Idempotencia local en arca_invoices
+
+Migration `00018_arca_invoices_unique.sql` con dos UNIQUE INDEX parciales:
+- `arca_invoices_sale_authorized_unique` ON (sale_id) WHERE sale_id IS NOT NULL AND status='authorized' — garantiza una venta = una factura.
+- `arca_invoices_voucher_unique` ON (organization_id, cbte_tipo, punto_venta, cbte_numero) WHERE cbte_numero IS NOT NULL AND status='authorized' — blinda contra duplicación local de números (AFIP ya rechazaría duplicados, pero esto cubre nuestro lado por si hay race condition).
+
+Por qué partial UNIQUE: `arca_invoices` guarda intentos fallidos (`status='error'`) sin `cbte_numero`. Esos rows NO deben competir contra el UNIQUE.
+
+**`createInvoiceAction` ahora chequea idempotencia ANTES de pedir CAE:** si el `saleId` ya tiene factura `authorized`, devuelve `{success: true, alreadyInvoiced: true, cae: existente, ...}` sin llamar a AFIP ni desencriptar credenciales. Para corregir, se requiere nota de crédito (feature futura, no en este sprint).
+
+**Validación previa a aplicar la migration:** corrida de query en Supabase para verificar 0 duplicados pre-existentes en `arca_invoices` (no había). Si hubiera habido duplicados, la migration habría fallado y había que limpiarlos manualmente primero.
+
+### T14b — Retry con backoff en errores transitorios
+
+Agregadas 3 funciones internas en `lib/services/arca-cae.ts`: `isTransientAfipError(msg)`, `sleep(ms)`, `callAfipWithRetry(fn)`. Wrappean la llamada `afip.ElectronicBilling.createNextVoucher`.
+
+- 3 retries con delays 300ms / 1s / 3s.
+- Solo retry en errores transitorios: `ECONNRESET`, `ETIMEDOUT`, `ENOTFOUND`, `ECONNREFUSED`, `socket hang up`, `network`, `502`, `503`, `504`, `timeout`, `service unavailable`, `gateway`, `temporar*`, `no disponible`.
+- Errores de validación de AFIP (CUIT mal, importe negativo, doc malformado) NO se reintentan para evitar emisiones duplicadas.
+
+### Hallazgos técnicos clave del sprint ARCA
+
+1. **`createNextVoucher` del SDK AFIP maneja la numeración solo.** Internamente consulta `FECompUltimoAutorizado(PtoVta, CbteTipo)` y suma 1. AFIP es la fuente de verdad de qué número va — no llevamos contador local. Eso eliminó toda una rama de complejidad de T14 que parecía necesaria.
+
+2. **UNIQUEs parciales en `arca_invoices` blindan contra duplicación local pero no contra "AFIP procesó / no nos llegó la respuesta".** Si AFIP recibe el pedido, emite el comprobante, pero la respuesta TCP no llega a nuestro lado y reintentamos, AFIP emite UN SEGUNDO comprobante con el número siguiente. La UNIQUE de T14a bloquea el INSERT del segundo CAE de nuestro lado, pero AFIP fiscalmente ya cuenta los dos. T14c (parked) cubre el recovery formal.
+
+3. **`logger.warn` en INSERT failed post-CAE** captura la race entre dos requests con la misma sale. Útil para diagnóstico cuando arranque el piloto: si aparecen warnings, hay race en el flujo de venta.
+
+### Reglas técnicas nuevas
+
+- **SDK AFIP — `createNextVoucher` ya maneja numeración.** No implementar contadores locales ni `CbteDesde/CbteHasta` propios. Si en el futuro hace falta numeración manual (notas de crédito con gap, por ejemplo), usar `getLastVoucher(PtoVta, CbteTipo)` del SDK para consultar el último número antes de armar el voucher.
+- **Retries en integraciones de cobro/fiscal: solo errores transitorios.** Errores de validación NUNCA reintentar — la integración remota puede haber procesado y reintentar duplica. Heurística para clasificar transitorio vs fatal: errores de red (ECONN*, ENOTFOUND, timeout, socket hang up) + 5xx HTTP → transitorio. Errores 4xx + mensajes de validación de campos → fatal.
+- **Idempotencia local con UNIQUE INDEX parcial cuando hay rows "intento" y rows "exitosos" en la misma tabla.** En `arca_invoices` los intents `status='error'` no tienen `cbte_numero` y NO deben competir contra el UNIQUE de comprobantes autorizados. Si la tabla mezcla estados, partial index es la forma correcta.
+
+### Estado del sprint ARCA al cierre del 2-may parte 2
+
+| Tarea | Estado |
+|-------|--------|
+| T1 — Bump version IndexedDB tests | ✅ commiteada |
+| T5 — Guardrail QR offline | ✅ commiteada |
+| T9 — Migration 00017 versionando arca tables | ✅ commiteada y aplicada |
+| T10 — Capa pura ARCA (arca-cae + arca-credentials) | ✅ commiteada |
+| T12 — Toggle sandbox/producción | ✅ commiteada (validación end-to-end pendiente) |
+| T14a — Idempotencia local | ✅ commiteada y migration aplicada en prod |
+| T14b — Retry con backoff | ✅ commiteada (validación pendiente) |
+| T6 — Tests guardrail QR offline | ⏳ pending |
+| T7 — Validación device real Ram | ⏳ pending |
+| T11 — Opción A offline QR | 🅿️ parked |
+| T13 — PDF fiscal compliant | ⏳ próxima sesión dedicada (~1 semana) |
+| T14c — Recovery CAE huérfano | 🅿️ parked hasta data del piloto |
+| T15 — Hook ARCA al flujo de venta | ⏳ recomendado antes de T13 |
+| T16 — Tests + smoke sandbox AFIP | ⏳ depende de T15 |
+
+### Validación pendiente (regla institucional 2-may)
+
+T12 y T14 están **code-complete** (tsc verde, migration aplicada en prod, commits pusheados, deploy automático en Vercel) pero NO **production-validated**. Falta el smoke contra sandbox AFIP real:
+1. Ram genera certificado de homologación AFIP en el portal y lo carga en la app vía la nueva UI de ARCA en modo sandbox.
+2. Hace una venta de prueba.
+3. Llama a `createInvoiceAction(saleId)` (vía un endpoint manual o el hook automático de T15 cuando esté).
+4. Verifica que el CAE viene OK y se guarda en `arca_invoices` con `status='authorized'`.
+5. Reintenta `createInvoiceAction(mismoSaleId)` — debe devolver `alreadyInvoiced=true` con el CAE original, sin tocar AFIP.
+
+Mi recomendación al próximo agente: **T15 antes que T13.** Hookear `createInvoiceAction` al flujo de caja deja la integración funcionalmente completa y permite validar el sandbox AFIP en piloto antes de invertir la semana del PDF fiscal de T13.
+
+### Aprendizajes de proceso
+
+- **2 sesiones simultáneas de Claude Code requieren `git pull` antes de empezar y commit + push antes de cerrar.** En este sprint la sesión gemela cerró sin commitear T1+T5+T9+T10 y la siguiente sesión las heredó como cambios sin trackear. Funcionó porque ambas eran de Ram, pero el patrón es frágil.
+- **Para evitar mezclas en archivos compartidos:** cuando una tarea (T14b) toca un archivo creado por otra sesión sin commit (`arca-cae.ts` creado por T10), el commit honesto incluye una nota en el mensaje aclarando la mezcla. Mejor que esconderla.
+
 ## Pendientes Prioritarios de Seguridad
 
 Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendientes críticos están cerrados. Los abiertos son no-accionables o de baja prioridad:
@@ -372,6 +483,7 @@ Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendien
 
 ## Pendientes Prioritarios de Producto
 
+0. **Sprint ARCA — siguiente paso recomendado: T15 antes que T13.** T12 + T14 cerradas el 2-may parte 2 (toggle sandbox/producción + idempotencia + retry). Ahora corresponde hookear `createInvoiceAction` al flujo de caja-ventas (T15) — eso deja la integración funcionalmente completa y permite validar contra sandbox AFIP en piloto antes de invertir la semana del PDF fiscal (T13). Después de T15, el smoke real (T16): Ram genera certificado de homologación AFIP, lo carga en la app, hace venta de prueba, confirma que el CAE viene OK + reintento devuelve `alreadyInvoiced=true`. Recién ahí T13 (PDF fiscal compliant con QR ARCA según especificación https://www.afip.gob.ar/fe/qr/).
 1. **Probar Posnet con el del negocio.** Próximo método de cobro en validación de campo. La implementación está cerrada (configuración + flujo de venta + reporting al dueño todo verde después de los fixes del 2-may). El test real es: configurar el Posnet del negocio en Ajustes → Métodos de cobro, hacer una venta de prueba en Caja seleccionando "Posnet", confirmar que aparece en el dashboard del dueño categorizada como Tarjeta y con label/emoji correctos.
 2. **Probar QR fijo** después de cerrar Posnet. Mismo patrón: subir imagen del QR fijo de MP en Ajustes, hacer venta de prueba, validar reporting.
 3. **Retomar Alias / Transferencia con flujo "dueño confirma".** Pausado el 2-may-2026 por riesgo de seguridad (mostraba datos bancarios al empleado) y por análisis de producto que mostró que alias-MP es redundante con QR EMVCo. Cuando se retome, el flujo debe ser: empleado selecciona Alias → dialog "esperando confirmación del dueño" sin datos bancarios → dueño confirma desde su app del banco/MP → realtime cierra el dialog del empleado → venta queda como `transfer_alias`. Implementación: 1 día de Realtime Supabase + UI de confirmación. Push notifications (web push + service worker + VAPID + persistencia de subscripciones por usuario) queda como v2 si se valida que mantener app abierta es molesto en el piloto.
