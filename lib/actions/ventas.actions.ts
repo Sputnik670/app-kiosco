@@ -29,6 +29,7 @@ import type { Database } from '@/types/database.types'
 import { resolveJoin } from '@/types/supabase-joins'
 import { logger } from '@/lib/logging'
 import { searchProductsSchema, confirmSaleSchema, getZodError } from '@/lib/validations'
+import { createInvoiceAction } from '@/lib/actions/arca.actions'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -97,12 +98,26 @@ export interface SearchProductsResult {
 }
 
 /**
- * Resultado de confirmación de venta
+ * Resultado de confirmación de venta.
+ *
+ * Los campos `invoice*` reflejan el resultado de la facturación ARCA
+ * (T15a — síncrono, ejecutado después del RPC process_sale).
+ *
+ * Si ARCA no está activo para la organización → invoiceSkipped: true.
+ * Si AFIP devolvió CAE OK → invoiceCAE + invoiceCbteNumero.
+ * Si la venta ya estaba facturada → invoiceAlreadyInvoiced: true (idempotencia).
+ * Si AFIP falló (después de los retries de T14b) → invoiceError. La venta
+ * sigue siendo exitosa; el dueño reintenta la factura desde el panel ARCA.
  */
 export interface ConfirmSaleResult {
   success: boolean
   saleId?: string
   error?: string
+  invoiceSkipped?: boolean
+  invoiceAlreadyInvoiced?: boolean
+  invoiceCAE?: string
+  invoiceCbteNumero?: number
+  invoiceError?: string
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -278,9 +293,28 @@ export async function confirmSaleAction(
       }
     }
 
+    const saleId = data as string // El RPC retorna el ID de la venta creada
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // T15a — HOOK ARCA (facturación electrónica)
+    // ───────────────────────────────────────────────────────────────────────────
+    // Llamada síncrona a createInvoiceAction. Si ARCA está activo + cert cargado,
+    // intenta emitir CAE (con retry de T14b). El resultado va en el response
+    // como campos invoice* — la UI decide qué mostrar.
+    //
+    // Si AFIP falla, la venta sigue siendo exitosa: el invoice queda con
+    // status='error' en arca_invoices y el dueño la reintenta desde el panel.
+    // No bloqueamos la caja por un error fiscal.
+    const invoiceResult = await createInvoiceAction(saleId)
+
     return {
       success: true,
-      saleId: data, // El RPC retorna el ID de la venta creada
+      saleId,
+      invoiceSkipped: invoiceResult.skipped,
+      invoiceAlreadyInvoiced: invoiceResult.alreadyInvoiced,
+      invoiceCAE: invoiceResult.cae,
+      invoiceCbteNumero: invoiceResult.cbteNumero,
+      invoiceError: invoiceResult.success ? undefined : invoiceResult.error,
     }
   } catch (error) {
     return {

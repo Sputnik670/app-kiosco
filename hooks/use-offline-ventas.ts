@@ -69,6 +69,13 @@ export interface VentaResult {
   ventaId?: string // ID del servidor (si online) o ID local (si offline)
   isOffline: boolean
   error?: string
+  // Campos ARCA (T15a) — solo poblados en venta online cuando ARCA está activo.
+  // En offline quedan undefined; la facturación se hace al sincronizar (T15c).
+  invoiceSkipped?: boolean
+  invoiceAlreadyInvoiced?: boolean
+  invoiceCAE?: string
+  invoiceCbteNumero?: number
+  invoiceError?: string
 }
 
 export interface UseOfflineVentasReturn {
@@ -326,6 +333,11 @@ export function useOfflineVentas(options: UseOfflineVentasOptions): UseOfflineVe
             success: true,
             ventaId: result.saleId,
             isOffline: false,
+            invoiceSkipped: result.invoiceSkipped,
+            invoiceAlreadyInvoiced: result.invoiceAlreadyInvoiced,
+            invoiceCAE: result.invoiceCAE,
+            invoiceCbteNumero: result.invoiceCbteNumero,
+            invoiceError: result.invoiceError,
           }
           onVentaCompleted?.(ventaResult)
           return ventaResult

@@ -298,7 +298,25 @@ export default function CajaVentas({
         })
       }
 
-      toast.success(result.isOffline ? "Venta guardada (offline)" : "Venta Exitosa")
+      // Toast diferenciado según resultado ARCA (T15a)
+      if (result.isOffline) {
+        toast.success("Venta guardada (offline)")
+      } else if (result.invoiceCAE) {
+        toast.success("Venta Exitosa", {
+          description: `Factura emitida — CAE ${result.invoiceCAE}${result.invoiceCbteNumero ? ` (Nº ${result.invoiceCbteNumero})` : ""}`,
+        })
+      } else if (result.invoiceAlreadyInvoiced) {
+        toast.success("Venta Exitosa", {
+          description: `Esta venta ya tenía factura — CAE ${result.invoiceCAE ?? "registrado"}`,
+        })
+      } else if (result.invoiceError) {
+        toast.warning("Venta Exitosa, factura no emitida", {
+          description: "Reintentá desde panel ARCA. La venta quedó registrada OK.",
+        })
+      } else {
+        // ARCA inactivo o sin info → toast normal sin mencionar factura
+        toast.success("Venta Exitosa")
+      }
       cart.clearCart()
       setShowManualDialog(false)
       setManualMethod(null)
