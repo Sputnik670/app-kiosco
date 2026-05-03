@@ -80,21 +80,25 @@ interface ValidationErrors {
 
 type TipoContribuyente = 'monotributista' | 'responsable_inscripto' | 'exento'
 
+// IMPORTANTE: condicionIva debe matchear EXACTO el CHECK constraint
+// de arca_config.condicion_iva en supabase/migrations/00017_arca_tables.sql:33.
+// Valores válidos: 'IVA Responsable Inscripto', 'Monotributo', 'IVA Exento', 'Responsable No Inscripto'.
+// Cambiar acá sin cambiar el constraint (o viceversa) rompe el guardado de config (PG error 23514).
 const TIPO_CONTRIBUYENTE_MAP: Record<TipoContribuyente, { label: string; tipoFactura: 'A' | 'B' | 'C'; condicionIva: string }> = {
   'monotributista': {
     label: 'Monotributista',
     tipoFactura: 'C',
-    condicionIva: 'monotributista',
+    condicionIva: 'Monotributo',
   },
   'responsable_inscripto': {
     label: 'Responsable Inscripto',
     tipoFactura: 'B',
-    condicionIva: 'responsable_inscripto',
+    condicionIva: 'IVA Responsable Inscripto',
   },
   'exento': {
     label: 'Exento',
     tipoFactura: 'C',
-    condicionIva: 'exento',
+    condicionIva: 'IVA Exento',
   },
 }
 
