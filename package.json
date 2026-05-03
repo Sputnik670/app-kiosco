@@ -37,7 +37,7 @@
     "db:cajas": "node scripts/supabase-query.js cajas"
   },
   "dependencies": {
-    "@afipsdk/afip.js": "^1.2.0",
+    "@arcasdk/core": "^0.3.6",
     "@ducanh2912/next-pwa": "^10.2.9",
     "@ericblade/quagga2": "^1.12.1",
     "@hookform/resolvers": "^3.10.0",

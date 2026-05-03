@@ -4,14 +4,18 @@
  * ============================================================================
  *
  * Función reusable que toma datos de un comprobante ya construido y solicita
- * el CAE al webservice WSFEv1 de ARCA (vía @afipsdk/afip.js). NO toca DB.
+ * el CAE al webservice WSFEv1 de ARCA (vía @arcasdk/core, SOAP DIRECTO a AFIP).
+ * NO toca DB.
  *
  * Consumida por:
  * - arca.actions.ts:createInvoiceAction (facturación por venta individual)
  * - invoicing.actions.ts:issueInvoiceAction (facturación retroactiva agrupada)
  *
- * Reemplaza al ArcaServiceMock anterior (lib/services/arca.service.ts) que
- * generaba CAE sintéticos y nunca se conectaba a AFIP.
+ * HISTORIA: este archivo fue migrado de @afipsdk/afip.js a @arcasdk/core
+ * el 3-may-2026 cuando descubrimos que @afipsdk/afip.js NO era SOAP directo
+ * — era un wrapper a app.afipsdk.com (proxy de terceros pago). @arcasdk/core
+ * habla SOAP nativo contra wsaa.afip.gov.ar / servicios1.afip.gov.ar (prod)
+ * y wsaahomo.afip.gov.ar / wswhomo.afip.gov.ar (homologación).
  *
  * NOTA: NO es 'use server' — es una función helper invocable solo desde
  * server actions (que ya validan auth + ownership + leen credenciales de DB).
@@ -47,6 +51,21 @@ export const IVA_RATES = {
   IVA_27: { code: 6, rate: 0.27 },
 } as const
 
+/**
+ * Códigos AFIP de Condición IVA del Receptor (RG 5616/2024 — obligatorio).
+ * Para kiosco la abrumadora mayoría de las ventas son a CONSUMIDOR_FINAL (5).
+ */
+export const COND_IVA_RECEPTOR = {
+  RESPONSABLE_INSCRIPTO: 1,
+  EXENTO: 4,
+  CONSUMIDOR_FINAL: 5,
+  MONOTRIBUTO: 6,
+  NO_CATEGORIZADO: 7,
+  PROVEEDOR_DEL_EXTERIOR: 8,
+  CLIENTE_DEL_EXTERIOR: 9,
+  IVA_LIBERADO: 10,
+} as const
+
 // ----------------------------------------------------------------------------
 // TIPOS
 // ----------------------------------------------------------------------------
@@ -73,6 +92,13 @@ export interface RequestCAEParams {
   impOpEx?: number          // operaciones exentas
   impTotConc?: number       // operaciones no gravadas
   ivaDetalle?: Array<{ Id: number; BaseImp: number; Importe: number }>
+
+  /**
+   * Condición IVA del receptor (RG 5616/2024 — required por AFIP desde fines 2024).
+   * Default: 5 (Consumidor Final) — el caso típico del kiosco.
+   * Ver constantes en COND_IVA_RECEPTOR.
+   */
+  condicionIvaReceptor?: number
 }
 
 export interface RequestCAEResult {
@@ -159,14 +185,19 @@ async function callAfipWithRetry<T>(fn: () => Promise<T>): Promise<T> {
 
 /**
  * Solicita CAE a ARCA para un comprobante ya armado.
- * Centraliza la única llamada al SDK @afipsdk/afip.js de toda la app.
+ * Centraliza la única llamada al SDK @arcasdk/core de toda la app.
  *
- * NUMERACIÓN: el SDK consulta internamente FECompUltimoAutorizado y suma 1.
- * No hace falta llevar contador local — AFIP es la fuente de verdad.
+ * NUMERACIÓN: el SDK consulta internamente FECompUltimoAutorizado y suma 1
+ * (método createNextVoucher / createNextInvoice). No hace falta llevar
+ * contador local — AFIP es la fuente de verdad.
  *
  * RETRY: 3 reintentos con backoff (300ms, 1s, 3s) solo en errores transitorios
  * (timeouts, 5xx, network). Errores de validación (CUIT mal, importe negativo)
  * no se reintentan para evitar emisiones duplicadas.
+ *
+ * useHttpsAgent: true es REQUERIDO en Vercel/Node.js — sin esto los WS legacy
+ * de AFIP rechazan el handshake TLS. Solo poner false en edge runtimes
+ * (Cloudflare Workers, Deno Deploy, etc.).
  */
 export async function requestCAEFromInvoiceData(
   params: RequestCAEParams
@@ -176,14 +207,15 @@ export async function requestCAEFromInvoiceData(
       return { success: false, error: 'El total debe ser mayor a 0' }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const Afip = (await import('@afipsdk/afip.js')).default
+    const { Arca } = await import('@arcasdk/core')
 
-    const afip = new Afip({
-      CUIT: Number(params.cuit),
+    const arca = new Arca({
+      cuit: Number(params.cuit),
       cert: params.certPem,
       key: params.keyPem,
       production: !params.isSandbox,
+      useHttpsAgent: true,
+      // useSoap12 default true — OK
     })
 
     const voucherData = {
@@ -202,18 +234,43 @@ export async function requestCAEFromInvoiceData(
       ImpTrib: 0,
       MonId: 'PES',
       MonCotiz: 1,
+      CondicionIVAReceptorId:
+        params.condicionIvaReceptor ?? COND_IVA_RECEPTOR.CONSUMIDOR_FINAL,
       ...(params.ivaDetalle ? { Iva: params.ivaDetalle } : {}),
     }
 
     const result = await callAfipWithRetry(() =>
-      afip.ElectronicBilling.createNextVoucher(voucherData)
+      arca.electronicBillingService.createNextInvoice(voucherData)
     )
+
+    // Extraer número de comprobante del response SOAP de AFIP.
+    // Shape: result.response.FeDetResp.FECAEDetResponse[0].CbteDesde
+    // Tolerante a forma alternativa (FECAEDetResponse no array).
+    let cbteNumero = 0
+    try {
+      const resp = (result as { response?: unknown }).response as
+        | {
+            FeDetResp?: {
+              FECAEDetResponse?:
+                | Array<{ CbteDesde?: number | string }>
+                | { CbteDesde?: number | string }
+            }
+          }
+        | undefined
+      const det = resp?.FeDetResp?.FECAEDetResponse
+      const detItem = Array.isArray(det) ? det[0] : det
+      if (detItem?.CbteDesde !== undefined) {
+        cbteNumero = Number(detItem.CbteDesde) || 0
+      }
+    } catch {
+      // Si falla la extracción, dejamos cbteNumero=0 — el CAE igual sirve.
+    }
 
     return {
       success: true,
-      cae: result.CAE,
-      caeVencimiento: result.CAEFchVto,
-      cbteNumero: Number(result.voucher_number ?? 0),
+      cae: result.cae,
+      caeVencimiento: result.caeFchVto,
+      cbteNumero,
     }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error)
