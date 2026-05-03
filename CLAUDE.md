@@ -526,6 +526,64 @@ Cuarta vez en 6 días que aplica el mismo patrón (12-mar QR pivote a Preference
 | T6, T7, T13, T15b, T15c, T16 cierre | ⏳ pending (algunos dependen de T16) |
 | T11, T14c | 🅿️ parked |
 
+## Fixes y Features (sesión 3 mayo 2026 — parte 2: T16-B CERRADA)
+
+### Pivote del SDK + cierre del sprint
+
+Sesión continuó la decisión OPCIÓN B del bloque previo. Se descartó OPCIÓN A (token gratis en `app.afipsdk.com`) porque el modelo de costos del SaaS ($199/mes por toda la cadena) no soporta una dependencia de un proveedor pago externo aunque sea gratis 14 días. Se migró a `@arcasdk/core` v0.3.6 — SOAP DIRECTO contra `wsaa.afip.gov.ar` / `servicios1.afip.gov.ar` (prod) y `wsaahomo.afip.gov.ar` / `wswhomo.afip.gov.ar` (homologación). Confirmado leyendo `enums.js` del package: cero llamadas HTTP a proxies.
+
+Refactor contenido en la capa pura `lib/services/arca-cae.ts`. Contrato `RequestCAEParams` / `RequestCAEResult` preservado, los consumers (`arca.actions.ts`, `invoicing.actions.ts`) NO se tocaron. Borrado `types/afipsdk.d.ts`. `package.json` con `@arcasdk/core ^0.3.6` (`@afipsdk/afip.js` removido).
+
+Constructor con `useHttpsAgent: true` (REQUERIDO en Vercel/Node — sin esto los WSDL legacy de AFIP rechazan handshake TLS) y `CondicionIVAReceptorId: 5` default (Consumidor Final, RG 5616/2024).
+
+### Bugs descubiertos al smoke real (en orden)
+
+**Bug 1 — toggle is_sandbox quedó en false.** Al smoke contra el deploy nuevo, WSAA producción rechazó con `cms.cert.untrusted: Certificado no emitido por AC de confianza`. Causa: el toggle UI se había movido inadvertidamente a producción en sesiones previas, y el cert cargado es de homologación (CA "Computadores Test"). Fix: `UPDATE arca_config SET is_sandbox = true` (vía toggle UI esta vez, después de verificar que el código de `setArcaSandboxModeAction` es seguro). Bug que motivó implementar Task #6 (ver más abajo).
+
+**Bug 2 — `@arcasdk/core` filesystem default falla en Vercel serverless.** Después de bajar a sandbox, segundo error: `Failed to create tickets directory: ENOENT: no such file or directory, mkdir '/ROOT'`. Causa: el SDK por default resuelve `ticketPath` con `path.resolve(__dirname, "..", "..", "storage", "auth", "tickets")` donde `__dirname` en Vercel con turbopack se bundlea a `/ROOT/...` que es read-only. **Vercel solo permite escritura en `/tmp`** (efímero per-lambda-instance). Fix: pasar `ticketPath: '/tmp/arca-tickets'` al constructor `Arca({...})` en `lib/services/arca-cae.ts`. Una línea + comentario explicativo.
+
+**Bug 3 colateral — `coe.alreadyAuthenticated` por TA huérfano.** Después del Bug 2, el SDK había llamado a WSAA y emitido un Ticket de Acceso, pero al fallar el `mkdir` el TA se perdió. WSAA retiene el TA hasta su expiración (~12hs típicas) y rechaza re-emitir con `coe.alreadyAuthenticated`. Workaround: esperar. En la práctica WSAA homologación liberó el TA en ~1hr, no fue necesario esperar 12hs. Solución correcta a futuro: storage adapter custom contra Supabase para que el TA persista entre cold starts (T16-B Task #8 parked).
+
+### Validación end-to-end completa
+
+| Item | Resultado |
+|------|-----------|
+| Smoke aislado (script `scripts/smoke-arca.mjs`) | ✅ CAE 86180058628627 vto 20260513 cbte 1 |
+| Smoke real desde caja (post-fix /tmp) | ✅ Toast verde "Factura emitida — CAE 86180058628213 (N° 2)" |
+| `arca_invoices` row | ✅ status=authorized, cae=86180058628213, vto=2026-05-13, cbte_numero=2, imp_total=$6 |
+| Idempotencia T14a | ✅ SELECT por sale_id retorna row existente; código devuelve `{alreadyInvoiced: true, cae}` sin llamar AFIP |
+| UNIQUE constraints en arca_invoices | ✅ `arca_invoices_sale_authorized_unique` + `arca_invoices_voucher_unique` aplicados |
+
+### Task #6 — Guardrail de issuer del cert al activar producción
+
+Implementado en `lib/actions/arca.actions.ts:setArcaSandboxModeAction`. Antes del UPDATE a `is_sandbox=false`, desencripta el cert y llama a `isCertHomologation(certPem)` (helper nuevo cerca del `decrypt`). Usa `X509Certificate` de `node:crypto` (sin agregar deps). Patrones de issuer detectados como homologación: `computadores test`, `ac afip test`, `wsaahomo`, `homo` (substring case-insensitive sobre el DN). Si match, devuelve error claro: "El certificado cargado es de homologación (testing). Para activar producción necesitás generar un nuevo certificado en el portal de AFIP en modo PRODUCCIÓN y subirlo en Ajustes." Errores de inspección (cert mal formado) NO bloquean — se logean y se deja que falle WSAA después con mensaje más claro.
+
+### Reglas técnicas nuevas
+
+- **`@arcasdk/core` requiere `ticketPath: '/tmp/arca-tickets'` en Vercel/serverless.** El default usa `__dirname` que en bundles serverless resuelve a paths read-only. `/tmp` es el único directorio escribible (efímero, 512MB, per-instance).
+- **`coe.alreadyAuthenticated` de WSAA = TA emitido pero perdido.** Si el SDK llama a `LoginCms` exitosamente pero falla al persistir el TA, WSAA lo retiene hasta expiración (~12hs). No hay endpoint para "rescatarlo". Para evitarlo: garantizar que la persistencia del TA NO falle (storage adapter robusto, o `/tmp` en serverless).
+- **Cert de homologación AFIP NO sirve contra WSAA producción** y devuelve `cms.cert.untrusted` con `LoginFault`. Issuer del cert de homologación: "Computadores Test" / "AC AFIP TEST". Validar issuer antes de activar producción es defensa barata contra el side-effect del toggle (regla institucional refuerza la del 2-may).
+- **Cuando una integración serverless guarda estado en filesystem, asumir que falla.** El SDK arcasdk no documenta el requerimiento de configurar `ticketPath` para serverless — hay que leer el código fuente. Aplicable a cualquier SDK que use `__dirname` o `process.cwd()`.
+
+### Decisiones del cierre
+
+- **`scripts/smoke-arca.mjs` se commitea.** El script ya demostró su valor (cierre del bloqueo del 3-may parte 1) y deja capacidad de diagnóstico AFIP independiente del deploy. Para próximas sesiones que toquen ARCA, es la primera línea de defensa.
+- **Task #8 — Storage adapter custom contra Supabase para persistir el TA cross-instance — parked.** El cache `/tmp` per-lambda-instance funciona para piloto single-tenant low-traffic. Cuando aparezcan errores recurrentes de `coe.alreadyAuthenticated` en producción real, levantar la prioridad.
+- **Task #15b/c (PDF fiscal compliant + recovery CAE huérfano) — quedan pendientes.** T16 funcional cerrada habilita T13 (PDF fiscal con QR ARCA según https://www.afip.gob.ar/fe/qr/) como próximo sprint dedicado (~1 semana).
+
+### Tabla del sprint ARCA actualizada
+
+| Tarea | Estado |
+|-------|--------|
+| T1, T5, T9, T10, T12, T14a, T14b, T15a | ✅ commiteadas (sesiones previas) |
+| Fix condicion_iva CHECK | ✅ commiteada |
+| **T16 — Pivote SDK + smoke + validación end-to-end** | ✅ **CERRADA hoy** |
+| **Task #6 — Guardrail issuer cert** | ✅ commiteada hoy |
+| **Task #7 — Fix ticketPath /tmp** | ✅ commiteada hoy |
+| T6 (tests guardrail QR offline), T7 (validación device real Ram) | ⏳ pending |
+| T13 (PDF fiscal + QR ARCA), T15b, T15c | ⏳ próximo sprint dedicado |
+| T11, T14c, **Task #8 (storage adapter Supabase)** | 🅿️ parked |
+
 ## Pendientes Prioritarios de Seguridad
 
 Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendientes críticos están cerrados. Los abiertos son no-accionables o de baja prioridad:
@@ -534,7 +592,7 @@ Ver `AUDIT-FINDINGS.md` para la lista completa. Al 27-abr-2026 todos los pendien
 
 ## Pendientes Prioritarios de Producto
 
-0. **Sprint ARCA — DESBLOQUEAR T16. Decisión arquitectónica pendiente.** Estado al 3-may: cert AFIP homologación generado + cargado en app + config guardada OK. Smoke de venta dispara 401 desde `app.afipsdk.com` — el SDK `@afipsdk/afip.js` (elegido el 2-may creyéndose directo a AFIP) en realidad usa un proxy de terceros pago. **Camino propuesto:** OPCIÓN A primero (30 min — generar access_token gratis en `app.afipsdk.com`, pasarlo al constructor del SDK, reintentar smoke; si funciona valida la cadena de la app hasta el proxy y permite cerrar T16 funcionalmente con deuda anotada). Después agendar OPCIÓN B (migrar a `@arcasdk/core` que sí es directo a AFIP, 1-2 días, refactor contenido en `lib/services/arca-cae.ts`). Recién con T16 cerrada de verdad pasamos a T13 (PDF fiscal compliant con QR ARCA según https://www.afip.gob.ar/fe/qr/). Ver bloque "sesión 3 mayo 2026" arriba para detalle completo del hallazgo y los 3 caminos.
+0. **Sprint ARCA T13 — PDF fiscal compliant con QR ARCA.** T16 cerrada el 3-may parte 2 (CAE real + arca_invoices.authorized + idempotencia validados end-to-end). Próximo sprint dedicado (~1 semana): generar PDF de factura con QR según especificación AFIP (https://www.afip.gob.ar/fe/qr/) que el cliente pueda escanear para validar contra ARCA. Hookeable después de `createInvoiceAction` exitoso. Considerar Task #8 (storage adapter custom contra Supabase para persistir TA cross-instance) si en piloto aparecen errores recurrentes de `coe.alreadyAuthenticated` por cold starts.
 1. **Probar Posnet con el del negocio.** Próximo método de cobro en validación de campo. La implementación está cerrada (configuración + flujo de venta + reporting al dueño todo verde después de los fixes del 2-may). El test real es: configurar el Posnet del negocio en Ajustes → Métodos de cobro, hacer una venta de prueba en Caja seleccionando "Posnet", confirmar que aparece en el dashboard del dueño categorizada como Tarjeta y con label/emoji correctos.
 2. **Probar QR fijo** después de cerrar Posnet. Mismo patrón: subir imagen del QR fijo de MP en Ajustes, hacer venta de prueba, validar reporting.
 3. **Retomar Alias / Transferencia con flujo "dueño confirma".** Pausado el 2-may-2026 por riesgo de seguridad (mostraba datos bancarios al empleado) y por análisis de producto que mostró que alias-MP es redundante con QR EMVCo. Cuando se retome, el flujo debe ser: empleado selecciona Alias → dialog "esperando confirmación del dueño" sin datos bancarios → dueño confirma desde su app del banco/MP → realtime cierra el dialog del empleado → venta queda como `transfer_alias`. Implementación: 1 día de Realtime Supabase + UI de confirmación. Push notifications (web push + service worker + VAPID + persistencia de subscripciones por usuario) queda como v2 si se valida que mantener app abierta es molesto en el piloto.

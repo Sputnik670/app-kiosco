@@ -25,7 +25,7 @@
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 import { logger } from '@/lib/logging'
 import { requestCAEFromInvoiceData, CBTE_TIPO_MAP } from '@/lib/services/arca-cae'
-import { randomBytes, createCipheriv, createDecipheriv } from 'crypto'
+import { randomBytes, createCipheriv, createDecipheriv, X509Certificate } from 'crypto'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -358,6 +358,38 @@ export async function setArcaSandboxModeAction(
       }
     }
 
+    // ─── Guardrail: no permitir activar producción con cert de homologación ───
+    // Bug del 3-may-2026: el toggle pasó a producción con un cert de homologación
+    // cargado, WSAA producción respondió `cms.cert.untrusted` y la facturación
+    // quedó rota silenciosamente (la venta se grababa, la factura fallaba).
+    // Acá inspeccionamos el issuer del cert antes de actualizar.
+    if (!isSandbox) {
+      try {
+        const certPem = decrypt(config.cert_encrypted!)
+        const { isHomo, issuerCN } = isCertHomologation(certPem)
+        if (isHomo) {
+          logger.info(
+            'setArcaSandboxModeAction',
+            'Bloqueando paso a producción: cert es de homologación',
+            { orgId, userId: user.id, issuerCN }
+          )
+          return {
+            success: false,
+            error:
+              'El certificado cargado es de homologación (testing). Para activar producción necesitás generar un nuevo certificado en el portal de AFIP en modo PRODUCCIÓN y subirlo en Ajustes.',
+          }
+        }
+      } catch (err) {
+        logger.error(
+          'setArcaSandboxModeAction',
+          'Error inspeccionando issuer del cert',
+          err instanceof Error ? err : new Error(String(err))
+        )
+        // No bloqueamos por error de inspección — dejamos que falle después con
+        // mensaje más claro de WSAA si efectivamente el cert es inválido.
+      }
+    }
+
     logger.info('setArcaSandboxModeAction', `Cambiando a modo ${isSandbox ? 'sandbox' : 'producción'}`, {
       orgId,
       userId: user.id,
@@ -632,4 +664,28 @@ function decrypt(encrypted: string): string {
   let decrypted = decipher.update(parts[2], 'hex', 'utf8')
   decrypted += decipher.final('utf8')
   return decrypted
+}
+
+/**
+ * Detecta si un certificado AFIP es de homologación (test) en vez de producción.
+ * AFIP firma certs de homologación con CA "Computadores Test" o "AC AFIP TEST".
+ * Si activamos producción con un cert de homologación, WSAA producción rechaza con
+ * `cms.cert.untrusted` (bug del 3-may-2026 que motivó esta validación defensiva).
+ *
+ * Devuelve { isHomo, issuerCN } — issuerCN es informativo para el mensaje de error.
+ * Si el cert no parsea (formato inválido), devuelve isHomo=false: dejamos que falle
+ * después con un error más claro de WSAA en vez de bloquear acá.
+ */
+function isCertHomologation(certPem: string): { isHomo: boolean; issuerCN: string } {
+  try {
+    const cert = new X509Certificate(certPem)
+    const issuer = cert.issuer.toLowerCase()
+    // Patrones conocidos de homologación. Match laxo (substring) para tolerar
+    // variaciones en el formato del DN (espacios, mayúsculas, atributos extra).
+    const homoPatterns = ['computadores test', 'ac afip test', 'wsaahomo', 'homo']
+    const isHomo = homoPatterns.some((p) => issuer.includes(p))
+    return { isHomo, issuerCN: cert.issuer }
+  } catch {
+    return { isHomo: false, issuerCN: '' }
+  }
 }
