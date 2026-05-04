@@ -75,6 +75,12 @@ const nextConfig: NextConfig = {
   // Configuración para Turbopack (Next.js 16+)
   turbopack: {},
 
+  // Packages que NO se bundlean — Next.js los resuelve via require() en runtime.
+  // Necesario para CJS-only packages que Turbopack no resuelve bien al bundlear
+  // dynamic imports en server actions (qrcode, jspdf en lib/services/invoice-pdf.ts).
+  // El error sin esto: "Module not found: Can't resolve 'qrcode'" en Vercel build.
+  serverExternalPackages: ['qrcode', 'jspdf', '@arcasdk/core'],
+
   // Server Actions: permitir orígenes válidos para evitar 403 CSRF
   // Incluye dominio producción + patrón de preview deploys de Vercel
   experimental: {
