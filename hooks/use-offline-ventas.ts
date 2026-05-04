@@ -76,6 +76,8 @@ export interface VentaResult {
   invoiceCAE?: string
   invoiceCbteNumero?: number
   invoiceError?: string
+  /** ID de arca_invoices (T13) — habilita descarga del PDF post-venta. */
+  invoiceId?: string
 }
 
 export interface UseOfflineVentasReturn {
@@ -338,6 +340,7 @@ export function useOfflineVentas(options: UseOfflineVentasOptions): UseOfflineVe
             invoiceCAE: result.invoiceCAE,
             invoiceCbteNumero: result.invoiceCbteNumero,
             invoiceError: result.invoiceError,
+            invoiceId: result.invoiceId,
           }
           onVentaCompleted?.(ventaResult)
           return ventaResult

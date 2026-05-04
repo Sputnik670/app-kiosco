@@ -118,9 +118,7 @@ export interface ConfirmSaleResult {
   invoiceCAE?: string
   invoiceCbteNumero?: number
   invoiceError?: string
-}
-
-  /** ID de arca_invoices (T13) — habilita descarga del PDF post-venta. */
+  /** ID de arca_invoices (T13) â€” habilita descarga del PDF post-venta. */
   invoiceId?: string
 }
 
@@ -319,6 +317,7 @@ export async function confirmSaleAction(
       invoiceCAE: invoiceResult.cae,
       invoiceCbteNumero: invoiceResult.cbteNumero,
       invoiceError: invoiceResult.success ? undefined : invoiceResult.error,
+      invoiceId: invoiceResult.invoiceId,
     }
   } catch (error) {
     return {
