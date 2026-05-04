@@ -21,6 +21,39 @@ import {
   getPaymentMethodsConfigAction,
   type PaymentMethodsConfig,
 } from "@/lib/actions/payment-methods.actions"
+import { generateArcaInvoicePDFAction } from "@/lib/actions/arca.actions"
+
+/**
+ * Descarga el PDF fiscal de una factura ARCA.
+ * Llama al server action, convierte el base64 a Blob y dispara el download.
+ * Toast con el resultado para que el usuario sepa que pasó.
+ */
+async function downloadArcaInvoicePDF(invoiceId: string): Promise<void> {
+  const result = await generateArcaInvoicePDFAction(invoiceId)
+  if (!result.success || !result.pdfBase64) {
+    toast.error("No se pudo descargar la factura", {
+      description: result.error || "Error desconocido",
+    })
+    return
+  }
+
+  // base64 -> Uint8Array -> Blob -> URL para download
+  const byteChars = atob(result.pdfBase64)
+  const bytes = new Uint8Array(byteChars.length)
+  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+  const blob = new Blob([bytes], { type: "application/pdf" })
+  const url = URL.createObjectURL(blob)
+
+  const link = document.createElement("a")
+  link.href = url
+  link.download = result.filename || "factura.pdf"
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+
+  // Liberar el ObjectURL (después de un tick para no abortar el download en algunos browsers)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 
 type CajaPaymentMethod =
   | "cash"
@@ -302,12 +335,32 @@ export default function CajaVentas({
       if (result.isOffline) {
         toast.success("Venta guardada (offline)")
       } else if (result.invoiceCAE) {
+        const invoiceIdForDownload = result.invoiceId
         toast.success("Venta Exitosa", {
           description: `Factura emitida — CAE ${result.invoiceCAE}${result.invoiceCbteNumero ? ` (Nº ${result.invoiceCbteNumero})` : ""}`,
+          duration: 8000,
+          action: invoiceIdForDownload
+            ? {
+                label: "Descargar PDF",
+                onClick: () => {
+                  void downloadArcaInvoicePDF(invoiceIdForDownload)
+                },
+              }
+            : undefined,
         })
       } else if (result.invoiceAlreadyInvoiced) {
+        const invoiceIdForDownload = result.invoiceId
         toast.success("Venta Exitosa", {
           description: `Esta venta ya tenía factura — CAE ${result.invoiceCAE ?? "registrado"}`,
+          duration: 8000,
+          action: invoiceIdForDownload
+            ? {
+                label: "Descargar PDF",
+                onClick: () => {
+                  void downloadArcaInvoicePDF(invoiceIdForDownload)
+                },
+              }
+            : undefined,
         })
       } else if (result.invoiceError) {
         toast.warning("Venta Exitosa, factura no emitida", {

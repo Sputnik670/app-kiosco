@@ -767,3 +767,194 @@ export async function cancelInvoiceAction(
     }
   }
 }
+
+// ============================================================================
+// PDF FISCAL (T13)
+// ============================================================================
+
+import { generateInvoicePDF } from '@/lib/services/invoice-pdf'
+
+export interface GenerateLegacyInvoicePDFResult {
+  success: boolean
+  /** PDF como base64 (sin prefijo data:) — el cliente lo convierte a Blob */
+  pdfBase64?: string
+  filename?: string
+  error?: string
+}
+
+/**
+ * Genera el PDF fiscal de una factura del sistema retroactivo legacy (`invoices`).
+ *
+ * Lee la factura por ID, valida ownership, trae items via invoice_sales -> sale_items,
+ * y los datos del emisor desde organizations.fiscal_config. Llama a la capa pura
+ * `lib/services/invoice-pdf.ts` y devuelve el Buffer como base64.
+ *
+ * Validaciones:
+ * - Factura existe y pertenece a la org del usuario.
+ * - Status='issued' (los borradores no tienen CAE; los anulados no se descargan).
+ * - CAE no es null.
+ *
+ * Usa `condicion_iva` derivada de fiscal_config.tax_status:
+ *   'MONO' -> 'Monotributo'
+ *   'RI'   -> 'IVA Responsable Inscripto'
+ */
+export async function generateLegacyInvoicePDFAction(
+  invoiceId: string
+): Promise<GenerateLegacyInvoicePDFResult> {
+  try {
+    const { supabase, orgId } = await verifyAuth()
+
+    // 1. Leer la factura legacy con check de ownership
+    const { data: invoice, error: invErr } = await supabase
+      .from('invoices' as any)
+      .select('*')
+      .eq('id', invoiceId)
+      .eq('organization_id', orgId)
+      .maybeSingle()
+
+    if (invErr) {
+      return { success: false, error: 'Error consultando la factura' }
+    }
+    if (!invoice) {
+      return { success: false, error: 'Factura no encontrada' }
+    }
+    if (invoice.status !== 'issued') {
+      return {
+        success: false,
+        error: 'Solo se pueden descargar facturas emitidas (con CAE)',
+      }
+    }
+    if (!invoice.cae) {
+      return { success: false, error: 'La factura no tiene CAE' }
+    }
+
+    // 2. Leer fiscal_config del emisor
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('fiscal_config' as any)
+      .eq('id', orgId)
+      .single()
+
+    const fiscalConfig = (org as any)?.fiscal_config as FiscalConfig | null
+    if (!fiscalConfig) {
+      return { success: false, error: 'Configuración fiscal no encontrada' }
+    }
+
+    // 3. Leer items de las ventas vinculadas
+    const { data: invoiceSalesRows } = await supabase
+      .from('invoice_sales' as any)
+      .select('sale_id')
+      .eq('invoice_id', invoiceId)
+
+    const saleIds = ((invoiceSalesRows || []) as any[]).map((r) => r.sale_id)
+
+    let items: Array<{
+      nombre: string
+      cantidad: number
+      precioUnit: number
+      subtotal: number
+    }> = []
+
+    if (saleIds.length > 0) {
+      const { data: saleItems } = await supabase
+        .from('sale_items')
+        .select(`
+          quantity,
+          unit_price,
+          subtotal,
+          products(name)
+        `)
+        .in('sale_id', saleIds)
+
+      if (saleItems && saleItems.length > 0) {
+        items = saleItems.map((it) => {
+          const raw = it.products as unknown
+          const product = Array.isArray(raw)
+            ? (raw[0] as { name?: string } | undefined)
+            : (raw as { name?: string } | null)
+          return {
+            nombre: product?.name || 'Producto',
+            cantidad: Number(it.quantity),
+            precioUnit: Number(it.unit_price),
+            subtotal: Number(it.subtotal),
+          }
+        })
+      }
+    }
+
+    // Fallback: una linea generica con el total si no hay items
+    if (items.length === 0) {
+      const total = Number(invoice.total)
+      items = [
+        {
+          nombre: 'Venta',
+          cantidad: 1,
+          precioUnit: total,
+          subtotal: total,
+        },
+      ]
+    }
+
+    // 4. Mapear FiscalConfig.tax_status -> condicion_iva canonico AFIP
+    const condicionIva =
+      fiscalConfig.tax_status === 'MONO'
+        ? 'Monotributo'
+        : fiscalConfig.tax_status === 'RI'
+          ? 'IVA Responsable Inscripto'
+          : 'IVA Exento'
+
+    // Mapear tipo factura A/B/C -> codigo AFIP (1/6/11)
+    const cbteTipo =
+      invoice.invoice_type === 'A' ? 1 : invoice.invoice_type === 'B' ? 6 : 11
+
+    // Receptor: si la factura tiene CUIT/nombre, los pasamos
+    const receptor = invoice.customer_cuit
+      ? {
+          docTipo: 80, // CUIT
+          docNro: invoice.customer_cuit,
+          nombre: invoice.customer_name || undefined,
+        }
+      : invoice.customer_name
+        ? {
+            docTipo: 99,
+            docNro: '0',
+            nombre: invoice.customer_name,
+          }
+        : undefined // -> Consumidor Final
+
+    // 5. Convertir cae_expiry a YYYY-MM-DD si viene como timestamp
+    const caeVencimiento = (invoice.cae_expiry || '').substring(0, 10)
+    const fechaEmision = (invoice.issued_at || invoice.created_at || '').substring(0, 10)
+
+    const pdfBuffer = await generateInvoicePDF({
+      cuit: fiscalConfig.cuit,
+      razonSocial: fiscalConfig.business_name,
+      domicilioFiscal: fiscalConfig.business_address ?? null,
+      condicionIva,
+      puntoVenta: invoice.point_of_sale,
+      cbteTipo,
+      cbteNumero: Number(invoice.invoice_number),
+      cae: invoice.cae,
+      caeVencimiento,
+      fechaEmision,
+      impTotal: Number(invoice.total),
+      impNeto: Number(invoice.subtotal),
+      impIva: Number(invoice.tax_amount),
+      items,
+      receptor,
+    })
+
+    const filename = `Factura-${invoice.invoice_type}-${String(invoice.point_of_sale).padStart(4, '0')}-${String(invoice.invoice_number).padStart(8, '0')}.pdf`
+
+    return {
+      success: true,
+      pdfBase64: pdfBuffer.toString('base64'),
+      filename,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}

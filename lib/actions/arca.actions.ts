@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * 🧾 ARCA (ex-AFIP) SERVER ACTIONS — Facturación Electrónica
+ * 🧾 ARCA (ex-AFIP) SERVER ACTIONS — Facturacion Electronica
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Server Actions para facturación electrónica ARCA.
@@ -25,6 +25,7 @@
 import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 import { logger } from '@/lib/logging'
 import { requestCAEFromInvoiceData, CBTE_TIPO_MAP } from '@/lib/services/arca-cae'
+import { generateInvoicePDF } from '@/lib/services/invoice-pdf'
 import { randomBytes, createCipheriv, createDecipheriv, X509Certificate } from 'crypto'
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -100,6 +101,15 @@ export interface CreateInvoiceResult {
 
 export interface DisconnectArcaResult {
   success: boolean
+  error?: string
+}
+
+export interface GenerateInvoicePDFResult {
+  success: boolean
+  /** PDF como base64 (sin prefijo data:) — el cliente lo convierte a Blob */
+  pdfBase64?: string
+  /** Sugerencia de nombre de archivo, ej: Factura-C-0001-00000002.pdf */
+  filename?: string
   error?: string
 }
 
@@ -618,6 +628,167 @@ export async function disconnectArcaAction(): Promise<DisconnectArcaResult> {
 
     return { success: true }
   } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    }
+  }
+}
+
+/**
+ * Generar PDF fiscal de una factura ARCA (per-venta automática).
+ *
+ * Lee la factura de `arca_invoices` por ID, valida ownership y estado,
+ * trae los datos del emisor (`arca_config`) y los items de la venta
+ * (`sale_items` + `products`), y genera el PDF con QR ARCA via la capa
+ * pura `lib/services/invoice-pdf.ts`.
+ *
+ * Devuelve el PDF como base64 — el cliente lo convierte a Blob y lo descarga.
+ *
+ * Validaciones:
+ * - Factura existe y pertenece a la org del usuario.
+ * - Status='authorized' (no se generan PDFs de errores ni pendientes).
+ * - CAE no es null.
+ */
+export async function generateArcaInvoicePDFAction(
+  arcaInvoiceId: string
+): Promise<GenerateInvoicePDFResult> {
+  try {
+    const { supabase, orgId } = await verifyAuth()
+
+    // 1. Leer la factura ARCA con validación de ownership (RLS + check explícito)
+    const { data: invoice, error: invoiceError } = await supabase
+      .from('arca_invoices')
+      .select('*')
+      .eq('id', arcaInvoiceId)
+      .eq('organization_id', orgId)
+      .maybeSingle()
+
+    if (invoiceError) {
+      logger.error('generateArcaInvoicePDFAction', 'Error leyendo factura', invoiceError)
+      return { success: false, error: 'Error consultando la factura' }
+    }
+    if (!invoice) {
+      return { success: false, error: 'Factura no encontrada' }
+    }
+    if (invoice.status !== 'authorized') {
+      return {
+        success: false,
+        error: 'Solo se pueden descargar facturas autorizadas (con CAE válido)',
+      }
+    }
+    if (!invoice.cae) {
+      return { success: false, error: 'La factura no tiene CAE' }
+    }
+
+    // 2. Leer datos del emisor (arca_config)
+    const { data: config, error: configError } = await supabase
+      .from('arca_config')
+      .select('cuit, razon_social, condicion_iva, domicilio_fiscal, punto_venta')
+      .eq('organization_id', orgId)
+      .maybeSingle()
+
+    if (configError || !config) {
+      return { success: false, error: 'Configuración fiscal no encontrada' }
+    }
+
+    // 3. Leer items de la venta (si la factura está vinculada a una venta)
+    let items: Array<{
+      nombre: string
+      cantidad: number
+      precioUnit: number
+      subtotal: number
+    }> = []
+
+    if (invoice.sale_id) {
+      const { data: saleItems } = await supabase
+        .from('sale_items')
+        .select(`
+          quantity,
+          unit_price,
+          subtotal,
+          products(name)
+        `)
+        .eq('sale_id', invoice.sale_id)
+
+      if (saleItems && saleItems.length > 0) {
+        items = saleItems.map((it) => {
+          // PostgREST puede devolver products como objeto o array según la inferencia.
+          // Cast a unknown + check de runtime para cubrir ambos casos.
+          const raw = it.products as unknown
+          const product = Array.isArray(raw)
+            ? (raw[0] as { name?: string } | undefined)
+            : (raw as { name?: string } | null)
+          return {
+            nombre: product?.name || 'Producto',
+            cantidad: Number(it.quantity),
+            precioUnit: Number(it.unit_price),
+            subtotal: Number(it.subtotal),
+          }
+        })
+      }
+    }
+
+    // Fallback: si no hay items (factura sin venta o venta sin items registrados),
+    // armar una línea genérica con el total. Esto evita un PDF en blanco.
+    if (items.length === 0) {
+      const total = Number(invoice.imp_total)
+      items = [
+        {
+          nombre: 'Venta',
+          cantidad: 1,
+          precioUnit: total,
+          subtotal: total,
+        },
+      ]
+    }
+
+    // 4. Mapear a GenerateInvoicePDFParams y generar el PDF
+    // arca_invoices.fecha_emision viene como string YYYY-MM-DD (Postgres date)
+    // arca_invoices.cae_vencimiento idem
+    // arca_invoices.imp_* vienen como string (Postgres NUMERIC) → Number()
+    const pdfBuffer = await generateInvoicePDF({
+      cuit: config.cuit,
+      razonSocial: config.razon_social,
+      domicilioFiscal: config.domicilio_fiscal ?? null,
+      condicionIva: config.condicion_iva,
+      puntoVenta: invoice.punto_venta,
+      cbteTipo: invoice.cbte_tipo,
+      cbteNumero: Number(invoice.cbte_numero ?? 0),
+      cae: invoice.cae,
+      caeVencimiento: invoice.cae_vencimiento ?? '',
+      fechaEmision: invoice.fecha_emision,
+      impTotal: Number(invoice.imp_total),
+      impNeto: Number(invoice.imp_neto),
+      impIva: Number(invoice.imp_iva),
+      items,
+      receptor: invoice.receptor_nombre || (invoice.doc_tipo !== 99 && invoice.doc_nro !== '0')
+        ? {
+            docTipo: invoice.doc_tipo,
+            docNro: invoice.doc_nro,
+            nombre: invoice.receptor_nombre ?? undefined,
+          }
+        : undefined, // undefined → la capa pura defaultea a Consumidor Final
+    })
+
+    // 5. Construir filename según convención (Factura-{Letra}-{PtoVta}-{NroCmp}.pdf)
+    const letra =
+      invoice.cbte_tipo === 1 ? 'A' : invoice.cbte_tipo === 6 ? 'B' : invoice.cbte_tipo === 11 ? 'C' : 'X'
+    const filename = `Factura-${letra}-${String(invoice.punto_venta).padStart(4, '0')}-${String(
+      invoice.cbte_numero ?? 0
+    ).padStart(8, '0')}.pdf`
+
+    return {
+      success: true,
+      pdfBase64: pdfBuffer.toString('base64'),
+      filename,
+    }
+  } catch (error) {
+    logger.error(
+      'generateArcaInvoicePDFAction',
+      'Error generando PDF',
+      error instanceof Error ? error : new Error(String(error))
+    )
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido',

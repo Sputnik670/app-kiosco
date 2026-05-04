@@ -13,6 +13,7 @@
 import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -41,7 +42,11 @@ import {
   XCircle,
   Clock,
 } from 'lucide-react'
-import { getInvoicesAction, getInvoiceDetailAction } from '@/lib/actions/invoicing.actions'
+import {
+  getInvoicesAction,
+  getInvoiceDetailAction,
+  generateLegacyInvoicePDFAction,
+} from '@/lib/actions/invoicing.actions'
 import type { InvoiceWithSales, InvoiceStatus } from '@/types/invoicing.types'
 
 // ----------------------------------------------------------------------------
@@ -120,6 +125,9 @@ export function InvoiceList({ branchId, refreshTrigger }: InvoiceListProps) {
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDetail | null>(null)
   const [isLoadingDetail, setIsLoadingDetail] = useState(false)
 
+  // Estado de descarga de PDF (por invoice ID — permite UI loading individual)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+
   // Cargar facturas
   useEffect(() => {
     async function loadInvoices() {
@@ -155,11 +163,46 @@ export function InvoiceList({ branchId, refreshTrigger }: InvoiceListProps) {
     setIsLoadingDetail(false)
   }
 
-  // Descargar PDF (placeholder - se implementará con generar-ticket.ts)
+  // Descargar PDF fiscal de factura legacy (tabla `invoices`, retroactiva).
+  // Para facturas auto-emitidas desde caja se usa generateArcaInvoicePDFAction (otra tabla).
+  // Reusa la capa pura lib/services/invoice-pdf.ts (mismo PDF con QR ARCA RG 4291/2018).
   const handleDownloadPdf = async (invoice: InvoiceWithSales) => {
-    // TODO: Implementar generación de PDF de factura
-    console.log('Descargar PDF de factura:', invoice.id)
-    alert('La descarga de PDF se implementará próximamente')
+    if (downloadingId) return // evitar dobles clicks
+
+    setDownloadingId(invoice.id)
+    try {
+      const result = await generateLegacyInvoicePDFAction(invoice.id)
+
+      if (!result.success || !result.pdfBase64) {
+        toast.error('No se pudo descargar la factura', {
+          description: result.error || 'Error desconocido',
+        })
+        return
+      }
+
+      // base64 -> Uint8Array -> Blob -> URL para download
+      const byteChars = atob(result.pdfBase64)
+      const bytes = new Uint8Array(byteChars.length)
+      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+      const blob = new Blob([bytes], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+
+      const link = document.createElement('a')
+      link.href = url
+      link.download =
+        result.filename ||
+        `Factura-${invoice.invoice_type}-${String(invoice.point_of_sale).padStart(4, '0')}-${String(invoice.invoice_number).padStart(8, '0')}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      toast.error('Error inesperado al descargar', {
+        description: err instanceof Error ? err.message : 'Error desconocido',
+      })
+    } finally {
+      setDownloadingId(null)
+    }
   }
 
   // Render
@@ -265,8 +308,14 @@ export function InvoiceList({ branchId, refreshTrigger }: InvoiceListProps) {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleDownloadPdf(invoice)}
+                              disabled={downloadingId === invoice.id}
+                              title="Descargar PDF"
                             >
-                              <Download className="h-4 w-4" />
+                              {downloadingId === invoice.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4" />
+                              )}
                             </Button>
                           )}
                         </div>
