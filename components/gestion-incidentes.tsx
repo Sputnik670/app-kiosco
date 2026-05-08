@@ -178,7 +178,7 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
               )
             )
           } else if (payload.eventType === "DELETE") {
-            const oldId = (payload.old as any)?.id
+            const oldId = (payload.old as { id?: string })?.id
             if (oldId) {
               setIncidents((prev) => prev.filter((i) => i.id !== oldId))
             }
@@ -202,9 +202,9 @@ export default function GestionIncidentes({ sucursalId, organizationId }: Gestio
       const params: CreateIncidentParams = {
         employeeId: formEmployeeId,
         branchId: sucursalId,
-        type: formType as any,
+        type: formType as 'error' | 'cash_difference' | 'stock_loss' | 'attendance' | 'other',
         description: formDescription,
-        severity: formSeverity as any,
+        severity: formSeverity as 'low' | 'medium' | 'high',
         resolution: formResolution || undefined,
       }
       const result = await createIncidentAction(params)

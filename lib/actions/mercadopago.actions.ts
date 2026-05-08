@@ -39,6 +39,7 @@ import { verifyAuth, verifyOwner } from '@/lib/actions/auth-helpers'
 import { logger } from '@/lib/logging'
 import { randomBytes, createCipheriv, createDecipheriv, createHmac } from 'crypto'
 import { saveMPCredentialsSchema, createMPOrderSchema, getZodError } from '@/lib/validations'
+import type { MercadoPagoOrderStatus } from '@/types/mercadopago.types'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -223,6 +224,21 @@ const AUTH_TAG_LENGTH = 16 // 128 bits
 // ───────────────────────────────────────────────────────────────────────────────
 // SERVER ACTIONS PÚBLICAS
 // ───────────────────────────────────────────────────────────────────────────────
+
+// ───────────────────────────────────────────────────────────────────────────
+// TIPOS INTERNOS DEL MODULO
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Error custom de la API de Mercado Pago. Extiende Error con metadata del
+ * response (status HTTP, body raw, JSON parseado) para que el logger de
+ * fallback pueda extraer el cuerpo completo si todos los reintentos fallan.
+ */
+interface MPApiError extends Error {
+  mpStatus?: number
+  mpRawBody?: string
+  mpParsed?: unknown
+}
 
 /**
  * 🔑 Obtener configuración de Mercado Pago de la organización
@@ -680,6 +696,16 @@ export async function checkMercadoPagoPaymentStatusAction(
 
     return {
       success: true,
+      // TODO(2026-05-08): bug latente detectado en Bloque 4. order.status viene
+      // de DB tipado como MercadoPagoOrderStatus ('pending' | 'confirmed' |
+      // 'completed' | 'failed' | 'expired') pero CheckPaymentStatusResult.status
+      // espera 'pending' | 'confirmed' | 'failed' | 'expired' | 'cancelled' |
+      // undefined. Los dos enums no coinciden: 'completed' nunca se mapea, y
+      // 'cancelled' no esta en el enum global. Si llega 'completed' desde DB
+      // (post-reconciliacion), el cliente lo recibe pero el Type le miente.
+      // Decisiones pendientes: (1) unificar a un solo enum, (2) decidir si
+      // 'cancelled' es un estado real (mirar si la DB lo guarda en alguna fila)
+      // y si si, sumarlo al enum global. Hasta resolver: as any documentado.
       status: order.status as any,
       mpPaymentId: order.mp_payment_id,
       confirmedAt: order.confirmed_at,
@@ -1602,14 +1628,14 @@ async function callMercadoPagoAPI(
         const truncatedBody =
           rawBody.length > 1500 ? rawBody.slice(0, 1500) + '...[truncado]' : rawBody
 
-        const err = new Error(
+        const err: MPApiError = new Error(
           `MP API error ${response.status} ${method} ${path}: ${summary}${
             truncatedBody ? ` | body: ${truncatedBody}` : ''
           }`
         )
-        ;(err as any).mpStatus = response.status
-        ;(err as any).mpRawBody = rawBody
-        ;(err as any).mpParsed = parsed
+        err.mpStatus = response.status
+        err.mpRawBody = rawBody
+        err.mpParsed = parsed
         throw err
       }
 
@@ -1638,8 +1664,8 @@ async function callMercadoPagoAPI(
     `Todos los reintentos fallaron: ${method} ${path}`,
     lastError!,
     {
-      mpStatus: (lastError as any)?.mpStatus,
-      mpRawBody: (lastError as any)?.mpRawBody,
+      mpStatus: (lastError as MPApiError | null)?.mpStatus,
+      mpRawBody: (lastError as MPApiError | null)?.mpRawBody,
     }
   )
   return null

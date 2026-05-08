@@ -258,7 +258,7 @@ export default function DiagnosticoPage() {
     log("=== BARCODE DETECTOR NATIVO TEST ===")
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const BarcodeDetectorClass = (window as any).BarcodeDetector
+    const BarcodeDetectorClass = window.BarcodeDetector
     if (!BarcodeDetectorClass) {
       log("BarcodeDetector NO disponible en este browser", "error")
       log("Tu browser no soporta la API nativa. Usarás Quagga2 como fallback.", "warn")
@@ -534,7 +534,7 @@ export default function DiagnosticoPage() {
       // Cargar script Emscripten
       await new Promise<void>((resolve, reject) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((window as any).Module?.calledRun) { resolve(); return }
+        if (window.Module?.calledRun) { resolve(); return }
         const existing = document.getElementById("zbar-wasm-diag")
         if (existing) existing.remove()
         const script = document.createElement("script")
@@ -543,7 +543,7 @@ export default function DiagnosticoPage() {
         script.onload = () => {
           const check = setInterval(() => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            if ((window as any).Module?.calledRun) { clearInterval(check); resolve() }
+            if (window.Module?.calledRun) { clearInterval(check); resolve() }
           }, 50)
           setTimeout(() => { clearInterval(check); reject(new Error("WASM timeout")) }, 8000)
         }

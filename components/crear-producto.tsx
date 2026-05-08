@@ -27,7 +27,7 @@ import { checkExistingProductAction, createFullProductAction, lookupCatalogActio
 function loadWasmScript(): Promise<void> {
   return new Promise((resolve, reject) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (typeof (window as any).Module !== "undefined" && (window as any).Module.calledRun) {
+    if (typeof window.Module !== "undefined" && window.Module.calledRun) {
       resolve()
       return
     }
@@ -35,7 +35,7 @@ function loadWasmScript(): Promise<void> {
       // Script ya está cargando, esperar a que termine
       const check = setInterval(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((window as any).Module?.calledRun) { clearInterval(check); resolve() }
+        if (window.Module?.calledRun) { clearInterval(check); resolve() }
       }, 100)
       setTimeout(() => { clearInterval(check); resolve() }, 5000)
       return
@@ -47,7 +47,7 @@ function loadWasmScript(): Promise<void> {
       // Esperar a que Emscripten inicialice el runtime
       const check = setInterval(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((window as any).Module?.calledRun) { clearInterval(check); resolve() }
+        if (window.Module?.calledRun) { clearInterval(check); resolve() }
       }, 50)
       setTimeout(() => { clearInterval(check); resolve() }, 5000)
     }

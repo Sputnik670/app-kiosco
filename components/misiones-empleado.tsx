@@ -214,7 +214,7 @@ export default function MisionesEmpleado({ turnoId, empleadoId, sucursalId, onMi
                             )
                         }
                     } else if (payload.eventType === "DELETE") {
-                        const oldId = (payload.old as any)?.id
+                        const oldId = (payload.old as { id?: string })?.id
                         if (oldId) {
                             setMisiones((prev) => prev.filter((m) => m.id !== oldId))
                             setMisionVencimiento((prev) => (prev?.id === oldId ? null : prev))

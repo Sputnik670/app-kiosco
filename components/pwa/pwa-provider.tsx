@@ -73,7 +73,7 @@ export function PWAProvider({
     const checkStandalone = () => {
       const isStandaloneMode =
         window.matchMedia('(display-mode: standalone)').matches ||
-        (window.navigator as any).standalone === true ||
+        navigator.standalone === true ||
         document.referrer.includes('android-app://')
 
       setIsStandalone(isStandaloneMode)

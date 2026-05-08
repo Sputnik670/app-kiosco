@@ -23,7 +23,8 @@ import {
   updateProviderMarkupAction,
   deleteProviderAction,
   type Provider,
-  type Purchase
+  type Purchase,
+  type CreateProviderData
 } from "@/lib/actions/provider.actions"
 
 interface GestionProveedoresProps {
@@ -92,7 +93,7 @@ function ProviderCard({
               title="Tipo de comisión"
               className="h-8 rounded-md border bg-background px-2 text-[11px] font-bold"
               value={markupForm.type}
-              onChange={e => setMarkupForm({ ...markupForm, type: e.target.value as any })}
+              onChange={e => setMarkupForm({ ...markupForm, type: e.target.value as '' | 'percentage' | 'fixed' })}
             >
               <option value="">Sin comisión</option>
               <option value="percentage">% Porcentaje</option>
@@ -227,7 +228,7 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
       markup_value: formData.markup_value ? parseFloat(formData.markup_value) : null,
     }
 
-    const result = await createProviderAction(dataToSend as any, sucursalId)
+    const result = await createProviderAction(dataToSend as CreateProviderData, sucursalId)
 
     if (result.success) {
       toast.success(formData.esGlobal ? "Proveedor Global añadido" : "Proveedor Local añadido")
@@ -537,7 +538,7 @@ export default function GestionProveedores({ sucursalId, organizationId }: Gesti
                                 title="Tipo de comisión"
                                 className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm font-bold"
                                 value={formData.markup_type}
-                                onChange={e => setFormData({...formData, markup_type: e.target.value as any})}
+                                onChange={e => setFormData({...formData, markup_type: e.target.value as '' | 'percentage' | 'fixed'})}
                             >
                                 <option value="">Sin comisión</option>
                                 <option value="percentage">% Porcentaje</option>

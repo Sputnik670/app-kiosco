@@ -114,7 +114,7 @@ function FichajeContent() {
         if (asistenciaActual) {
           // Verificar si la asistencia abierta es de otra sucursal
           if (asistenciaActual.branch_id !== sucursalId) {
-            const otraSucursal = (asistenciaActual.branches as any)?.name || "otra sucursal"
+            const otraSucursal = (asistenciaActual.branches as { name?: string } | null)?.name || "otra sucursal"
             throw new Error(`Ya tienes una entrada activa en ${otraSucursal}. Debes fichar la salida allí primero.`)
           }
           throw new Error(`Ya tienes una entrada registrada. Debes fichar la salida primero.`)

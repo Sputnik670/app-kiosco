@@ -188,12 +188,15 @@ export async function POST(request: Request): Promise<Response> {
     // y el segundo no toca nada.
     // ─────────────────────────────────────────────────────────────────────────
     const userAgent = request.headers.get('user-agent') || ''
+    // Cast tipado al shape Feed v2 IPN (resource/topic/user_id) — distinto del
+    // formato WebHook v1.0 (data.id). Ver handleFeedV2IPN para detalle.
+    const payloadFeedV2 = payload as { resource?: string; topic?: string; user_id?: string | number; data?: unknown }
     const looksLikeFeedV2 =
       userAgent.includes('Feed v2') ||
-      (!!(payload as any)?.resource && !!(payload as any)?.topic && !payload?.data)
+      (!!payloadFeedV2.resource && !!payloadFeedV2.topic && !payload?.data)
 
     if (looksLikeFeedV2) {
-      return await handleFeedV2IPN(payload as any, requestUrl, requestIdHeader)
+      return await handleFeedV2IPN(payloadFeedV2, requestUrl, requestIdHeader)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -401,8 +404,8 @@ async function getWebhookSecretForPayload(
       .eq('is_active', true)
       .maybeSingle()
 
-    if (cred && (cred as any).webhook_secret_encrypted) {
-      const decrypted = decryptString((cred as any).webhook_secret_encrypted)
+    if (cred && cred.webhook_secret_encrypted) {
+      const decrypted = decryptString(cred.webhook_secret_encrypted)
       if (decrypted) return decrypted
     }
   }
@@ -417,7 +420,7 @@ async function getWebhookSecretForPayload(
       .maybeSingle()
 
     if (order) {
-      return await getDecryptedWebhookSecret(supabase, (order as any).organization_id)
+      return await getDecryptedWebhookSecret(supabase, order.organization_id)
     }
   }
 
@@ -431,7 +434,7 @@ async function getWebhookSecretForPayload(
       .maybeSingle()
 
     if (order) {
-      return await getDecryptedWebhookSecret(supabase, (order as any).organization_id)
+      return await getDecryptedWebhookSecret(supabase, order.organization_id)
     }
   }
 
@@ -549,7 +552,7 @@ async function getCredentialsByCollectorId(
 
     return {
       accessToken,
-      organizationId: (data as any).organization_id,
+      organizationId: data.organization_id,
     }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -756,7 +759,7 @@ async function handleFeedV2IPN(
         .eq('is_active', true)
 
       if (!activeErr && activeRows && activeRows.length === 1) {
-        userId = String((activeRows[0] as any).collector_id)
+        userId = String(activeRows[0].collector_id)
         logger.info(
           'FeedV2IPN',
           'Sin user_id — fallback a única credencial activa (single-tenant)',
@@ -892,7 +895,7 @@ async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Pr
         .eq('external_reference', externalReference)
         .eq('organization_id', creds.organizationId)
         .maybeSingle()
-      orderRow = (data as any) || null
+      orderRow = data || null
     }
 
     if (!orderRow) {
@@ -902,7 +905,7 @@ async function handlePaymentNotification(payload: MercadoPagoWebhookPayload): Pr
         .eq('mp_payment_id', paymentId)
         .eq('organization_id', creds.organizationId)
         .maybeSingle()
-      orderRow = (data as any) || null
+      orderRow = data || null
     }
 
     if (!orderRow) {
@@ -1042,8 +1045,8 @@ async function handleOrderNotification(payload: MercadoPagoWebhookPayload): Prom
 
     // Plan B: si quedó confirmed, garantizar que la sale exista server-side
     // a partir de cart_snapshot (idempotente).
-    if (newStatus === 'confirmed' && updated && (updated as any).id) {
-      await ensureSaleForConfirmedOrder((updated as any).id)
+    if (newStatus === 'confirmed' && updated && updated.id) {
+      await ensureSaleForConfirmedOrder(updated.id)
     }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
@@ -1094,7 +1097,7 @@ async function ensureSaleForConfirmedOrder(orderId: string): Promise<void> {
       return
     }
 
-    const orderRow = order as any
+    const orderRow = order
 
     if (orderRow.status !== 'confirmed') {
       // Sólo creamos sale para órdenes confirmadas.
@@ -1159,7 +1162,7 @@ async function ensureSaleForConfirmedOrder(orderId: string): Promise<void> {
     const newSaleId =
       typeof rpcResult === 'string'
         ? rpcResult
-        : (rpcResult as any)?.sale_id || (rpcResult as any)?.id || null
+        : (rpcResult as { sale_id?: string; id?: string } | null)?.sale_id || (rpcResult as { sale_id?: string; id?: string } | null)?.id || null
 
     if (!newSaleId) {
       logger.error(

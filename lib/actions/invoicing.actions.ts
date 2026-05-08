@@ -79,7 +79,7 @@ export async function getFiscalConfigAction(): Promise<GetFiscalConfigResult> {
 
     const { data: org, error } = await supabase
       .from('organizations')
-      .select('fiscal_config' as any)
+      .select('fiscal_config')
       .eq('id', orgId)
       .single()
 
@@ -89,7 +89,7 @@ export async function getFiscalConfigAction(): Promise<GetFiscalConfigResult> {
 
     return {
       success: true,
-      config: (org as any)?.fiscal_config as FiscalConfig | null,
+      config: (org)?.fiscal_config as FiscalConfig | null,
     }
   } catch (error) {
     return {
@@ -111,7 +111,7 @@ export async function saveFiscalConfigAction(
 
     const { error } = await supabase
       .from('organizations')
-      .update({ fiscal_config: config } as any)
+      .update({ fiscal_config: config })
       .eq('id', orgId)
 
     if (error) {
@@ -194,10 +194,10 @@ export async function getUninvoicedSalesAction(
 
     // Obtener IDs de ventas ya facturadas
     const { data: invoicedSales } = await supabase
-      .from('invoice_sales' as any)
+      .from('invoice_sales')
       .select('sale_id')
 
-    const invoicedIds = new Set(((invoicedSales || []) as any[]).map(s => s.sale_id))
+    const invoicedIds = new Set((invoicedSales || []).map(s => s.sale_id))
 
     // Filtrar ventas no facturadas y mapear al tipo esperado
     const uninvoicedSales = (allSales || [])
@@ -260,22 +260,22 @@ export async function createInvoiceDraftAction(
     // Obtener configuración fiscal
     const { data: org } = await supabase
       .from('organizations')
-      .select('fiscal_config' as any)
+      .select('fiscal_config')
       .eq('id', orgId)
       .single()
 
-    const fiscalConfig = (org as any)?.fiscal_config as FiscalConfig | null
+    const fiscalConfig = (org)?.fiscal_config as FiscalConfig | null
     if (!fiscalConfig?.enabled) {
       return { success: false, error: 'La facturación no está configurada' }
     }
 
     // Verificar que las ventas no estén ya facturadas
     const { data: existingInvoices } = await supabase
-      .from('invoice_sales' as any)
+      .from('invoice_sales')
       .select('sale_id')
       .in('sale_id', data.sale_ids)
 
-    if (existingInvoices && (existingInvoices as any[]).length > 0) {
+    if (existingInvoices && existingInvoices.length > 0) {
       return { success: false, error: 'Algunas ventas ya están facturadas' }
     }
 
@@ -313,7 +313,7 @@ export async function createInvoiceDraftAction(
 
     // Crear borrador de factura
     const { data: invoice, error: insertError } = await supabase
-      .from('invoices' as any)
+      .from('invoices')
       .insert({
         organization_id: orgId,
         branch_id: data.branch_id,
@@ -345,12 +345,12 @@ export async function createInvoiceDraftAction(
     }))
 
     const { error: linkError } = await supabase
-      .from('invoice_sales' as any)
+      .from('invoice_sales')
       .insert(invoiceSales)
 
     if (linkError) {
       // Rollback: eliminar factura si falla el link
-      await supabase.from('invoices' as any).delete().eq('id', invoice.id)
+      await supabase.from('invoices').delete().eq('id', invoice.id)
       return { success: false, error: linkError.message }
     }
 
@@ -396,7 +396,7 @@ export async function issueInvoiceAction(
 
     // Obtener factura
     const { data: invoice, error: fetchError } = await supabase
-      .from('invoices' as any)
+      .from('invoices')
       .select('*')
       .eq('id', invoiceId)
       .single()
@@ -412,11 +412,11 @@ export async function issueInvoiceAction(
     // Obtener configuración fiscal
     const { data: org } = await supabase
       .from('organizations')
-      .select('fiscal_config' as any)
+      .select('fiscal_config')
       .eq('id', invoice.organization_id)
       .single()
 
-    const fiscalConfig = (org as any)?.fiscal_config as FiscalConfig | null
+    const fiscalConfig = (org)?.fiscal_config as FiscalConfig | null
     if (!fiscalConfig) {
       return { success: false, error: 'Configuración fiscal no encontrada' }
     }
@@ -436,11 +436,11 @@ export async function issueInvoiceAction(
     // Obtener items de las ventas vinculadas (para auditoría — el SDK necesita
     // solo totales, pero conservamos el lookup por si lo extendemos a item-level)
     const { data: invoiceSales } = await supabase
-      .from('invoice_sales' as any)
+      .from('invoice_sales')
       .select('sale_id')
       .eq('invoice_id', invoiceId)
 
-    const saleIds = ((invoiceSales || []) as any[]).map(s => s.sale_id)
+    const saleIds = (invoiceSales || []).map(s => s.sale_id)
 
     const { data: saleItems } = await supabase
       .from('sale_items')
@@ -489,7 +489,7 @@ export async function issueInvoiceAction(
 
     // Actualizar factura con CAE
     const { data: updatedInvoice, error: updateError } = await supabase
-      .from('invoices' as any)
+      .from('invoices')
       .update({
         cae: caeResponse.cae,
         cae_expiry: caeResponse.caeVencimiento,
@@ -537,7 +537,7 @@ export async function getInvoicesAction(
     const { supabase, orgId } = await verifyAuth()
 
     let query = supabase
-      .from('invoices' as any)
+      .from('invoices')
       .select(`
         *,
         invoice_sales(
@@ -631,7 +631,7 @@ export async function getInvoiceDetailAction(invoiceId: string): Promise<{
 
     // Obtener factura
     const { data: invoice, error: invError } = await supabase
-      .from('invoices' as any)
+      .from('invoices')
       .select('*')
       .eq('id', invoiceId)
       .eq('organization_id', orgId)
@@ -643,11 +643,11 @@ export async function getInvoiceDetailAction(invoiceId: string): Promise<{
 
     // Obtener items de las ventas vinculadas
     const { data: invoiceSales } = await supabase
-      .from('invoice_sales' as any)
+      .from('invoice_sales')
       .select('sale_id')
       .eq('invoice_id', invoiceId)
 
-    const saleIds = ((invoiceSales || []) as any[]).map(s => s.sale_id)
+    const saleIds = (invoiceSales || []).map(s => s.sale_id)
 
     const { data: saleItems } = await supabase
       .from('sale_items')
@@ -719,7 +719,7 @@ export async function cancelInvoiceAction(
 
     // Verificar que la factura existe y está emitida
     const { data: invoice, error: fetchError } = await supabase
-      .from('invoices' as any)
+      .from('invoices')
       .select('status')
       .eq('id', invoiceId)
       .single()
@@ -734,14 +734,14 @@ export async function cancelInvoiceAction(
 
     if (invoice.status !== 'issued') {
       // Si es borrador, simplemente eliminar
-      await supabase.from('invoice_sales' as any).delete().eq('invoice_id', invoiceId)
-      await supabase.from('invoices' as any).delete().eq('id', invoiceId)
+      await supabase.from('invoice_sales').delete().eq('invoice_id', invoiceId)
+      await supabase.from('invoices').delete().eq('id', invoiceId)
       return { success: true }
     }
 
     // Si está emitida, marcar como anulada (no eliminar por auditoría)
     const { error: updateError } = await supabase
-      .from('invoices' as any)
+      .from('invoices')
       .update({
         status: 'cancelled',
         cancelled_at: new Date().toISOString(),
@@ -755,7 +755,7 @@ export async function cancelInvoiceAction(
 
     // Liberar las ventas para que puedan facturarse de nuevo
     await supabase
-      .from('invoice_sales' as any)
+      .from('invoice_sales')
       .delete()
       .eq('invoice_id', invoiceId)
 
@@ -806,7 +806,7 @@ export async function generateLegacyInvoicePDFAction(
 
     // 1. Leer la factura legacy con check de ownership
     const { data: invoice, error: invErr } = await supabase
-      .from('invoices' as any)
+      .from('invoices')
       .select('*')
       .eq('id', invoiceId)
       .eq('organization_id', orgId)
@@ -831,22 +831,22 @@ export async function generateLegacyInvoicePDFAction(
     // 2. Leer fiscal_config del emisor
     const { data: org } = await supabase
       .from('organizations')
-      .select('fiscal_config' as any)
+      .select('fiscal_config')
       .eq('id', orgId)
       .single()
 
-    const fiscalConfig = (org as any)?.fiscal_config as FiscalConfig | null
+    const fiscalConfig = (org)?.fiscal_config as FiscalConfig | null
     if (!fiscalConfig) {
       return { success: false, error: 'Configuración fiscal no encontrada' }
     }
 
     // 3. Leer items de las ventas vinculadas
     const { data: invoiceSalesRows } = await supabase
-      .from('invoice_sales' as any)
+      .from('invoice_sales')
       .select('sale_id')
       .eq('invoice_id', invoiceId)
 
-    const saleIds = ((invoiceSalesRows || []) as any[]).map((r) => r.sale_id)
+    const saleIds = (invoiceSalesRows || []).map((r) => r.sale_id)
 
     let items: Array<{
       nombre: string

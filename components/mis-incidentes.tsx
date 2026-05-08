@@ -145,7 +145,7 @@ export default function MisIncidentes() {
                 return [updated, ...prev]
               })
             } else if (payload.eventType === "DELETE") {
-              const oldId = (payload.old as any)?.id
+              const oldId = (payload.old as { id?: string })?.id
               if (oldId) {
                 setIncidents((prev) => prev.filter((i) => i.id !== oldId))
               }
@@ -171,7 +171,7 @@ export default function MisIncidentes() {
       const result = await justifyIncidentAction(
         incidentId,
         justifyText,
-        justifyType as any
+        justifyType as 'desconocimiento' | 'olvido' | 'externo' | 'otro'
       )
       if (!result.success) {
         toast.error("Error", { description: result.error })
