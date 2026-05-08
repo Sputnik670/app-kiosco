@@ -20,7 +20,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT_ID = 'cwuzcdzjkmgodgtkekbd';
+const PROJECT_ID = 'vrgexonzlrdptrplqpri';
 // Puedes usar SUPABASE_ACCESS_TOKEN (personal access token) 
 // O SUPABASE_SERVICE_ROLE_KEY (service role key) como alternativa temporal
 const ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN || process.env.SUPABASE_SERVICE_ROLE_KEY;
