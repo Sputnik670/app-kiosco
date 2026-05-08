@@ -23,7 +23,7 @@
     "start": "next start",
     "lint": "eslint .",
     "generate-types": "node scripts/generate-types.js",
-    "generate-types:cli": "npx supabase gen types typescript --project-id cwuzcdzjkmgodgtkekbd > types/tipos-db.ts",
+    "generate-types:cli": "npx supabase gen types typescript --project-id vrgexonzlrdptrplqpri > types/tipos-db.ts",
     "db:connect": "node scripts/conectar-supabase.js",
     "db:check": "node scripts/verificar-esquema.js",
     "db:analyze": "node scripts/analizar-esquema.js",

@@ -247,20 +247,13 @@ export async function POST(request: Request): Promise<Response> {
     // PASO 4: Decidir si vamos a verificar firma
     // ─────────────────────────────────────────────────────────────────────────
     //
-    // BYPASS TEMPORAL: bajar SKIP_SIGNATURE_HARDCODE a `false` cuando el
-    // webhook_secret esté pegado en mercadopago_credentials. Mientras esté
-    // en `true`, cualquiera que conozca la URL del webhook puede mandar
-    // updates falsos — riesgo aceptado para piloto con 1 cliente, NO para
-    // multi-tenant.
-    //
-    // ATENCIÓN: el bypass via env (`MP_WEBHOOK_SKIP_SIGNATURE=true`) está
-    // hard-bloqueado en production para evitar que se active por error. Si
-    // necesitás bypass en prod, bajá el flag de código y deployá.
-    const SKIP_SIGNATURE_HARDCODE = false // ⚠️ subir a true sólo si volvés al estado de bypass
+    // El bypass de firma SOLO se permite vía env var `MP_WEBHOOK_SKIP_SIGNATURE`,
+    // y queda hard-bloqueado en production. Si en algún momento necesitás bypass
+    // en prod (caso raro: re-pegar webhook_secret limpio en credenciales),
+    // levantá un staging con NODE_ENV != production y reproducí el bug ahí.
     const envBypassAllowed = process.env.NODE_ENV !== 'production'
     const skipSignatureCheck =
-      SKIP_SIGNATURE_HARDCODE ||
-      (envBypassAllowed && process.env.MP_WEBHOOK_SKIP_SIGNATURE === 'true')
+      envBypassAllowed && process.env.MP_WEBHOOK_SKIP_SIGNATURE === 'true'
 
     if (skipSignatureCheck) {
       // Log a nivel error (no warn) para que aparezca en alertas — nadie

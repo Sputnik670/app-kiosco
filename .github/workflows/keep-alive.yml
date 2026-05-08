@@ -12,7 +12,8 @@ jobs:
     steps:
       - name: Ping Supabase para evitar pausa
         run: |
-          curl -X GET "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}/rest/v1/productos?limit=1" \
+          curl --fail --silent --show-error \
+            -X GET "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}/rest/v1/products?limit=1" \
             -H "apikey: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
             -H "Content-Type: application/json"
       
