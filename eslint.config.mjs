@@ -18,11 +18,8 @@ const eslintConfig = defineConfig([
     ".claude/**/*.js",
     // Tests e2e (Playwright)
     "e2e/**/*.ts",
-    // Archivos temporales de migración
+    // Migraciones SQL versionadas (no aplica ESLint)
     "*.sql",
-    "create_rls_policy.js",
-    "execute_rls_fix.js",
-    "fix_rls_direct.js",
   ]),
   // Reglas personalizadas
   {

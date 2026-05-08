@@ -21,7 +21,6 @@ e2e/screenshots/
 
 # Next.js
 /.next/
-/.next_old/
 /out/
 
 # Production
@@ -63,4 +62,3 @@ Thumbs.db
 
 .vercel
 .env*.local
-nul
